@@ -2,10 +2,41 @@
 // WebControl HQ - Cloudflare Worker API
 // =============================================
 
+// ── Auth ─────────────────────────────────────────────────────────
+const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24h
+
+async function generateToken(secret) {
+  const raw = secret + ':' + Date.now() + ':' + Math.random();
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function verifyAuth(request, env) {
+  const token = request.headers.get('X-Auth-Token');
+  if (!token) return false;
+  // Token format: HMAC(password+timestamp)
+  // Simple approach: store valid tokens in KV or validate with password hash
+  // We use a stateless approach: token = SHA256(PASSWORD + DATE_HOUR)
+  // Valid for current and previous hour (handles hour boundary)
+  const pass = env.DASHBOARD_PASSWORD || 'changeme';
+  const now = Date.now();
+  for (const offset of [0, -1, -2]) {
+    const hourSlot = Math.floor((now + offset * 3600000) / 3600000).toString();
+    const expected = await sha256(pass + ':' + hourSlot);
+    if (token === expected) return true;
+  }
+  return false;
+}
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Site-Id',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Site-Id, X-Auth-Token',
 };
 
 function json(data, status = 200) {
@@ -24,6 +55,26 @@ async function handleRequest(request, env) {
 
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, '');
+
+  // ── Login endpoint (no auth required) ────────────────────
+  if (request.method === 'POST' && path === '/api/login') {
+    const body = await request.json().catch(() => ({}));
+    const pass = env.DASHBOARD_PASSWORD || 'changeme';
+    if (!body.password || body.password !== pass) {
+      return json({ error: 'Falsches Passwort' }, 401);
+    }
+    // Generate stateless token: SHA256(password + current hour slot)
+    const hourSlot = Math.floor(Date.now() / 3600000).toString();
+    const token = await sha256(pass + ':' + hourSlot);
+    return json({ token, expires_in: 3600 });
+  }
+
+  // ── Auth guard (all other /api routes) ────────────────────
+  const authed = await verifyAuth(request, env);
+  if (!authed) {
+    return json({ error: 'Nicht authentifiziert' }, 401);
+  }
+
   const segments = path.split('/').filter(Boolean);
   // segments: ['api', 'resource', ...]
   const db = env.DB;

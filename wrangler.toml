@@ -10,3 +10,5 @@ database_id = "e22c8e57-4550-4566-9937-cd7d51560b70"
 
 [vars]
 ENVIRONMENT = "production"
+# DASHBOARD_PASSWORD wird als Secret gesetzt, NICHT hier im File!
+# Befehl: npx wrangler secret put DASHBOARD_PASSWORD
