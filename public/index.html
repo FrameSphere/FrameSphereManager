@@ -1,837 +1,59 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WebControl HQ</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebControl HQ – Dashboard</title>
+  <link rel="stylesheet" href="css/main.css">
 </head>
 <body>
 
-<!-- Login Screen -->
-<div id="login-screen">
-  <div class="login-box" id="login-box">
-    <div class="login-logo">
-      <div class="login-logo-dot"></div>
-      <div class="login-title">WEBCONTROL HQ</div>
-    </div>
-    <div class="login-sub">Passwort eingeben um fortzufahren</div>
-    <div class="login-input-wrap">
-      <input
-        class="login-input"
-        id="login-pw"
-        type="password"
-        placeholder="••••••••••••"
-        autocomplete="current-password"
-        onkeydown="if(event.key==='Enter')doLogin()"
-        autofocus
-      >
-      <button class="login-eye" id="login-eye-btn" onclick="togglePwVis()" title="Anzeigen">👁</button>
-    </div>
-    <div class="login-error" id="login-error"></div>
-    <button class="btn btn-primary login-btn" onclick="doLogin()" id="login-submit-btn">Einloggen</button>
-    <div class="login-hint">Token gilt 1 Stunde · wird automatisch erneuert</div>
-  </div>
-</div>
-
-<!-- Topbar -->
-<div id="topbar">
-  <div class="logo">
-    <div class="logo-dot"></div>
-    WEBCONTROL HQ
-  </div>
-  <div class="topbar-spacer"></div>
-  <div class="topbar-stat">TICKETS <span class="num" id="stat-tickets">–</span></div>
-  <div class="topbar-stat">ERRORS <span class="num" id="stat-errors" style="color:var(--red)">–</span></div>
-  <div class="topbar-stat">SITES <span class="num" style="color:var(--green)">10</span></div>
-  <div id="notif-btn" onclick="toggleNotif()">🔔<span class="notif-badge" id="notif-count" style="display:none">0</span></div>
-  <div id="logout-btn" onclick="doLogout()" style="width:36px;height:36px;background:var(--surface);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:15px;transition:border-color 0.2s" onmouseover="this.style.borderColor='var(--red)'" onmouseout="this.style.borderColor='var(--border)'" title="Ausloggen">🚪</div>
-</div>
-
-<!-- Layout -->
+<!-- Layout shell (topbar + sidebar injected by layout.js) -->
 <div id="layout">
-  <!-- Sidebar -->
-  <nav id="sidebar">
-    <div class="sidebar-section">
-      <div class="sidebar-label">Übersicht</div>
-      <div class="nav-item active" onclick="showPage('overview')" id="nav-overview">
-        <span class="icon">⚡</span> Dashboard
-      </div>
-    </div>
-
-    <div class="sidebar-section">
-      <div class="sidebar-label">Webseiten</div>
-      <div id="site-nav"></div>
-    </div>
-  </nav>
-
-  <!-- Main -->
+  <!-- sidebar injected here -->
   <div id="main">
 
-    <!-- Overview Page -->
-    <div class="page active fade-in" id="page-overview">
-      <div class="page-header">
-        <div class="page-title">Dashboard</div>
-        <div class="page-sub">Alle Projekte auf einen Blick</div>
-      </div>
-      <div class="page-body scroll-area" id="overview-body">
-        <div class="loading">Lade Daten…</div>
-      </div>
+    <div class="page-header">
+      <div class="page-title">Dashboard</div>
+      <div class="page-sub">Alle Projekte auf einen Blick</div>
     </div>
 
-    <!-- Dynamic site pages injected here -->
-    <div id="site-pages"></div>
+    <div class="scroll-area" style="flex:1;overflow-y:auto;padding:24px 28px" id="overview-body">
+      <div class="loading">Lade Daten…</div>
+    </div>
 
   </div>
 </div>
 
-<!-- Notification Panel -->
-<div id="notif-panel">
-  <div class="notif-panel-head">
-    <h3>🔔 Benachrichtigungen</h3>
-    <button class="btn btn-ghost btn-sm" onclick="markAllRead()">Alle gelesen</button>
-  </div>
-  <div class="notif-list" id="notif-list">
-    <div class="loading">Lade…</div>
-  </div>
-</div>
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
 
 <script>
-// ── Auth ───────────────────────────────────────────────────────────
-let AUTH_TOKEN = localStorage.getItem('hq_token') || null;
-
-function getToken() { return AUTH_TOKEN; }
-
-function saveToken(t) {
-  AUTH_TOKEN = t;
-  localStorage.setItem('hq_token', t);
-  localStorage.setItem('hq_token_ts', Date.now().toString());
-}
-
-function clearToken() {
-  AUTH_TOKEN = null;
-  localStorage.removeItem('hq_token');
-  localStorage.removeItem('hq_token_ts');
-}
-
-function isTokenFresh() {
-  const ts = parseInt(localStorage.getItem('hq_token_ts') || '0');
-  // Token valid for 55 min (5 min before server-side 1h expiry)
-  return Date.now() - ts < 55 * 60 * 1000;
-}
-
-async function doLogin() {
-  const pw = document.getElementById('login-pw').value;
-  const errEl = document.getElementById('login-error');
-  const btn = document.getElementById('login-submit-btn');
-  const box = document.getElementById('login-box');
-  errEl.textContent = '';
-  if (!pw) { errEl.textContent = 'Bitte Passwort eingeben'; return; }
-  btn.textContent = 'Prüfe…';
-  btn.disabled = true;
-  try {
-    const r = await fetch(API_URL + '/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pw }),
-    });
-    const data = await r.json();
-    if (!r.ok || !data.token) {
-      box.classList.add('login-shake');
-      setTimeout(() => box.classList.remove('login-shake'), 400);
-      errEl.textContent = data.error || 'Falsches Passwort';
-      document.getElementById('login-pw').value = '';
-      document.getElementById('login-pw').focus();
-    } else {
-      saveToken(data.token);
-      document.getElementById('login-screen').style.display = 'none';
-      initApp();
-    }
-  } catch(e) {
-    errEl.textContent = 'Verbindung fehlgeschlagen';
-  }
-  btn.textContent = 'Einloggen';
-  btn.disabled = false;
-}
-
-function togglePwVis() {
-  const inp = document.getElementById('login-pw');
-  const btn = document.getElementById('login-eye-btn');
-  if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '🙈'; }
-  else { inp.type = 'password'; btn.textContent = '👁'; }
-}
-
-function doLogout() {
-  clearToken();
-  location.reload();
-}
-
-function checkAuth() {
-  if (AUTH_TOKEN && isTokenFresh()) {
-    document.getElementById('login-screen').style.display = 'none';
-    initApp();
-  }
-  // else: login screen stays visible
-}
-
-// ── Config ───────────────────────────────────────────────────────────
-// Nach dem Deploy: API_URL auf deine Worker-URL setzen
-const API_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-  ? 'http://localhost:8787'
-  : 'https://webcontrol-hq-api.karol-paschek.workers.dev';
-
-// ── Sites Definition ──────────────────────────────────────────────
-const SITES = [
-  { id: 'framesphere',  name: 'Frame-Sphere',   url: 'https://frame-sphere.vercel.app', icon: '🔮', color: '#a855f7', tabs: ['support','blog','daten'] },
-  { id: 'frametrain',   name: 'FrameTrain',      url: 'https://frame-train.vercel.app',  icon: '🚂', color: '#f59e0b', tabs: ['support','changelog','daten'] },
-  { id: 'wordify',      name: 'Wordify',          url: 'https://wordify.pages.dev',        icon: '📝', color: '#22c55e', tabs: ['wortanfragen','daten'] },
-  { id: 'flaggues',     name: 'Flaggues',         url: 'https://flaggues.pages.dev',       icon: '🚩', color: '#ef4444', tabs: ['daten'] },
-  { id: 'spinselector', name: 'SpinSelector',     url: 'https://spinselector.pages.dev',   icon: '🎰', color: '#06b6d4', tabs: ['vorschläge','daten'] },
-  { id: 'brawlmystery', name: 'BrawlMystery',     url: 'https://brawlmystery.pages.dev',   icon: '⚔️', color: '#f97316', tabs: ['changelog','blog','daten'] },
-  { id: 'traitora',     name: 'Traitora',         url: 'https://traitora.pages.dev',       icon: '🧠', color: '#8b5cf6', tabs: ['daten'] },
-  { id: 'fileflyr',     name: 'FileFlyr',         url: 'https://fileflyr.pages.dev',       icon: '📁', color: '#3b82f6', tabs: ['support','daten'] },
-  { id: 'ratelimit',    name: 'Ratelimit API',    url: 'https://ratelimit-api.pages.dev',  icon: '⚡', color: '#10b981', tabs: ['analytics','daten','changelog'] },
-  { id: 'framespell',   name: 'FrameSpell',       url: 'https://framespell.pages.dev',     icon: '✨', color: '#60a5fa', tabs: ['analytics','daten','changelog'] },
-];
-
-// ── State ─────────────────────────────────────────────────────────
-let currentPage = 'overview';
-let currentSite = null;
-let overviewData = null;
-let notifOpen = false;
-
-// ── API helper ────────────────────────────────────────────────────
-async function api(path, opts = {}) {
-  try {
-    const r = await fetch(API_URL + path, {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Auth-Token': getToken() || '',
-        ...opts.headers
-      },
-      ...opts,
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
-    });
-    if (r.status === 401) {
-      clearToken();
-      location.reload();
-      return null;
-    }
-    return await r.json();
-  } catch(e) {
-    console.error('API error:', e);
-    return null;
-  }
-}
-
-// ── initApp (called after login) ──────────────────────────────
-function initApp() {
-  buildSidebar();
-  buildSitePages();
-  loadOverview();
-  loadTopbarStats();
-  setInterval(loadTopbarStats, 30000);
-}
-
-// ── Build Sidebar ─────────────────────────────────────────────────
-function buildSidebar() {
-  const nav = document.getElementById('site-nav');
-  nav.innerHTML = SITES.map(s => `
-    <div class="nav-item" id="nav-${s.id}" onclick="showSite('${s.id}')">
-      <span class="icon">${s.icon}</span>
-      <span>${s.name}</span>
-      <span class="site-color" style="background:${s.color}"></span>
-    </div>
-  `).join('');
-}
-
-// ── Build Site Pages ──────────────────────────────────────────────
-function buildSitePages() {
-  const container = document.getElementById('site-pages');
-  container.innerHTML = SITES.map(s => `
-    <div class="page fade-in" id="page-${s.id}">
-      <div class="page-header" style="border-left: 3px solid ${s.color}; padding-left: 25px;">
-        <div class="flex items-center gap-12">
-          <span style="font-size:22px">${s.icon}</span>
-          <div>
-            <div class="page-title">${s.name}</div>
-            <div class="page-sub"><a href="${s.url}" target="_blank" style="color:var(--text3);text-decoration:none">${s.url}</a></div>
-          </div>
-        </div>
-      </div>
-      <div class="site-tabs">
-        ${s.tabs.map((t,i) => `<button class="tab-btn${i===0?' active':''}" onclick="showTab('${s.id}','${t}',this)" id="tab-${s.id}-${t}">${tabLabel(t)}</button>`).join('')}
-        <button class="tab-btn" onclick="showTab('${s.id}','errors',this)" id="tab-${s.id}-errors">⚠ Errors</button>
-        <button class="tab-btn" onclick="showTab('${s.id}','notifications',this)" id="tab-${s.id}-notifications">🔔 Notifs</button>
-      </div>
-      <div class="scroll-area" style="flex:1;overflow-y:auto" id="tabs-${s.id}">
-        ${s.tabs.map((t,i) => `<div class="tab-panel${i===0?' active':''}" id="tabp-${s.id}-${t}"><div class="loading">Lade…</div></div>`).join('')}
-        <div class="tab-panel" id="tabp-${s.id}-errors"><div class="loading">Lade…</div></div>
-        <div class="tab-panel" id="tabp-${s.id}-notifications"><div class="loading">Lade…</div></div>
-      </div>
-    </div>
-  `).join('');
-}
-
-function tabLabel(t) {
-  const map = { support:'💬 Support', changelog:'📋 Changelog', blog:'📰 Blog', daten:'📊 Daten', wortanfragen:'📝 Wort-Anfragen', vorschläge:'💡 Vorschläge', analytics:'📈 Analytics', errors:'⚠ Errors', notifications:'🔔 Notifs' };
-  return map[t] || t;
-}
-
-// ── Navigation ────────────────────────────────────────────────────
-function showPage(pageId) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById('page-' + pageId)?.classList.add('active');
-  document.getElementById('nav-' + pageId)?.classList.add('active');
-  currentPage = pageId;
-  if (pageId === 'overview') loadOverview();
-}
-
-function showSite(siteId) {
-  currentSite = siteId;
-  showPage(siteId);
-  const site = SITES.find(s => s.id === siteId);
-  if (!site) return;
-  // Load first tab
-  const firstTab = site.tabs[0];
-  loadTab(siteId, firstTab);
-  loadTab(siteId, 'errors');
-  loadTab(siteId, 'notifications');
-}
-
-function showTab(siteId, tab, btn) {
-  document.querySelectorAll(`#tabs-${siteId} .tab-panel`).forEach(p => p.classList.remove('active'));
-  document.querySelectorAll(`#page-${siteId} .tab-btn`).forEach(b => b.classList.remove('active'));
-  document.getElementById(`tabp-${siteId}-${tab}`)?.classList.add('active');
-  if (btn) btn.classList.add('active');
-  loadTab(siteId, tab);
-}
-
-// ── Load Tab Content ──────────────────────────────────────────────
-async function loadTab(siteId, tab) {
-  const panel = document.getElementById(`tabp-${siteId}-${tab}`);
-  if (!panel) return;
-  // Only reload if still loading placeholder
-  if (!panel.innerHTML.includes('Lade') && panel.dataset.loaded) return;
-  panel.dataset.loaded = '1';
-
-  switch(tab) {
-    case 'support': await loadSupport(siteId, panel); break;
-    case 'changelog': await loadChangelog(siteId, panel); break;
-    case 'blog': await loadBlog(siteId, panel); break;
-    case 'wortanfragen': await loadWordRequests(panel); break;
-    case 'vorschläge': await loadSuggestions(panel); break;
-    case 'analytics': await loadAnalytics(siteId, panel); break;
-    case 'daten': await loadDaten(siteId, panel); break;
-    case 'errors': await loadErrors(siteId, panel); break;
-    case 'notifications': await loadSiteNotifs(siteId, panel); break;
-  }
-}
-
-// ── SUPPORT ───────────────────────────────────────────────────────
-async function loadSupport(siteId, panel) {
-  const tickets = await api(`/api/support?site_id=${siteId}`);
-  if (!tickets) { panel.innerHTML = errMsg(); return; }
-  panel.innerHTML = `
-    <div class="form-card">
-      <div class="form-card-title">Neues Ticket erstellen</div>
-      <div class="form-row">
-        <div class="form-group"><label>Name</label><input id="s-name-${siteId}" placeholder="Max Mustermann"></div>
-        <div class="form-group"><label>E-Mail</label><input id="s-email-${siteId}" type="email" placeholder="max@example.com"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Betreff</label><input id="s-subject-${siteId}" placeholder="Problem beschreiben…"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Nachricht</label><textarea id="s-msg-${siteId}" placeholder="Details…"></textarea></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label>Priorität</label>
-          <select id="s-prio-${siteId}">
-            <option value="low">Low</option>
-            <option value="normal" selected>Normal</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
-          </select>
-        </div>
-      </div>
-      <button class="btn btn-primary" onclick="submitTicket('${siteId}')">Ticket erstellen</button>
-    </div>
-    <div class="mt-16">
-      <div class="actions-bar">
-        <div style="font-size:13px;font-weight:700">Tickets (${tickets.length})</div>
-        <div class="flex-1"></div>
-        <button class="btn btn-ghost btn-sm" onclick="reloadTab('${siteId}','support')">↻ Aktualisieren</button>
-      </div>
-      ${tickets.length ? ticketTable(tickets, siteId) : empty('Keine Tickets vorhanden')}
-    </div>
-  `;
-}
-
-function ticketTable(tickets, siteId) {
-  return `<table class="data-table">
-    <thead><tr><th>#</th><th>Betreff</th><th>Von</th><th>Status</th><th>Priorität</th><th>Datum</th><th>Aktionen</th></tr></thead>
-    <tbody>${tickets.map(t => `
-      <tr>
-        <td class="mono">${t.id}</td>
-        <td style="max-width:200px"><div style="font-weight:600;font-size:13px">${esc(t.subject)}</div><div class="mono" style="color:var(--text3)">${esc(t.message||'').slice(0,60)}…</div></td>
-        <td><div style="font-size:12px">${esc(t.name||'–')}</div><div class="mono" style="color:var(--text3)">${esc(t.email||'')}</div></td>
-        <td><span class="badge ${t.status}">${t.status}</span></td>
-        <td><span class="badge ${t.priority==='urgent'?'urgent':t.priority==='high'?'in_progress':'draft'}">${t.priority}</span></td>
-        <td class="mono" style="color:var(--text3)">${fmtDate(t.created_at)}</td>
-        <td>
-          <div class="flex gap-8">
-            <select onchange="updateTicket(${t.id},'status',this.value,'${siteId}')" style="padding:4px 8px;font-size:11px;width:auto">
-              ${['open','in_progress','resolved','closed'].map(s=>`<option value="${s}"${t.status===s?' selected':''}>${s}</option>`).join('')}
-            </select>
-          </div>
-        </td>
-      </tr>
-    `).join('')}</tbody>
-  </table>`;
-}
-
-async function submitTicket(siteId) {
-  const data = {
-    site_id: siteId,
-    name: document.getElementById(`s-name-${siteId}`)?.value,
-    email: document.getElementById(`s-email-${siteId}`)?.value,
-    subject: document.getElementById(`s-subject-${siteId}`)?.value,
-    message: document.getElementById(`s-msg-${siteId}`)?.value,
-    priority: document.getElementById(`s-prio-${siteId}`)?.value,
-  };
-  if (!data.subject || !data.message) { alert('Betreff und Nachricht erforderlich'); return; }
-  await api('/api/support', { method: 'POST', body: data });
-  reloadTab(siteId, 'support');
-}
-
-async function updateTicket(id, field, value, siteId) {
-  await api(`/api/support/${id}`, { method: 'PATCH', body: { [field]: value } });
-  reloadTab(siteId, 'support');
-}
-
-// ── CHANGELOG ─────────────────────────────────────────────────────
-async function loadChangelog(siteId, panel) {
-  const entries = await api(`/api/changelog?site_id=${siteId}`);
-  if (!entries) { panel.innerHTML = errMsg(); return; }
-  panel.innerHTML = `
-    <div class="form-card">
-      <div class="form-card-title">Neuer Eintrag</div>
-      <div class="form-row">
-        <div class="form-group"><label>Version</label><input id="cl-ver-${siteId}" placeholder="v1.2.0"></div>
-        <div class="form-group">
-          <label>Typ</label>
-          <select id="cl-type-${siteId}">
-            <option value="feature">✨ Feature</option>
-            <option value="fix">🐛 Fix</option>
-            <option value="improvement">⚡ Improvement</option>
-            <option value="breaking">💥 Breaking</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Titel</label><input id="cl-title-${siteId}" placeholder="Was wurde geändert?"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Beschreibung</label><textarea id="cl-desc-${siteId}" placeholder="Details…"></textarea></div>
-      </div>
-      <div class="flex gap-8">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:13px"><input type="checkbox" id="cl-pub-${siteId}"> Direkt veröffentlichen</label>
-        <button class="btn btn-primary" onclick="submitChangelog('${siteId}')">Erstellen</button>
-      </div>
-    </div>
-    <div class="mt-16">
-      ${entries.length ? changelogList(entries, siteId) : empty('Keine Einträge')}
-    </div>
-  `;
-}
-
-function changelogList(entries, siteId) {
-  const typeIcon = { feature:'✨', fix:'🐛', improvement:'⚡', breaking:'💥' };
-  return `<div style="display:flex;flex-direction:column;gap:8px">
-    ${entries.map(e => `
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px">
-        <span style="font-size:18px;flex-shrink:0">${typeIcon[e.type]||'📋'}</span>
-        <div style="flex:1">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span style="font-family:'Space Mono',monospace;font-size:11px;color:var(--accent2)">${esc(e.version)}</span>
-            <span style="font-weight:700;font-size:13px">${esc(e.title)}</span>
-            <span class="badge ${e.published?'published':'draft'}">${e.published?'Veröffentlicht':'Draft'}</span>
-          </div>
-          ${e.description ? `<div style="font-size:12px;color:var(--text2);margin-top:4px">${esc(e.description)}</div>` : ''}
-          <div class="mono" style="color:var(--text3);margin-top:4px">${fmtDate(e.created_at)}</div>
-        </div>
-        <button class="btn btn-danger btn-sm" onclick="deleteChangelog(${e.id},'${siteId}')">✕</button>
-      </div>
-    `).join('')}
-  </div>`;
-}
-
-async function submitChangelog(siteId) {
-  const data = {
-    site_id: siteId,
-    version: document.getElementById(`cl-ver-${siteId}`)?.value,
-    title: document.getElementById(`cl-title-${siteId}`)?.value,
-    description: document.getElementById(`cl-desc-${siteId}`)?.value,
-    type: document.getElementById(`cl-type-${siteId}`)?.value,
-    published: document.getElementById(`cl-pub-${siteId}`)?.checked,
-  };
-  if (!data.version || !data.title) { alert('Version und Titel erforderlich'); return; }
-  await api('/api/changelog', { method: 'POST', body: data });
-  reloadTab(siteId, 'changelog');
-}
-
-async function deleteChangelog(id, siteId) {
-  if (!confirm('Eintrag löschen?')) return;
-  await api(`/api/changelog/${id}`, { method: 'DELETE' });
-  reloadTab(siteId, 'changelog');
-}
-
-// ── BLOG ──────────────────────────────────────────────────────────
-async function loadBlog(siteId, panel) {
-  const posts = await api(`/api/blog?site_id=${siteId}`);
-  if (!posts) { panel.innerHTML = errMsg(); return; }
-  panel.innerHTML = `
-    <div class="form-card">
-      <div class="form-card-title">Neuer Blogpost</div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Titel</label><input id="bl-title-${siteId}" placeholder="Post Titel"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Auszug</label><input id="bl-excerpt-${siteId}" placeholder="Kurze Beschreibung…"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Inhalt (Markdown)</label><textarea id="bl-content-${siteId}" style="min-height:120px" placeholder="## Überschrift\n\nInhalt hier…"></textarea></div>
-      </div>
-      <div class="flex gap-8">
-        <select id="bl-status-${siteId}" style="width:auto">
-          <option value="draft">Draft</option>
-          <option value="published">Veröffentlichen</option>
-        </select>
-        <button class="btn btn-primary" onclick="submitBlog('${siteId}')">Erstellen</button>
-      </div>
-    </div>
-    <div class="mt-16">
-      <div style="font-size:13px;font-weight:700;margin-bottom:12px">Posts (${posts.length})</div>
-      ${posts.length ? blogTable(posts, siteId) : empty('Keine Posts')}
-    </div>
-  `;
-}
-
-function blogTable(posts, siteId) {
-  return `<table class="data-table">
-    <thead><tr><th>Titel</th><th>Slug</th><th>Status</th><th>Erstellt</th></tr></thead>
-    <tbody>${posts.map(p => `
-      <tr>
-        <td style="font-weight:600">${esc(p.title)}</td>
-        <td class="mono" style="color:var(--text3)">${esc(p.slug)}</td>
-        <td><span class="badge ${p.status}">${p.status}</span></td>
-        <td class="mono" style="color:var(--text3)">${fmtDate(p.created_at)}</td>
-      </tr>
-    `).join('')}</tbody>
-  </table>`;
-}
-
-async function submitBlog(siteId) {
-  const data = {
-    site_id: siteId,
-    title: document.getElementById(`bl-title-${siteId}`)?.value,
-    excerpt: document.getElementById(`bl-excerpt-${siteId}`)?.value,
-    content: document.getElementById(`bl-content-${siteId}`)?.value,
-    status: document.getElementById(`bl-status-${siteId}`)?.value,
-  };
-  if (!data.title) { alert('Titel erforderlich'); return; }
-  await api('/api/blog', { method: 'POST', body: data });
-  reloadTab(siteId, 'blog');
-}
-
-// ── WORT-ANFRAGEN ─────────────────────────────────────────────────
-async function loadWordRequests(panel) {
-  const words = await api('/api/words');
-  if (!words) { panel.innerHTML = errMsg(); return; }
-  panel.innerHTML = `
-    <div class="form-card">
-      <div class="form-card-title">Wort hinzufügen</div>
-      <div class="form-row">
-        <div class="form-group"><label>Wort</label><input id="wr-word" placeholder="Wort…"></div>
-        <div class="form-group"><label>Sprache</label><select id="wr-lang"><option value="de">Deutsch</option><option value="en">Englisch</option><option value="fr">Französisch</option></select></div>
-      </div>
-      <button class="btn btn-primary" onclick="submitWord()">Hinzufügen</button>
-    </div>
-    <div class="mt-16">
-      <div style="font-size:13px;font-weight:700;margin-bottom:12px">Anfragen (${words.length})</div>
-      ${words.length ? wordTable(words) : empty('Keine Anfragen')}
-    </div>
-  `;
-}
-
-function wordTable(words) {
-  return `<table class="data-table">
-    <thead><tr><th>Wort</th><th>Sprache</th><th>Status</th><th>Datum</th><th>Aktionen</th></tr></thead>
-    <tbody>${words.map(w => `
-      <tr>
-        <td style="font-weight:700;font-family:'Space Mono',monospace">${esc(w.word)}</td>
-        <td class="mono">${esc(w.language)}</td>
-        <td><span class="badge ${w.status}">${w.status}</span></td>
-        <td class="mono" style="color:var(--text3)">${fmtDate(w.created_at)}</td>
-        <td>
-          <div class="flex gap-8">
-            <button class="btn btn-ghost btn-sm" onclick="updateWord(${w.id},'approved')">✓ Annehmen</button>
-            <button class="btn btn-danger btn-sm" onclick="updateWord(${w.id},'rejected')">✕ Ablehnen</button>
-          </div>
-        </td>
-      </tr>
-    `).join('')}</tbody>
-  </table>`;
-}
-
-async function submitWord() {
-  const data = { word: document.getElementById('wr-word')?.value, language: document.getElementById('wr-lang')?.value };
-  if (!data.word) { alert('Wort erforderlich'); return; }
-  await api('/api/words', { method: 'POST', body: data });
-  const panel = document.getElementById('tabp-wordify-wortanfragen');
-  if (panel) { panel.dataset.loaded = ''; loadTab('wordify', 'wortanfragen'); }
-}
-
-async function updateWord(id, status) {
-  await api(`/api/words/${id}`, { method: 'PATCH', body: { status } });
-  const panel = document.getElementById('tabp-wordify-wortanfragen');
-  if (panel) { panel.dataset.loaded = ''; loadTab('wordify', 'wortanfragen'); }
-}
-
-// ── VORSCHLÄGE ────────────────────────────────────────────────────
-async function loadSuggestions(panel) {
-  const suggs = await api('/api/suggestions');
-  if (!suggs) { panel.innerHTML = errMsg(); return; }
-  panel.innerHTML = `
-    <div class="mt-16">
-      <div class="actions-bar">
-        <div style="font-size:13px;font-weight:700">Vorschläge (${suggs.length})</div>
-        <button class="btn btn-ghost btn-sm" onclick="reloadSuggestions()">↻ Aktualisieren</button>
-      </div>
-      ${suggs.length ? suggTable(suggs) : empty('Keine Vorschläge')}
-    </div>
-  `;
-}
-
-function suggTable(suggs) {
-  return `<table class="data-table">
-    <thead><tr><th>Vorschlag</th><th>Kategorie</th><th>Votes</th><th>Status</th><th>Datum</th><th>Aktionen</th></tr></thead>
-    <tbody>${suggs.map(s => `
-      <tr>
-        <td style="font-weight:600;max-width:200px">${esc(s.suggestion)}</td>
-        <td class="mono" style="color:var(--text3)">${esc(s.category||'–')}</td>
-        <td style="color:var(--accent2);font-weight:700;font-family:'Space Mono',monospace">↑${s.upvotes}</td>
-        <td><span class="badge ${s.status}">${s.status}</span></td>
-        <td class="mono" style="color:var(--text3)">${fmtDate(s.created_at)}</td>
-        <td>
-          <div class="flex gap-8">
-            <button class="btn btn-ghost btn-sm" onclick="updateSugg(${s.id},'done')">✓ Done</button>
-            <button class="btn btn-danger btn-sm" onclick="updateSugg(${s.id},'rejected')">✕</button>
-          </div>
-        </td>
-      </tr>
-    `).join('')}</tbody>
-  </table>`;
-}
-
-async function updateSugg(id, status) {
-  await api(`/api/suggestions/${id}`, { method: 'PATCH', body: { status } });
-  const panel = document.getElementById('tabp-spinselector-vorschläge');
-  if (panel) { panel.dataset.loaded = ''; loadTab('spinselector', 'vorschläge'); }
-}
-
-async function reloadSuggestions() {
-  const panel = document.getElementById('tabp-spinselector-vorschläge');
-  if (panel) { panel.dataset.loaded = ''; loadTab('spinselector', 'vorschläge'); }
-}
-
-// ── ANALYTICS ─────────────────────────────────────────────────────
-async function loadAnalytics(siteId, panel) {
-  const data = await api(`/api/analytics?site_id=${siteId}&days=7`);
-  if (!data) { panel.innerHTML = errMsg(); return; }
-  const { by_type, by_day } = data;
-  const maxViews = Math.max(...by_day.map(d => d.views), 1);
-
-  panel.innerHTML = `
-    <div class="analytics-grid">
-      <div class="chart-card" style="grid-column:1/-1">
-        <div class="chart-title">Pageviews (letzte 7 Tage)</div>
-        <div class="bar-chart">
-          ${by_day.map(d => `
-            <div class="bar-col">
-              <div class="bar-fill" style="height:${Math.round((d.views/maxViews)*70)+10}px;background:var(--accent)"></div>
-              <div class="bar-label">${d.day.slice(5)}</div>
-            </div>
-          `).join('') || '<div style="color:var(--text3);font-size:12px;font-family:Space Mono">Noch keine Daten</div>'}
-        </div>
-      </div>
-      ${by_type.map(t => `
-        <div class="chart-card">
-          <div class="chart-title">${t.event_type}</div>
-          <div style="font-size:32px;font-weight:800;color:var(--accent2)">${t.count}</div>
-        </div>
-      `).join('') || `<div class="chart-card"><div class="chart-title">Kein Traffic</div><div style="font-size:24px;font-weight:800;color:var(--text3)">0</div></div>`}
-    </div>
-    <div class="mt-16" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px">
-      <div class="form-card-title">Manueller Tracking-Snippet</div>
-      <pre style="font-family:'Space Mono',monospace;font-size:11px;color:var(--text2);overflow-x:auto;white-space:pre-wrap">fetch('${API_URL}/api/analytics', {
-  method: 'POST',
-  headers: {'Content-Type':'application/json'},
-  body: JSON.stringify({
-    site_id: '${siteId}',
-    event_type: 'pageview',
-    path: window.location.pathname
-  })
-});</pre>
-    </div>
-  `;
-}
-
-// ── DATEN (Overview) ──────────────────────────────────────────────
-async function loadDaten(siteId, panel) {
-  const [tickets, errors, notifs] = await Promise.all([
-    api(`/api/support?site_id=${siteId}`),
-    api(`/api/errors?site_id=${siteId}`),
-    api(`/api/notifications?site_id=${siteId}&limit=10`),
-  ]);
-  const site = SITES.find(s => s.id === siteId);
-  panel.innerHTML = `
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-label">Support Tickets</div>
-        <div class="stat-val blue">${tickets?.length || 0}</div>
-        <div class="stat-sub">Gesamt</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Offene Tickets</div>
-        <div class="stat-val yellow">${tickets?.filter(t=>t.status==='open').length || 0}</div>
-        <div class="stat-sub">Offen</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Fehler</div>
-        <div class="stat-val red">${errors?.filter(e=>!e.resolved).length || 0}</div>
-        <div class="stat-sub">Ungelöst</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Benachrichtigungen</div>
-        <div class="stat-val">${notifs?.filter(n=>!n.read).length || 0}</div>
-        <div class="stat-sub">Ungelesen</div>
-      </div>
-    </div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;">
-      <div class="form-card-title">Site Info</div>
-      <table style="width:100%;border-collapse:collapse">
-        <tr><td style="padding:8px 0;color:var(--text3);font-size:12px;font-family:'Space Mono',monospace;width:140px">ID</td><td class="mono">${siteId}</td></tr>
-        <tr><td style="padding:8px 0;color:var(--text3);font-size:12px;font-family:'Space Mono',monospace">Name</td><td style="font-weight:700">${site?.name}</td></tr>
-        <tr><td style="padding:8px 0;color:var(--text3);font-size:12px;font-family:'Space Mono',monospace">URL</td><td><a href="${site?.url}" target="_blank" style="color:var(--accent2)">${site?.url}</a></td></tr>
-        <tr><td style="padding:8px 0;color:var(--text3);font-size:12px;font-family:'Space Mono',monospace">Features</td><td>${SITES.find(s=>s.id===siteId)?.tabs.map(t=>`<span class="chip neutral">${t}</span>`).join(' ')}</td></tr>
-      </table>
-    </div>
-    <div style="margin-top:16px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;">
-      <div class="form-card-title">Notification senden</div>
-      <div class="form-row">
-        <div class="form-group"><label>Typ</label><select id="nd-type-${siteId}"><option value="info">Info</option><option value="warning">Warning</option><option value="error">Error</option><option value="success">Success</option></select></div>
-        <div class="form-group"><label>Titel</label><input id="nd-title-${siteId}" placeholder="Titel…"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Nachricht</label><input id="nd-msg-${siteId}" placeholder="Nachricht…"></div>
-      </div>
-      <button class="btn btn-primary" onclick="sendNotif('${siteId}')">Senden</button>
-    </div>
-  `;
-}
-
-async function sendNotif(siteId) {
-  const data = {
-    site_id: siteId,
-    type: document.getElementById(`nd-type-${siteId}`)?.value,
-    title: document.getElementById(`nd-title-${siteId}`)?.value,
-    message: document.getElementById(`nd-msg-${siteId}`)?.value,
-  };
-  if (!data.title) { alert('Titel erforderlich'); return; }
-  await api('/api/notifications', { method: 'POST', body: data });
-  reloadTab(siteId, 'notifications');
-  loadTopbarStats();
-}
-
-// ── ERRORS ────────────────────────────────────────────────────────
-async function loadErrors(siteId, panel) {
-  const errors = await api(`/api/errors?site_id=${siteId}`);
-  if (!errors) { panel.innerHTML = errMsg(); return; }
-  const unresolved = errors.filter(e => !e.resolved);
-  panel.innerHTML = `
-    <div class="actions-bar">
-      <div style="font-size:13px;font-weight:700">Fehler <span style="color:var(--red)">${unresolved.length} ungelöst</span></div>
-      <button class="btn btn-ghost btn-sm" onclick="reloadTab('${siteId}','errors')">↻ Aktualisieren</button>
-    </div>
-    ${errors.length ? `<table class="data-table">
-      <thead><tr><th>Typ</th><th>Nachricht</th><th>Pfad</th><th>Status</th><th>Datum</th><th>Aktionen</th></tr></thead>
-      <tbody>${errors.map(e => `
-        <tr>
-          <td class="mono" style="color:var(--red)">${esc(e.error_type)}</td>
-          <td style="max-width:200px;font-size:12px">${esc(e.message)}</td>
-          <td class="mono" style="color:var(--text3)">${esc(e.path||'–')}</td>
-          <td><span class="badge ${e.resolved?'resolved':'open'}">${e.resolved?'resolved':'open'}</span></td>
-          <td class="mono" style="color:var(--text3)">${fmtDate(e.created_at)}</td>
-          <td>${!e.resolved ? `<button class="btn btn-ghost btn-sm" onclick="resolveError(${e.id},'${siteId}')">✓ Lösen</button>` : ''}</td>
-        </tr>
-      `).join('')}</tbody>
-    </table>` : empty('Keine Fehler – alles grün ✓')}
-  `;
-}
-
-async function resolveError(id, siteId) {
-  await api(`/api/errors/${id}/resolve`, { method: 'PATCH' });
-  reloadTab(siteId, 'errors');
-}
-
-// ── SITE NOTIFS ───────────────────────────────────────────────────
-async function loadSiteNotifs(siteId, panel) {
-  const notifs = await api(`/api/notifications?site_id=${siteId}`);
-  if (!notifs) { panel.innerHTML = errMsg(); return; }
-  panel.innerHTML = `
-    <div class="actions-bar">
-      <div style="font-size:13px;font-weight:700">Benachrichtigungen (${notifs.length})</div>
-      <button class="btn btn-ghost btn-sm" onclick="markSiteRead('${siteId}')">Alle gelesen</button>
-    </div>
-    ${notifs.length ? `<div style="display:flex;flex-direction:column;gap:6px">
-      ${notifs.map(n => `
-        <div class="notif-item${n.read?'':' unread'}">
-          <div class="notif-item-head">
-            <div class="notif-type-dot ${n.type}"></div>
-            <div class="notif-title">${esc(n.title)}</div>
-            <div class="notif-site">${n.read?'gelesen':'NEU'}</div>
-          </div>
-          ${n.message ? `<div class="notif-msg">${esc(n.message)}</div>` : ''}
-          <div class="notif-time">${fmtDate(n.created_at)}</div>
-        </div>
-      `).join('')}
-    </div>` : empty('Keine Benachrichtigungen')}
-  `;
-}
-
-async function markSiteRead(siteId) {
-  await api('/api/notifications/read-all', { method: 'POST', body: { site_id: siteId } });
-  reloadTab(siteId, 'notifications');
-  loadTopbarStats();
-}
-
-// ── OVERVIEW ──────────────────────────────────────────────────────
+// ── Overview Loader ───────────────────────────────────────────────
 async function loadOverview() {
   const body = document.getElementById('overview-body');
-  body.innerHTML = '<div class="loading">Lade Daten…</div>';
   const data = await api('/api/overview');
-  if (!data) { body.innerHTML = noApiWarning(); return; }
-  overviewData = data;
 
-  const totalErrors = data.sites.reduce((a,s) => a + s.unresolved_errors, 0);
-  const totalTickets = data.sites.reduce((a,s) => a + s.open_tickets, 0);
-  const totalUnread = data.sites.reduce((a,s) => a + s.unread_notifications, 0);
+  if (!data) {
+    body.innerHTML = `
+      <div style="background:var(--surface);border:1px solid rgba(245,158,11,0.3);border-radius:12px;padding:24px;max-width:600px">
+        <div style="font-size:16px;font-weight:800;margin-bottom:8px;color:var(--yellow)">⚠ API nicht verbunden</div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.6">
+          Worker noch nicht deployed oder API_URL falsch.<br>
+          <span class="mono">→ Siehe README.md für Setup-Anleitung</span>
+        </div>
+        <div class="sites-grid" style="margin-top:16px">
+          ${SITES.map(s => sitCard(s, {})).join('')}
+        </div>
+      </div>`;
+    return;
+  }
+
+  const totalErrors  = data.sites.reduce((a, s) => a + s.unresolved_errors,    0);
+  const totalTickets = data.sites.reduce((a, s) => a + s.open_tickets,          0);
+  const totalUnread  = data.sites.reduce((a, s) => a + s.unread_notifications,  0);
 
   body.innerHTML = `
     <div class="stats-row">
@@ -857,155 +79,63 @@ async function loadOverview() {
       </div>
     </div>
 
-    <div style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--text2);font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:0.1em">Alle Webseiten</div>
+    <div class="sidebar-label" style="margin-bottom:12px">Alle Webseiten</div>
     <div class="sites-grid">
       ${SITES.map(s => {
-        const sdata = data.sites.find(sd => sd.id === s.id) || {};
-        const chips = [];
-        if (sdata.unresolved_errors > 0) chips.push(`<span class="chip error">⚠ ${sdata.unresolved_errors} Fehler</span>`);
-        if (sdata.open_tickets > 0) chips.push(`<span class="chip warn">📋 ${sdata.open_tickets} Tickets</span>`);
-        if (sdata.unread_notifications > 0) chips.push(`<span class="chip info">🔔 ${sdata.unread_notifications} Neu</span>`);
-        if (!chips.length) chips.push(`<span class="chip ok">✓ Alles OK</span>`);
-        return `
-          <div class="site-card" onclick="showSite('${s.id}')">
-            <div class="site-card-top">
-              <div class="site-icon" style="background:${s.color}22;border:1px solid ${s.color}44">${s.icon}</div>
-              <div>
-                <div class="site-name">${s.name}</div>
-                <div class="site-url">${s.url.replace('https://','')}</div>
-              </div>
-            </div>
-            <div class="site-chips">${chips.join('')}</div>
-          </div>
-        `;
+        const sd = data.sites.find(x => x.id === s.id) || {};
+        return sitCard(s, sd);
       }).join('')}
     </div>
 
     ${data.recent_notifications?.length ? `
-      <div style="margin-top:24px">
-        <div style="font-size:13px;font-weight:700;margin-bottom:12px;color:var(--text2);font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:0.1em">Letzte Aktivitäten</div>
+      <div class="mt-16">
+        <div class="sidebar-label" style="margin-bottom:12px">Letzte Aktivitäten</div>
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">
-          ${data.recent_notifications.slice(0,10).map(n => `
+          ${data.recent_notifications.slice(0, 12).map(n => `
             <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--border)">
               <div class="notif-type-dot ${n.type}"></div>
               <div style="flex:1">
                 <span style="font-size:12px;font-weight:700">${esc(n.title)}</span>
-                ${n.message ? `<span style="font-size:11px;color:var(--text3);margin-left:8px">${esc(n.message).slice(0,50)}</span>` : ''}
+                ${n.message ? `<span style="font-size:11px;color:var(--text3);margin-left:8px">${esc(n.message).slice(0, 50)}</span>` : ''}
               </div>
-              <span style="font-size:9px;font-family:'Space Mono',monospace;color:var(--text3)">${SITES.find(s=>s.id===n.site_id)?.name||n.site_id}</span>
-              <span style="font-size:9px;font-family:'Space Mono',monospace;color:var(--text3)">${fmtDate(n.created_at)}</span>
-            </div>
-          `).join('')}
+              <span class="mono" style="color:var(--text3)">${getSiteById(n.site_id)?.name || n.site_id}</span>
+              <span class="mono" style="color:var(--text3)">${fmtDate(n.created_at)}</span>
+            </div>`).join('')}
         </div>
-      </div>
-    ` : ''}
+      </div>` : ''}
   `;
 }
 
-function noApiWarning() {
+function sitCard(s, sd) {
+  const chips = [];
+  if (sd.unresolved_errors    > 0) chips.push(`<span class="chip error">⚠ ${sd.unresolved_errors} Fehler</span>`);
+  if (sd.open_tickets         > 0) chips.push(`<span class="chip warn">📋 ${sd.open_tickets} Tickets</span>`);
+  if (sd.unread_notifications > 0) chips.push(`<span class="chip info">🔔 ${sd.unread_notifications} Neu</span>`);
+  if (!chips.length)               chips.push(`<span class="chip ok">✓ Alles OK</span>`);
   return `
-    <div style="background:var(--surface);border:1px solid rgba(245,158,11,0.3);border-radius:12px;padding:24px;max-width:600px">
-      <div style="font-size:16px;font-weight:800;margin-bottom:8px;color:var(--yellow)">⚠ API nicht verbunden</div>
-      <div style="font-size:13px;color:var(--text2);line-height:1.6">
-        Der Worker ist noch nicht deployed oder die API_URL ist nicht konfiguriert.<br><br>
-        <span style="font-family:'Space Mono',monospace;font-size:11px">→ Sieh dir die README.md für Setup-Anleitung an</span>
-      </div>
-      <div style="margin-top:16px">
-        <div class="sites-grid">
-          ${SITES.map(s => `
-            <div class="site-card" onclick="showSite('${s.id}')">
-              <div class="site-card-top">
-                <div class="site-icon" style="background:${s.color}22;border:1px solid ${s.color}44">${s.icon}</div>
-                <div><div class="site-name">${s.name}</div><div class="site-url">${s.url.replace('https://','')}</div></div>
-              </div>
-              <div class="site-chips">${s.tabs.map(t=>`<span class="chip neutral">${t}</span>`).join('')}</div>
-            </div>
-          `).join('')}
+    <a class="site-card" href="${siteHref(s.id)}">
+      <div class="site-card-top">
+        <div class="site-icon" style="background:${s.color}22;border:1px solid ${s.color}44">${s.icon}</div>
+        <div>
+          <div class="site-name">${s.name}</div>
+          <div class="site-url">${s.url.replace('https://','')}</div>
         </div>
       </div>
-    </div>
-  `;
+      <div class="site-chips">${chips.join('')}</div>
+    </a>`;
 }
 
-// ── Notifications Panel ───────────────────────────────────────────
-async function loadNotifPanel() {
-  const list = document.getElementById('notif-list');
-  const data = await api('/api/notifications?limit=40');
-  if (!data) { list.innerHTML = errMsg(); return; }
-  if (!data.length) { list.innerHTML = `<div class="empty"><div class="emoji">🎉</div>Keine Benachrichtigungen</div>`; return; }
-  list.innerHTML = data.map(n => `
-    <div class="notif-item${n.read?'':' unread'}" onclick="markOneRead(${n.id},this)">
-      <div class="notif-item-head">
-        <div class="notif-type-dot ${n.type}"></div>
-        <div class="notif-title">${esc(n.title)}</div>
-        <div class="notif-site">${SITES.find(s=>s.id===n.site_id)?.name||n.site_id}</div>
-      </div>
-      ${n.message ? `<div class="notif-msg">${esc(n.message).slice(0,80)}</div>` : ''}
-      <div class="notif-time">${fmtDate(n.created_at)}</div>
-    </div>
-  `).join('');
-}
+// ── Boot ──────────────────────────────────────────────────────────
+injectLoginScreen();
+checkAuth(() => {
+  initLayout(null);
+  loadOverview();
+});
 
-async function markOneRead(id, el) {
-  await api(`/api/notifications/${id}/read`, { method: 'PATCH' });
-  el.classList.remove('unread');
-  loadTopbarStats();
-}
-
-async function markAllRead() {
-  await api('/api/notifications/read-all', { method: 'POST', body: {} });
-  loadNotifPanel();
-  loadTopbarStats();
-}
-
-function toggleNotif() {
-  notifOpen = !notifOpen;
-  const panel = document.getElementById('notif-panel');
-  panel.classList.toggle('open', notifOpen);
-  if (notifOpen) loadNotifPanel();
-}
-
-// ── Topbar Stats ──────────────────────────────────────────────────
-async function loadTopbarStats() {
-  const stats = await api('/api/stats');
-  if (!stats) return;
-  const openTickets = stats.tickets?.find(t=>t.status==='open')?.c || 0;
-  const unresolvedErrors = stats.errors?.find(e=>e.resolved===0)?.c || 0;
-  const unreadNotifs = stats.notifs?.find(n=>n.read===0)?.c || 0;
-  document.getElementById('stat-tickets').textContent = openTickets;
-  document.getElementById('stat-errors').textContent = unresolvedErrors;
-  const badge = document.getElementById('notif-count');
-  if (unreadNotifs > 0) { badge.textContent = unreadNotifs; badge.style.display = 'flex'; }
-  else { badge.style.display = 'none'; }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────
-function reloadTab(siteId, tab) {
-  const panel = document.getElementById(`tabp-${siteId}-${tab}`);
-  if (panel) { panel.dataset.loaded = ''; loadTab(siteId, tab); }
-}
-
-function esc(str) {
-  if (!str) return '';
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function fmtDate(d) {
-  if (!d) return '–';
-  const date = new Date(d);
-  return date.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
-}
-
-function empty(msg) {
-  return `<div class="empty"><div class="emoji">📭</div>${msg}</div>`;
-}
-
-function errMsg() {
-  return `<div class="empty"><div class="emoji">⚡</div>API nicht erreichbar – Worker deployed?</div>`;
-}
-
-// ── Init ──────────────────────────────────────────────────────────
-checkAuth(); // Zeigt Login-Screen oder lädt die App direkt
+window.initAfterLogin = () => {
+  initLayout(null);
+  loadOverview();
+};
 </script>
 </body>
 </html>
