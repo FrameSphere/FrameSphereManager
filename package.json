@@ -1,0 +1,18 @@
+{
+  "name": "webcontrol-hq",
+  "version": "1.0.0",
+  "description": "WebControl HQ – Management Dashboard",
+  "scripts": {
+    "dev:worker": "wrangler dev worker/index.js --port 8787",
+    "dev:frontend": "npx serve public -p 3000",
+    "deploy:worker": "wrangler deploy",
+    "deploy:pages": "wrangler pages deploy public --project-name webcontrol-hq",
+    "db:init": "wrangler d1 execute webcontrol-hq --file=schema.sql",
+    "db:init:remote": "wrangler d1 execute webcontrol-hq --file=schema.sql --remote",
+    "db:create": "wrangler d1 create webcontrol-hq"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0",
+    "serve": "^14.0.0"
+  }
+}
