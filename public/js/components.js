@@ -801,7 +801,7 @@ async function deleteWdtDate(date, ids) {
 
 // ── KONTAKT NACHRICHTEN (Dashboard) ───────────────────────────
 async function renderKontakt(siteId, panel) {
-  const msgs = await api('/api/contact');
+  const msgs = await api(`/api/contact?site_id=${siteId}`);
   if (!msgs) { panel.innerHTML = errState(); return; }
   const unread = msgs.filter(m => !m.read).length;
 
@@ -819,20 +819,22 @@ async function renderKontakt(siteId, panel) {
 }
 
 function kontaktTable(msgs, siteId) {
-  const langFlag = { de: '🇩🇪', en: '🇬🇧', es: '🇪🇸', fr: '🇫🇷', it: '🇮🇹' };
+  const langFlag = { de: '\ud83c\udde9\ud83c\uddea', en: '\ud83c\uddec\ud83c\udde7', es: '\ud83c\uddea\ud83c\uddf8', fr: '\ud83c\uddeb\ud83c\uddf7', it: '\ud83c\uddee\ud83c\uddf9' };
+  const siteLabel = { wordify: '\ud83d\udcdd Wordify', flaggues: '\ud83d\udea9 FlagGuess' };
   return `<div style="display:flex;flex-direction:column;gap:8px">
     ${msgs.map(m => `
       <div style="background:var(--surface);border:1px solid ${m.read ? 'var(--border)' : 'rgba(96,165,250,0.3)'};border-radius:10px;padding:14px 16px">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-          <span style="font-size:18px">${langFlag[m.language] || '🌐'}</span>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+          <span style="font-size:18px">${langFlag[m.language] || '\ud83c\udf10'}</span>
           <span style="font-weight:700;font-size:13px">${esc(m.name || 'Anonym')}</span>
+          <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,0.07);color:var(--text3)">${siteLabel[m.site_id] || m.site_id || '–'}</span>
           ${!m.read ? '<span class="badge open" style="font-size:9px">NEU</span>' : ''}
           <span class="mono" style="color:var(--text3);margin-left:auto">${fmtDate(m.created_at)}</span>
         </div>
         <div style="font-size:13px;color:var(--text2);line-height:1.5;white-space:pre-wrap">${esc(m.message)}</div>
         ${!m.read ? `
           <div style="margin-top:10px">
-            <button class="btn btn-ghost btn-sm" onclick="markContactRead(${m.id},'${siteId}',this)">✓ Als gelesen markieren</button>
+            <button class="btn btn-ghost btn-sm" onclick="markContactRead(${m.id},'${siteId}',this)">\u2713 Als gelesen markieren</button>
           </div>` : ''}
       </div>`).join('')}
   </div>`;
