@@ -173,22 +173,23 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // POST /api/support/submit ── Public: FrameTrain users submit support tickets
+  // POST /api/support/submit ── Public: any site submits support tickets
   if (request.method === 'POST' && path === '/api/support/submit') {
     const db = env.DB;
     const body = await request.json().catch(() => ({}));
-    const { user_id, name, email, subject, message } = body;
+    const { site_id, user_id, name, email, subject, message } = body;
     if (!subject || !message) return err('Betreff und Nachricht erforderlich');
+    const siteId = (site_id || 'frametrain').slice(0, 40);
     const tokenRaw = `${email || user_id || 'anon'}:${Date.now()}:${Math.random()}`;
     const user_token = await sha256(tokenRaw);
     const result = await db.prepare(
       'INSERT INTO support_tickets (site_id, name, email, subject, message, priority, user_token, user_id) VALUES (?,?,?,?,?,?,?,?)'
-    ).bind('frametrain', name || null, email || null, subject, message, 'normal', user_token, user_id || null).run();
+    ).bind(siteId, name || null, email || null, subject, message, 'normal', user_token, user_id || null).run();
     const ticketId = result.meta.last_row_id;
     await db.prepare('INSERT INTO support_messages (ticket_id, sender, message) VALUES (?,?,?)')
       .bind(ticketId, 'user', message).run();
     await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
-      .bind('frametrain', 'info', `🎫 Neues Ticket: ${subject}`, `Von: ${name || email || 'Anonym'} – ${message.slice(0, 80)}`).run();
+      .bind(siteId, 'info', `🎫 Neues Ticket: ${subject}`, `Von: ${name || email || 'Anonym'} – ${message.slice(0, 80)}`).run();
     return json({ success: true, ticket_id: ticketId, user_token });
   }
 
