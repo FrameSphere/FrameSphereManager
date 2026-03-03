@@ -10,7 +10,7 @@ const SITES = [
   { id: 'traitora',     name: 'Traitora',        url: 'https://traitora.pages.dev',        icon: '🧠', color: '#8b5cf6', tabs: ['daten'] },
   { id: 'fileflyr',     name: 'FileFlyr',        url: 'https://fileflyr.pages.dev',        icon: '📁', color: '#3b82f6', tabs: ['support','daten'] },
   { id: 'ratelimit',    name: 'Ratelimit API',   url: 'https://ratelimit-api.pages.dev',   icon: '⚡', color: '#10b981', tabs: ['analytics','changelog','daten'] },
-  { id: 'framespell',   name: 'FrameSpell',      url: 'https://framespell.pages.dev',      icon: '✨', color: '#60a5fa', tabs: ['analytics','changelog','daten'] },
+  { id: 'framespell',   name: 'FrameSpell',      url: 'https://framespell.pages.dev',      icon: '✨', color: '#6366f1', tabs: ['support','changelog','blog','errors','daten'] },
 ];
 
 function getSiteById(id) {

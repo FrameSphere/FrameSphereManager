@@ -10,7 +10,7 @@
 <div id="layout">
   <div id="main">
 
-    <div class="page-header" style="border-left:3px solid #60a5fa;padding-left:25px">
+    <div class="page-header" style="border-left:3px solid #6366f1;padding-left:25px">
       <div class="flex items-center gap-12">
         <span style="font-size:22px">✨</span>
         <div>
@@ -24,18 +24,20 @@
     </div>
 
     <div class="site-tabs">
-      <button class="tab-btn active" onclick="showTab('framespell','analytics',this)">📈 Analytics</button>
+      <button class="tab-btn active" onclick="showTab('framespell','support',this)">🎫 Support</button>
       <button class="tab-btn"        onclick="showTab('framespell','changelog',this)">📋 Changelog</button>
+      <button class="tab-btn"        onclick="showTab('framespell','blog',this)">📝 Blog</button>
+      <button class="tab-btn"        onclick="showTab('framespell','errors',this)">⚠️ Errors</button>
       <button class="tab-btn"        onclick="showTab('framespell','daten',this)">📊 Daten</button>
-      <button class="tab-btn"        onclick="showTab('framespell','errors',this)">⚠ Errors</button>
       <button class="tab-btn"        onclick="showTab('framespell','notifications',this)">🔔 Notifs</button>
     </div>
 
     <div class="tab-content-area">
-      <div id="tab-analytics"     class="tab-panel active"></div>
+      <div id="tab-support"       class="tab-panel active"></div>
       <div id="tab-changelog"     class="tab-panel"></div>
-      <div id="tab-daten"         class="tab-panel"></div>
+      <div id="tab-blog"          class="tab-panel"></div>
       <div id="tab-errors"        class="tab-panel"></div>
+      <div id="tab-daten"         class="tab-panel"></div>
       <div id="tab-notifications" class="tab-panel"></div>
     </div>
 
@@ -47,6 +49,6 @@
 <script src="../js/auth.js"></script>
 <script src="../js/layout.js"></script>
 <script src="../js/components.js"></script>
-<script>initSitePage('framespell', 'analytics');</script>
+<script>initSitePage('framespell', 'support');</script>
 </body>
 </html>
