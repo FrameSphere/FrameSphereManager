@@ -55,6 +55,7 @@ async function handleRequest(request, env) {
 
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, '');
+  const segments = path.split('/').filter(Boolean);
 
   // ── Login endpoint (no auth required) ────────────────────
   if (request.method === 'POST' && path === '/api/login') {
@@ -109,14 +110,69 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
+  // ── Public: FrameTrain users submit support tickets ──────────
+  if (request.method === 'POST' && path === '/api/support/submit') {
+    const db = env.DB;
+    const body = await request.json().catch(() => ({}));
+    const { user_id, name, email, subject, message } = body;
+    if (!subject || !message) return err('Betreff und Nachricht erforderlich');
+    const tokenRaw = `${email || user_id || 'anon'}:${Date.now()}:${Math.random()}`;
+    const user_token = await sha256(tokenRaw);
+    const result = await db.prepare(
+      'INSERT INTO support_tickets (site_id, name, email, subject, message, priority, user_token, user_id) VALUES (?,?,?,?,?,?,?,?)'
+    ).bind('frametrain', name || null, email || null, subject, message, 'normal', user_token, user_id || null).run();
+    const ticketId = result.meta.last_row_id;
+    await db.prepare('INSERT INTO support_messages (ticket_id, sender, message) VALUES (?,?,?)')
+      .bind(ticketId, 'user', message).run();
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind('frametrain', 'info', `🎫 Neues Ticket: ${subject}`, `Von: ${name || email || 'Anonym'} – ${message.slice(0, 80)}`).run();
+    return json({ success: true, ticket_id: ticketId, user_token });
+  }
+
+  // ── Public: get ticket thread by user_token ──────────────────
+  if (request.method === 'GET' && segments[1] === 'support' && segments[2] && segments[3] === 'thread') {
+    const db = env.DB;
+    const ticketId = segments[2];
+    const token = url.searchParams.get('token');
+    if (!token) return err('Token required', 401);
+    const ticket = await db.prepare('SELECT id, subject, status, created_at, updated_at FROM support_tickets WHERE id=? AND user_token=?').bind(ticketId, token).first();
+    if (!ticket) return err('Ticket not found', 404);
+    const messages = await db.prepare('SELECT id, sender, message, created_at FROM support_messages WHERE ticket_id=? ORDER BY created_at ASC').bind(ticketId).all();
+    return json({ ticket, messages: messages.results });
+  }
+
+  // ── Public: user sends follow-up message ─────────────────────
+  if (request.method === 'POST' && segments[1] === 'support' && segments[2] && segments[3] === 'reply') {
+    const db = env.DB;
+    const ticketId = segments[2];
+    const body = await request.json().catch(() => ({}));
+    const { token, message } = body;
+    if (!token || !message) return err('Token und Nachricht erforderlich');
+    const ticket = await db.prepare('SELECT id FROM support_tickets WHERE id=? AND user_token=?').bind(ticketId, token).first();
+    if (!ticket) return err('Ticket not found', 404);
+    await db.prepare('INSERT INTO support_messages (ticket_id, sender, message) VALUES (?,?,?)').bind(ticketId, 'user', message).run();
+    await db.prepare("UPDATE support_tickets SET status='in_progress', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(ticketId).run();
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind('frametrain', 'info', `💬 Antwort auf Ticket #${ticketId}`, message.slice(0, 80)).run();
+    return json({ success: true });
+  }
+
+  // ── Public: published changelog for frametrain website ───────
+  if (request.method === 'GET' && path === '/api/changelog/published') {
+    const db = env.DB;
+    const siteId = url.searchParams.get('site_id') || 'frametrain';
+    const result = await db.prepare(
+      'SELECT * FROM changelog_entries WHERE site_id=? AND published=1 ORDER BY created_at DESC'
+    ).bind(siteId).all();
+    return json(result.results);
+  }
+
   // ── Auth guard (all other /api routes) ────────────────────
   const authed = await verifyAuth(request, env);
   if (!authed) {
     return json({ error: 'Nicht authentifiziert' }, 401);
   }
 
-  const segments = path.split('/').filter(Boolean);
-  // segments: ['api', 'resource', ...]
   const db = env.DB;
 
   // ── GET /api/overview ──────────────────────────────────────────────
@@ -209,8 +265,27 @@ async function handleRequest(request, env) {
     return json({ success: true, id: result.meta.last_row_id });
   }
 
+  // ── GET /api/support/:id/messages (manager reads chat) ────────────
+  if (request.method === 'GET' && segments[1] === 'support' && segments[2] && segments[3] === 'messages') {
+    const ticketId = segments[2];
+    const messages = await db.prepare('SELECT * FROM support_messages WHERE ticket_id=? ORDER BY created_at ASC').bind(ticketId).all();
+    await db.prepare('UPDATE support_messages SET read_by_admin=1 WHERE ticket_id=? AND read_by_admin=0').bind(ticketId).run();
+    return json(messages.results);
+  }
+
+  // ── POST /api/support/:id/messages (manager sends reply) ──────────
+  if (request.method === 'POST' && segments[1] === 'support' && segments[2] && segments[3] === 'messages') {
+    const ticketId = segments[2];
+    const body = await request.json().catch(() => ({}));
+    const { message } = body;
+    if (!message) return err('Nachricht erforderlich');
+    await db.prepare('INSERT INTO support_messages (ticket_id, sender, message, read_by_admin) VALUES (?,?,?,1)').bind(ticketId, 'admin', message).run();
+    await db.prepare("UPDATE support_tickets SET status='in_progress', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(ticketId).run();
+    return json({ success: true });
+  }
+
   // ── PATCH /api/support/:id ────────────────────────────────────────
-  if (request.method === 'PATCH' && segments[1] === 'support' && segments[2]) {
+  if (request.method === 'PATCH' && segments[1] === 'support' && segments[2] && !segments[3]) {
     const id = segments[2];
     const body = await request.json();
     const { status, reply, priority } = body;
@@ -248,6 +323,15 @@ async function handleRequest(request, env) {
   }
 
   // ── DELETE /api/changelog/:id ─────────────────────────────────────
+  // ── PATCH /api/changelog/:id (toggle published) ──────────────────
+  if (request.method === 'PATCH' && segments[1] === 'changelog' && segments[2]) {
+    const body = await request.json().catch(() => ({}));
+    if (body.published !== undefined) {
+      await db.prepare('UPDATE changelog_entries SET published=? WHERE id=?').bind(body.published ? 1 : 0, segments[2]).run();
+    }
+    return json({ success: true });
+  }
+
   if (request.method === 'DELETE' && segments[1] === 'changelog' && segments[2]) {
     await db.prepare('DELETE FROM changelog_entries WHERE id=?').bind(segments[2]).run();
     return json({ success: true });

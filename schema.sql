@@ -36,6 +36,17 @@ CREATE TABLE IF NOT EXISTS notifications (
   FOREIGN KEY (site_id) REFERENCES sites(id)
 );
 
+-- Support Messages (chat threads per ticket)
+CREATE TABLE IF NOT EXISTS support_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id INTEGER NOT NULL,
+  sender TEXT NOT NULL, -- 'user' | 'admin'
+  message TEXT NOT NULL,
+  read_by_admin INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (ticket_id) REFERENCES support_tickets(id)
+);
+
 -- Support Tickets
 CREATE TABLE IF NOT EXISTS support_tickets (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,6 +58,8 @@ CREATE TABLE IF NOT EXISTS support_tickets (
   status TEXT DEFAULT 'open', -- 'open' | 'in_progress' | 'resolved' | 'closed'
   priority TEXT DEFAULT 'normal', -- 'low' | 'normal' | 'high' | 'urgent'
   reply TEXT,
+  user_token TEXT,
+  user_id TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (site_id) REFERENCES sites(id)

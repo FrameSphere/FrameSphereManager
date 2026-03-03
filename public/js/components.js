@@ -2,89 +2,201 @@
 // Each function receives a siteId and a DOM panel element,
 // fetches data and renders HTML into the panel.
 
-// ── SUPPORT ───────────────────────────────────────────────────────
+// ── SUPPORT (Postfach + Chat) ──────────────────────────────────────
 async function renderSupport(siteId, panel) {
   const tickets = await api(`/api/support?site_id=${siteId}`);
   if (!tickets) { panel.innerHTML = errState(); return; }
+
+  const byStatus = (s) => tickets.filter(t => t.status === s).length;
+  const newCount = tickets.filter(t => t.status === 'open').length;
+
   panel.innerHTML = `
-    <div class="form-card">
-      <div class="form-card-title">Neues Ticket</div>
-      <div class="form-row">
-        <div class="form-group"><label>Name</label>
-          <input id="s-name" placeholder="Max Mustermann"></div>
-        <div class="form-group"><label>E-Mail</label>
-          <input id="s-email" type="email" placeholder="max@example.com"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Betreff</label>
-          <input id="s-subject" placeholder="Problem beschreiben…"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Nachricht</label>
-          <textarea id="s-msg" placeholder="Details…"></textarea></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Priorität</label>
-          <select id="s-prio">
-            <option value="low">Low</option>
-            <option value="normal" selected>Normal</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
-          </select></div>
-      </div>
-      <button class="btn btn-primary" onclick="submitSupport('${siteId}')">Ticket erstellen</button>
-    </div>
     <div class="actions-bar">
-      <div style="font-size:13px;font-weight:700">Tickets (${tickets.length})</div>
+      <div style="font-size:13px;font-weight:700">
+        📥 Posteingang
+        ${newCount > 0 ? `<span class="nav-badge" style="margin-left:8px">${newCount} neu</span>` : ''}
+        <span style="color:var(--text3);font-weight:400;margin-left:8px">(${tickets.length} gesamt)</span>
+      </div>
       <div class="flex-1"></div>
-      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','support')">↻ Aktualisieren</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="support-filter" onchange="filterSupportList()" style="padding:4px 10px;font-size:11px;width:auto">
+          <option value="">Alle (${tickets.length})</option>
+          <option value="open">Offen (${byStatus('open')})</option>
+          <option value="in_progress">In Bearbeitung (${byStatus('in_progress')})</option>
+          <option value="resolved">Gelöst (${byStatus('resolved')})</option>
+          <option value="closed">Geschlossen (${byStatus('closed')})</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','support')">&#8635; Aktualisieren</button>
+      </div>
     </div>
-    ${tickets.length ? supportTable(tickets, siteId) : emptyState('Keine Tickets vorhanden')}
+
+    <div style="display:flex;gap:0;height:620px;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:12px">
+      <!-- Ticket sidebar -->
+      <div id="ticket-sidebar" style="width:280px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--border);background:var(--surface)">
+        ${tickets.length === 0
+          ? `<div style="padding:40px 16px;text-align:center;color:var(--text3);font-size:13px">📭<br><br>Keine Tickets</div>`
+          : tickets.map(t => `
+          <div class="ticket-item" id="ti-${t.id}" data-status="${t.status}" onclick="openTicket(${t.id},'${siteId}')"
+               style="padding:12px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s">
+            <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px">
+              <span style="font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;background:${
+                t.status === 'open' ? 'rgba(96,165,250,0.2)' :
+                t.status === 'in_progress' ? 'rgba(251,191,36,0.2)' :
+                t.status === 'resolved' ? 'rgba(52,211,153,0.2)' : 'rgba(156,163,175,0.15)'
+              };color:${
+                t.status === 'open' ? '#60a5fa' :
+                t.status === 'in_progress' ? '#fbbf24' :
+                t.status === 'resolved' ? '#34d399' : '#9ca3af'
+              }">${{open:'Offen',in_progress:'Bearbeitung',resolved:'Gelöst',closed:'Geschlossen'}[t.status] || t.status}</span>
+              <span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">#${t.id}</span>
+              ${t.status === 'open' ? '<span style="width:6px;height:6px;border-radius:50%;background:#60a5fa;flex-shrink:0"></span>' : ''}
+            </div>
+            <div style="font-weight:700;font-size:12px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.subject)}</div>
+            <div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.name || t.email || 'Anonym')}</div>
+            <div class="mono" style="font-size:10px;color:var(--text3);margin-top:2px">${fmtDate(t.created_at)}</div>
+          </div>
+        `).join('')}
+      </div>
+
+      <!-- Chat area -->
+      <div id="ticket-chat" style="flex:1;display:flex;flex-direction:column;background:var(--bg);min-width:0">
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text3)">
+          <div style="text-align:center">
+            <div style="font-size:36px;margin-bottom:10px">📬</div>
+            <div style="font-size:13px">Ticket auswählen um die Konversation zu sehen</div>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
 }
 
-function supportTable(tickets, siteId) {
-  return `<table class="data-table">
-    <thead><tr><th>#</th><th>Betreff</th><th>Von</th><th>Status</th><th>Priorität</th><th>Datum</th><th>Aktion</th></tr></thead>
-    <tbody>${tickets.map(t => `
-      <tr>
-        <td class="mono">${t.id}</td>
-        <td style="max-width:200px">
-          <div style="font-weight:600">${esc(t.subject)}</div>
-          <div class="mono" style="color:var(--text3)">${esc(t.message || '').slice(0, 60)}…</div>
-        </td>
-        <td>
-          <div style="font-size:12px">${esc(t.name || '–')}</div>
-          <div class="mono" style="color:var(--text3)">${esc(t.email || '')}</div>
-        </td>
-        <td><span class="badge ${t.status}">${t.status}</span></td>
-        <td><span class="badge ${t.priority === 'urgent' ? 'urgent' : t.priority === 'high' ? 'in_progress' : 'draft'}">${t.priority}</span></td>
-        <td class="mono" style="color:var(--text3)">${fmtDate(t.created_at)}</td>
-        <td>
-          <select onchange="updateTicket(${t.id},'status',this.value,'${siteId}')"
-                  style="padding:4px 8px;font-size:11px;width:auto">
-            ${['open','in_progress','resolved','closed'].map(s =>
-              `<option value="${s}"${t.status === s ? ' selected' : ''}>${s}</option>`
-            ).join('')}
-          </select>
-        </td>
-      </tr>
-    `).join('')}</tbody>
-  </table>`;
+async function openTicket(ticketId, siteId) {
+  // Highlight selected
+  document.querySelectorAll('.ticket-item').forEach(el => el.style.background = '');
+  const ti = document.getElementById(`ti-${ticketId}`);
+  if (ti) ti.style.background = 'rgba(255,255,255,0.06)';
+
+  const chat = document.getElementById('ticket-chat');
+  chat.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">Lädt…</div>`;
+
+  const [allTickets, messages] = await Promise.all([
+    api(`/api/support?site_id=${siteId}`),
+    api(`/api/support/${ticketId}/messages`),
+  ]);
+  const ticket = allTickets?.find(t => t.id === ticketId);
+
+  if (!ticket || !messages) { chat.innerHTML = errState(); return; }
+
+  const statusLabels = { open:'Offen', in_progress:'In Bearbeitung', resolved:'Gelöst', closed:'Geschlossen' };
+
+  chat.innerHTML = `
+    <!-- Chat header -->
+    <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:12px;flex-shrink:0;background:var(--surface)">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;font-size:13px;margin-bottom:2px">${esc(ticket.subject)}</div>
+        <div style="font-size:11px;color:var(--text3);display:flex;flex-wrap:wrap;gap:8px">
+          <span>👤 ${esc(ticket.name || 'Anonym')}${ticket.email ? ` &lt;${esc(ticket.email)}&gt;` : ''}</span>
+          <span>· User-ID: <span class="mono">${esc(ticket.user_id || '–')}</span></span>
+          <span>· ${fmtDate(ticket.created_at)}</span>
+        </div>
+      </div>
+      <select onchange="updateTicketStatus(${ticketId},'${siteId}',this.value)"
+              style="padding:5px 10px;font-size:11px;width:auto;flex-shrink:0;border-radius:6px">
+        ${Object.entries(statusLabels).map(([v,l]) =>
+          `<option value="${v}"${ticket.status === v ? ' selected' : ''}>${l}</option>`
+        ).join('')}
+      </select>
+    </div>
+
+    <!-- Messages -->
+    <div id="chat-msgs-${ticketId}" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px">
+      ${messages.length ? messages.map(m => chatBubble(m)).join('') : `<div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Keine Nachrichten</div>`}
+    </div>
+
+    <!-- Reply box -->
+    <div style="padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0;background:var(--surface)">
+      <div style="display:flex;gap:8px">
+        <textarea id="reply-input-${ticketId}" placeholder="Antwort schreiben… (Strg+Enter zum Senden)" rows="2"
+          style="flex:1;resize:none;padding:8px 12px;font-size:12px;border-radius:8px;background:var(--bg);border:1px solid var(--border);color:var(--text1);outline:none"
+          onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){sendAdminReply(${ticketId},'${siteId}')}"
+        ></textarea>
+        <button class="btn btn-primary" style="align-self:flex-end;padding:8px 16px" onclick="sendAdminReply(${ticketId},'${siteId}')">
+          ➤ Senden
+        </button>
+      </div>
+    </div>
+  `;
+
+  const msgs = document.getElementById(`chat-msgs-${ticketId}`);
+  if (msgs) msgs.scrollTop = msgs.scrollHeight;
 }
 
-async function submitSupport(siteId) {
-  const data = {
-    site_id: siteId,
-    name:     document.getElementById('s-name')?.value,
-    email:    document.getElementById('s-email')?.value,
-    subject:  document.getElementById('s-subject')?.value,
-    message:  document.getElementById('s-msg')?.value,
-    priority: document.getElementById('s-prio')?.value,
-  };
-  if (!data.subject || !data.message) { alert('Betreff und Nachricht sind erforderlich'); return; }
-  await api('/api/support', { method: 'POST', body: data });
-  reloadPanel(siteId, 'support');
+function chatBubble(m) {
+  const isAdmin = m.sender === 'admin';
+  return `
+    <div style="display:flex;flex-direction:column;align-items:${isAdmin ? 'flex-end' : 'flex-start'}">
+      <div style="
+        max-width:78%;padding:8px 13px;
+        border-radius:${isAdmin ? '14px 14px 4px 14px' : '14px 14px 14px 4px'};
+        background:${isAdmin ? 'var(--accent, #7c3aed)' : 'var(--surface)'};
+        color:${isAdmin ? '#fff' : 'var(--text1)'};
+        font-size:12px;line-height:1.55;
+        border:1px solid ${isAdmin ? 'transparent' : 'var(--border)'};
+        word-break:break-word;
+      ">${esc(m.message).replace(/\n/g,'<br>')}</div>
+      <div style="font-size:10px;color:var(--text3);margin-top:3px;padding:0 4px">
+        ${isAdmin ? '🔧 Du' : '👤 User'} · ${fmtDate(m.created_at)}
+      </div>
+    </div>
+  `;
+}
+
+async function sendAdminReply(ticketId, siteId) {
+  const input = document.getElementById(`reply-input-${ticketId}`);
+  const message = input?.value?.trim();
+  if (!message) return;
+  const btn = input.closest('div').querySelector('button');
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  input.value = '';
+
+  const res = await api(`/api/support/${ticketId}/messages`, { method: 'POST', body: { message } });
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '➤ Senden'; }
+  if (res?.success) {
+    const msgs = document.getElementById(`chat-msgs-${ticketId}`);
+    if (msgs) {
+      const div = document.createElement('div');
+      div.innerHTML = chatBubble({ sender: 'admin', message, created_at: new Date().toISOString() });
+      msgs.appendChild(div.firstElementChild);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+    // Update status badge in sidebar to in_progress if was open
+    const ti = document.getElementById(`ti-${ticketId}`);
+    if (ti && ti.dataset.status === 'open') {
+      ti.dataset.status = 'in_progress';
+      const statusSpan = ti.querySelector('span');
+      if (statusSpan) { statusSpan.textContent = 'Bearbeitung'; statusSpan.style.color = '#fbbf24'; }
+    }
+  }
+}
+
+async function updateTicketStatus(ticketId, siteId, status) {
+  await api(`/api/support/${ticketId}`, { method: 'PATCH', body: { status } });
+  const ti = document.getElementById(`ti-${ticketId}`);
+  if (ti) {
+    ti.dataset.status = status;
+    const span = ti.querySelector('span[style*="font-size:9px"]');
+    const labels = {open:'Offen',in_progress:'Bearbeitung',resolved:'Gelöst',closed:'Geschlossen'};
+    if (span) span.textContent = labels[status] || status;
+  }
+}
+
+function filterSupportList() {
+  const val = document.getElementById('support-filter')?.value;
+  document.querySelectorAll('.ticket-item').forEach(el => {
+    el.style.display = (!val || el.dataset.status === val) ? '' : 'none';
+  });
 }
 
 async function updateTicket(id, field, value, siteId) {
@@ -96,9 +208,12 @@ async function updateTicket(id, field, value, siteId) {
 async function renderChangelog(siteId, panel) {
   const entries = await api(`/api/changelog?site_id=${siteId}`);
   if (!entries) { panel.innerHTML = errState(); return; }
+
+  const pubCount = entries.filter(e => e.published).length;
+
   panel.innerHTML = `
     <div class="form-card">
-      <div class="form-card-title">Neuer Eintrag</div>
+      <div class="form-card-title">📋 Neuer Eintrag</div>
       <div class="form-row">
         <div class="form-group"><label>Version</label>
           <input id="cl-ver" placeholder="v1.2.0"></div>
@@ -107,6 +222,7 @@ async function renderChangelog(siteId, panel) {
             <option value="feature">✨ Feature</option>
             <option value="fix">🐛 Fix</option>
             <option value="improvement">⚡ Improvement</option>
+            <option value="security">🔒 Security</option>
             <option value="breaking">💥 Breaking</option>
           </select></div>
       </div>
@@ -116,48 +232,75 @@ async function renderChangelog(siteId, panel) {
       </div>
       <div class="form-row">
         <div class="form-group form-full"><label>Beschreibung</label>
-          <textarea id="cl-desc" placeholder="Details…"></textarea></div>
+          <textarea id="cl-desc" placeholder="Details zum Release…" style="min-height:80px"></textarea></div>
       </div>
       <div class="flex gap-8" style="align-items:center">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text2)">
-          <input type="checkbox" id="cl-pub"> Direkt veröffentlichen
+          <input type="checkbox" id="cl-pub"> Direkt auf Website veröffentlichen
         </label>
         <button class="btn btn-primary" onclick="submitChangelog('${siteId}')">Erstellen</button>
       </div>
     </div>
-    <div class="mt-16">
-      ${entries.length ? changelogList(entries, siteId) : emptyState('Keine Einträge')}
+
+    <div class="actions-bar" style="margin-top:16px">
+      <div style="font-size:13px;font-weight:700">
+        Einträge (${entries.length})
+        <span style="color:var(--text3);font-weight:400;margin-left:8px">${pubCount} veröffentlicht</span>
+      </div>
+      <div class="flex-1"></div>
+      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','changelog')">&#8635; Aktualisieren</button>
+    </div>
+
+    <div style="margin-top:8px">
+      ${entries.length ? changelogList(entries, siteId) : emptyState('Keine Einträge – erstelle den ersten Changelog-Eintrag!')}
     </div>
   `;
 }
 
 function changelogList(entries, siteId) {
-  const typeIcon = { feature: '✨', fix: '🐛', improvement: '⚡', breaking: '💥' };
+  const typeIcon = { feature: '✨', fix: '🐛', improvement: '⚡', breaking: '💥', security: '🔒' };
   return `<div style="display:flex;flex-direction:column;gap:8px">
     ${entries.map(e => `
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px">
-        <span style="font-size:18px;flex-shrink:0">${typeIcon[e.type] || '📋'}</span>
-        <div style="flex:1">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span class="mono" style="color:var(--accent2)">${esc(e.version)}</span>
+      <div style="background:var(--surface);border:1px solid ${e.published ? 'rgba(52,211,153,0.25)' : 'var(--border)'};border-radius:10px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px">
+        <span style="font-size:20px;flex-shrink:0;margin-top:1px">${typeIcon[e.type] || '📋'}</span>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+            <span class="mono" style="color:var(--accent2);font-weight:700">${esc(e.version)}</span>
             <span style="font-weight:700;font-size:13px">${esc(e.title)}</span>
-            <span class="badge ${e.published ? 'published' : 'draft'}">${e.published ? 'Veröffentlicht' : 'Draft'}</span>
+            <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;background:${
+              e.published ? 'rgba(52,211,153,0.15)' : 'rgba(156,163,175,0.12)'
+            };color:${e.published ? '#34d399' : '#9ca3af'};border:1px solid ${
+              e.published ? 'rgba(52,211,153,0.3)' : 'rgba(156,163,175,0.2)'
+            }">
+              ${e.published ? '🌐 Live auf Website' : '📝 Draft'}
+            </span>
           </div>
-          ${e.description ? `<div style="font-size:12px;color:var(--text2);margin-top:4px">${esc(e.description)}</div>` : ''}
-          <div class="mono" style="color:var(--text3);margin-top:4px">${fmtDate(e.created_at)}</div>
+          ${e.description ? `<div style="font-size:12px;color:var(--text2);line-height:1.5">${esc(e.description)}</div>` : ''}
+          <div class="mono" style="color:var(--text3);font-size:10px;margin-top:4px">${fmtDate(e.created_at)}</div>
         </div>
-        <button class="btn btn-danger btn-sm" onclick="deleteChangelog(${e.id},'${siteId}')">✕</button>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-ghost btn-sm" style="font-size:11px"
+            onclick="toggleChangelogPublish(${e.id},${e.published ? 0 : 1},'${siteId}')">
+            ${e.published ? '⬇ Depublish' : '🌐 Veröffentlichen'}
+          </button>
+          <button class="btn btn-danger btn-sm" onclick="deleteChangelog(${e.id},'${siteId}')">✕</button>
+        </div>
       </div>
     `).join('')}
   </div>`;
 }
 
+async function toggleChangelogPublish(id, publish, siteId) {
+  await api(`/api/changelog/${id}`, { method: 'PATCH', body: { published: !!publish } });
+  reloadPanel(siteId, 'changelog');
+}
+
 async function submitChangelog(siteId) {
   const data = {
     site_id:     siteId,
-    version:     document.getElementById('cl-ver')?.value,
-    title:       document.getElementById('cl-title')?.value,
-    description: document.getElementById('cl-desc')?.value,
+    version:     document.getElementById('cl-ver')?.value?.trim(),
+    title:       document.getElementById('cl-title')?.value?.trim(),
+    description: document.getElementById('cl-desc')?.value?.trim(),
     type:        document.getElementById('cl-type')?.value,
     published:   document.getElementById('cl-pub')?.checked,
   };
@@ -529,7 +672,6 @@ async function renderWortDesTages(siteId, panel) {
   const entries = await api('/api/daily-words');
   if (!entries) { panel.innerHTML = errState(); return; }
 
-  // Build table grouped by date
   const byDate = {};
   entries.forEach(e => {
     byDate[e.date] = byDate[e.date] || {};
@@ -718,7 +860,6 @@ function loadTabContent(siteId, tabName) {
   const key = `${siteId}:${tabName}`;
   const panel = document.getElementById(`tab-${tabName}`);
   if (!panel) return;
-  // Already loaded and not a reload
   if (_loadedTabs.has(key) && !panel.dataset.reload) return;
   _loadedTabs.add(key);
   delete panel.dataset.reload;
@@ -752,13 +893,11 @@ function initSitePage(siteId, firstTab) {
   injectLoginScreen();
   checkAuth(() => {
     initLayout(siteId);
-    // Load first tab + background tabs
     loadTabContent(siteId, firstTab);
     loadTabContent(siteId, 'errors');
     loadTabContent(siteId, 'notifications');
   });
 
-  // Wire login button since it's injected dynamically
   window.initAfterLogin = () => {
     initLayout(siteId);
     loadTabContent(siteId, firstTab);
