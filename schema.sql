@@ -131,6 +131,28 @@ CREATE TABLE IF NOT EXISTS error_logs (
   FOREIGN KEY (site_id) REFERENCES sites(id)
 );
 
+-- Daily Words (Wort des Tages - dashboard-managed)
+CREATE TABLE IF NOT EXISTS daily_words (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  site_id TEXT NOT NULL DEFAULT 'wordify',
+  date TEXT NOT NULL,        -- YYYY-MM-DD
+  language TEXT NOT NULL,    -- de, en, es, fr, it
+  word TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(date, language)
+);
+
+-- Contact Messages (from game users)
+CREATE TABLE IF NOT EXISTS contact_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  site_id TEXT NOT NULL DEFAULT 'wordify',
+  name TEXT,
+  message TEXT NOT NULL,
+  language TEXT DEFAULT 'de',
+  read INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Site Stats (daily snapshots)
 CREATE TABLE IF NOT EXISTS site_stats (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

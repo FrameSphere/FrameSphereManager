@@ -69,6 +69,46 @@ async function handleRequest(request, env) {
     return json({ token, expires_in: 3600 });
   }
 
+  // ── Public endpoints (no auth) ───────────────────────────
+  // POST /api/words - public word requests from game sites (no login needed)
+  if (request.method === 'POST' && path === '/api/words') {
+    const db = env.DB;
+    const body = await request.json().catch(() => ({}));
+    const { word, language, requester_email } = body;
+    // requested_at from client is informational only; DB uses created_at (auto timestamp)
+    if (!word) return err('Missing word');
+    await db.prepare('INSERT INTO word_requests (word, language, requester_email) VALUES (?,?,?)')
+      .bind(word, language || 'de', requester_email || null).run();
+    // Fire notification
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind('wordify', 'info', `Wort-Anfrage: ${word}`, `Sprache: ${language || 'de'}`).run();
+    return json({ success: true });
+  }
+
+  // ── GET /api/daily-word ── public (Wordify fetches today’s word) ───
+  if (request.method === 'GET' && path === '/api/daily-word') {
+    const db = env.DB;
+    const lang = url.searchParams.get('lang') || 'de';
+    const date = url.searchParams.get('date') || new Date().toISOString().slice(0, 10);
+    const row = await db.prepare('SELECT word FROM daily_words WHERE date=? AND language=?')
+      .bind(date, lang).first();
+    return json({ word: row ? row.word.toUpperCase() : null, date, lang });
+  }
+
+  // ── POST /api/contact ── public (Wordify contact form) ─────────
+  if (request.method === 'POST' && path === '/api/contact') {
+    const db = env.DB;
+    const body = await request.json().catch(() => ({}));
+    const { name, message, language } = body;
+    if (!message || message.trim().length < 5)  return err('Nachricht zu kurz (min. 5 Zeichen)');
+    if (message.length > 1000) return err('Nachricht zu lang (max 1000 Zeichen)');
+    await db.prepare('INSERT INTO contact_messages (name, message, language) VALUES (?,?,?)')
+      .bind((name || 'Anonym').slice(0, 60), message.trim(), language || 'de').run();
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind('wordify', 'info', `Nachricht: ${(name || 'Anonym').slice(0, 30)}`, message.trim().slice(0, 80)).run();
+    return json({ success: true });
+  }
+
   // ── Auth guard (all other /api routes) ────────────────────
   const authed = await verifyAuth(request, env);
   if (!authed) {
@@ -350,6 +390,46 @@ async function handleRequest(request, env) {
     await db.prepare(
       'INSERT INTO analytics_events (site_id, event_type, path, referrer, user_agent, country) VALUES (?,?,?,?,?,?)'
     ).bind(site_id, event_type, ePath || null, referrer || null, ua, country || null).run();
+    return json({ success: true });
+  }
+
+  // ── GET /api/daily-words ── dashboard list ───────────────────────
+  if (request.method === 'GET' && path === '/api/daily-words') {
+    const lang = url.searchParams.get('lang');
+    let q = 'SELECT * FROM daily_words WHERE 1=1';
+    const params = [];
+    if (lang) { q += ' AND language=?'; params.push(lang); }
+    q += ' ORDER BY date DESC, language ASC LIMIT 200';
+    const result = await db.prepare(q).bind(...params).all();
+    return json(result.results);
+  }
+
+  // ── POST /api/daily-words ── create or replace ────────────────────
+  if (request.method === 'POST' && path === '/api/daily-words') {
+    const body = await request.json().catch(() => ({}));
+    const { date, language, word } = body;
+    if (!date || !language || !word) return err('Missing date, language or word');
+    await db.prepare(
+      'INSERT INTO daily_words (date, language, word) VALUES (?,?,?) ON CONFLICT(date,language) DO UPDATE SET word=excluded.word'
+    ).bind(date, language, word.toUpperCase().trim()).run();
+    return json({ success: true });
+  }
+
+  // ── DELETE /api/daily-words/:id ────────────────────────────
+  if (request.method === 'DELETE' && segments[1] === 'daily-words' && segments[2]) {
+    await db.prepare('DELETE FROM daily_words WHERE id=?').bind(segments[2]).run();
+    return json({ success: true });
+  }
+
+  // ── GET /api/contact ── dashboard messages list ──────────────────
+  if (request.method === 'GET' && path === '/api/contact') {
+    const result = await db.prepare('SELECT * FROM contact_messages ORDER BY created_at DESC LIMIT 200').all();
+    return json(result.results);
+  }
+
+  // ── PATCH /api/contact/:id/read ────────────────────────────
+  if (request.method === 'PATCH' && segments[1] === 'contact' && segments[3] === 'read') {
+    await db.prepare('UPDATE contact_messages SET read=1 WHERE id=?').bind(segments[2]).run();
     return json({ success: true });
   }
 

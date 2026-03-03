@@ -516,6 +516,192 @@ async function markSiteRead(siteId) {
   loadTopbarStats();
 }
 
+// ── WORT DES TAGES (Dashboard) ───────────────────────────────
+const LANGS = [
+  { code: 'de', label: 'Deutsch 🇩🇪' },
+  { code: 'en', label: 'English 🇬🇧' },
+  { code: 'es', label: 'Español 🇪🇸' },
+  { code: 'fr', label: 'Français 🇫🇷' },
+  { code: 'it', label: 'Italiano 🇮🇹' },
+];
+
+async function renderWortDesTages(siteId, panel) {
+  const entries = await api('/api/daily-words');
+  if (!entries) { panel.innerHTML = errState(); return; }
+
+  // Build table grouped by date
+  const byDate = {};
+  entries.forEach(e => {
+    byDate[e.date] = byDate[e.date] || {};
+    byDate[e.date][e.language] = { word: e.word, id: e.id };
+  });
+  const dates = Object.keys(byDate).sort().reverse().slice(0, 60);
+
+  panel.innerHTML = `
+    <div class="form-card">
+      <div class="form-card-title">📅 Wort des Tages eintragen</div>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:16px">
+        Du kannst mehrere Sprachen gleichzeitig für ein Datum setzen. Das Wort wird automatisch in Großbuchstaben gespeichert.
+      </p>
+      <div class="form-row">
+        <div class="form-group"><label>Datum</label>
+          <input type="date" id="wdt-date" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="form-group"><label>Sprache</label>
+          <select id="wdt-lang">
+            ${LANGS.map(l => `<option value="${l.code}">${l.label}</option>`).join('')}
+          </select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group form-full"><label>Wort (5 Buchstaben)</label>
+          <input id="wdt-word" placeholder="HALLO" maxlength="5"
+            oninput="this.value=this.value.toUpperCase()"
+            style="font-family:'Space Mono',monospace;font-size:18px;letter-spacing:0.15em"></div>
+      </div>
+      <div class="flex gap-8" style="align-items:center;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="saveWdt()">Eintragen</button>
+        <button class="btn btn-ghost btn-sm" onclick="bulkWdtOpen()">+ Mehrere auf einmal</button>
+      </div>
+    </div>
+
+    <div id="wdt-bulk-box" style="display:none" class="form-card mt-16">
+      <div class="form-card-title">Mehrere Einträge (eine Zeile pro Eintrag)</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px;font-family:'Space Mono',monospace">
+        Format: JJJJ-MM-TT SPRACHE WORT &nbsp;→&nbsp; z.B. 2026-03-05 de HALLO
+      </div>
+      <textarea id="wdt-bulk-text" style="min-height:120px;font-family:'Space Mono',monospace;font-size:12px"
+        placeholder="2026-03-05 de HALLO\n2026-03-05 en HELLO\n2026-03-06 de SUPER"></textarea>
+      <div class="flex gap-8 mt-8">
+        <button class="btn btn-primary" onclick="saveBulkWdt()">Alle speichern</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('wdt-bulk-box').style.display='none'">Abbrechen</button>
+      </div>
+    </div>
+
+    <div class="mt-16">
+      <div class="actions-bar">
+        <div style="font-size:13px;font-weight:700">Eingestellte Wörter (${entries.length})</div>
+        <div class="flex-1"></div>
+        <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','wortdestages')">&#8635; Aktualisieren</button>
+      </div>
+      ${dates.length ? wdtTable(byDate, dates, siteId) : emptyState('Noch keine Wörter eingetragen')}
+    </div>
+  `;
+}
+
+function wdtTable(byDate, dates, siteId) {
+  return `
+    <div style="overflow-x:auto">
+    <table class="data-table">
+      <thead><tr>
+        <th>Datum</th>
+        ${LANGS.map(l => `<th>${l.label}</th>`).join('')}
+        <th>Aktionen</th>
+      </tr></thead>
+      <tbody>
+        ${dates.map(date => `
+          <tr>
+            <td class="mono" style="color:var(--accent2);font-weight:700">${date}</td>
+            ${LANGS.map(l => {
+              const e = byDate[date][l.code];
+              return `<td>${e
+                ? `<span style="font-family:'Space Mono',monospace;font-weight:700;letter-spacing:0.1em">${esc(e.word)}</span>`
+                : `<span style="color:var(--text3)">–</span>`
+              }</td>`;
+            }).join('')}
+            <td>
+              <button class="btn btn-danger btn-sm" onclick="deleteWdtDate('${date}',${JSON.stringify(Object.values(byDate[date]).map(e=>e.id)).replace(/"/g,"'")})">× Löschen</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    </div>
+  `;
+}
+
+function bulkWdtOpen() {
+  const box = document.getElementById('wdt-bulk-box');
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+
+async function saveWdt() {
+  const date = document.getElementById('wdt-date').value;
+  const lang = document.getElementById('wdt-lang').value;
+  const word = document.getElementById('wdt-word').value.trim().toUpperCase();
+  if (!date) { alert('Datum fehlt'); return; }
+  if (word.length !== 5) { alert('Wort muss genau 5 Buchstaben haben'); return; }
+  await api('/api/daily-words', { method: 'POST', body: { date, language: lang, word } });
+  document.getElementById('wdt-word').value = '';
+  reloadPanel('wordify', 'wortdestages');
+}
+
+async function saveBulkWdt() {
+  const lines = document.getElementById('wdt-bulk-text').value.trim().split('\n');
+  const rows = lines.map(l => l.trim()).filter(Boolean).map(l => {
+    const parts = l.split(/\s+/);
+    return { date: parts[0], language: parts[1], word: (parts[2] || '').toUpperCase() };
+  }).filter(r => r.date && r.language && r.word.length === 5);
+  if (!rows.length) { alert('Keine gültigen Einträge gefunden'); return; }
+  for (const r of rows) {
+    await api('/api/daily-words', { method: 'POST', body: r });
+  }
+  document.getElementById('wdt-bulk-text').value = '';
+  document.getElementById('wdt-bulk-box').style.display = 'none';
+  reloadPanel('wordify', 'wortdestages');
+}
+
+async function deleteWdtDate(date, ids) {
+  if (!confirm(`Alle Wörter für ${date} löschen?`)) return;
+  for (const id of ids) {
+    await api(`/api/daily-words/${id}`, { method: 'DELETE' });
+  }
+  reloadPanel('wordify', 'wortdestages');
+}
+
+// ── KONTAKT NACHRICHTEN (Dashboard) ───────────────────────────
+async function renderKontakt(siteId, panel) {
+  const msgs = await api('/api/contact');
+  if (!msgs) { panel.innerHTML = errState(); return; }
+  const unread = msgs.filter(m => !m.read).length;
+
+  panel.innerHTML = `
+    <div class="actions-bar">
+      <div style="font-size:13px;font-weight:700">
+        Nachrichten (${msgs.length})
+        ${unread > 0 ? `<span class="nav-badge" style="margin-left:8px">${unread} neu</span>` : ''}
+      </div>
+      <div class="flex-1"></div>
+      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','kontakt')">&#8635; Aktualisieren</button>
+    </div>
+    ${msgs.length ? kontaktTable(msgs, siteId) : emptyState('Keine Nachrichten')}
+  `;
+}
+
+function kontaktTable(msgs, siteId) {
+  const langFlag = { de: '🇩🇪', en: '🇬🇧', es: '🇪🇸', fr: '🇫🇷', it: '🇮🇹' };
+  return `<div style="display:flex;flex-direction:column;gap:8px">
+    ${msgs.map(m => `
+      <div style="background:var(--surface);border:1px solid ${m.read ? 'var(--border)' : 'rgba(96,165,250,0.3)'};border-radius:10px;padding:14px 16px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <span style="font-size:18px">${langFlag[m.language] || '🌐'}</span>
+          <span style="font-weight:700;font-size:13px">${esc(m.name || 'Anonym')}</span>
+          ${!m.read ? '<span class="badge open" style="font-size:9px">NEU</span>' : ''}
+          <span class="mono" style="color:var(--text3);margin-left:auto">${fmtDate(m.created_at)}</span>
+        </div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.5;white-space:pre-wrap">${esc(m.message)}</div>
+        ${!m.read ? `
+          <div style="margin-top:10px">
+            <button class="btn btn-ghost btn-sm" onclick="markContactRead(${m.id},'${siteId}',this)">✓ Als gelesen markieren</button>
+          </div>` : ''}
+      </div>`).join('')}
+  </div>`;
+}
+
+async function markContactRead(id, siteId, btn) {
+  await api(`/api/contact/${id}/read`, { method: 'PATCH' });
+  reloadPanel(siteId, 'kontakt');
+  loadTopbarStats();
+}
+
 // ── Tab Switcher (shared by all site pages) ───────────────────────
 function showTab(siteId, tabName, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -545,6 +731,8 @@ function loadTabContent(siteId, tabName) {
     case 'wortanfragen':  renderWordRequests(siteId, panel);  break;
     case 'vorschläge':    renderSuggestions(siteId, panel);   break;
     case 'analytics':     renderAnalytics(siteId, panel);     break;
+    case 'wortdestages':  renderWortDesTages(siteId, panel);  break;
+    case 'kontakt':       renderKontakt(siteId, panel);       break;
     case 'daten':         renderDaten(siteId, panel);         break;
     case 'errors':        renderErrors(siteId, panel);        break;
     case 'notifications': renderNotifications(siteId, panel); break;
