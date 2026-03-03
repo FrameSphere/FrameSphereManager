@@ -157,18 +157,19 @@ async function handleRequest(request, env) {
     return json({ word: row ? row.word.toUpperCase() : null, date, lang });
   }
 
-  // POST /api/contact ── public (Wordify contact form)
+  // POST /api/contact ── public (multi-site contact form)
   if (request.method === 'POST' && path === '/api/contact') {
     const db = env.DB;
     await ensureTables(db);
     const body = await request.json().catch(() => ({}));
-    const { name, message, language } = body;
+    const { site_id, name, message, language } = body;
+    const siteId = (site_id || 'wordify').slice(0, 30);
     if (!message || message.trim().length < 5) return err('Nachricht zu kurz (min. 5 Zeichen)');
     if (message.length > 1000) return err('Nachricht zu lang (max 1000 Zeichen)');
-    await db.prepare('INSERT INTO contact_messages (name, message, language) VALUES (?,?,?)')
-      .bind((name || 'Anonym').slice(0, 60), message.trim(), language || 'de').run();
+    await db.prepare('INSERT INTO contact_messages (site_id, name, message, language) VALUES (?,?,?,?)')
+      .bind(siteId, (name || 'Anonym').slice(0, 60), message.trim(), language || 'de').run();
     await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
-      .bind('wordify', 'info', `Nachricht: ${(name || 'Anonym').slice(0, 30)}`, message.trim().slice(0, 80)).run();
+      .bind(siteId, 'info', `✉️ Nachricht: ${(name || 'Anonym').slice(0, 30)}`, message.trim().slice(0, 80)).run();
     return json({ success: true });
   }
 
@@ -544,10 +545,15 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // ── GET /api/contact ── dashboard messages list ──────────────────
+  // ── GET /api/contact ── dashboard messages list (filterable by site_id) ──
   if (request.method === 'GET' && path === '/api/contact') {
     await ensureTables(db);
-    const result = await db.prepare('SELECT * FROM contact_messages ORDER BY created_at DESC LIMIT 200').all();
+    const siteId = url.searchParams.get('site_id');
+    let q = 'SELECT * FROM contact_messages WHERE 1=1';
+    const params = [];
+    if (siteId) { q += ' AND site_id=?'; params.push(siteId); }
+    q += ' ORDER BY created_at DESC LIMIT 200';
+    const result = await db.prepare(q).bind(...params).all();
     return json(result.results);
   }
 

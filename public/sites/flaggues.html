@@ -14,7 +14,7 @@
       <div class="flex items-center gap-12">
         <span style="font-size:22px">🚩</span>
         <div>
-          <div class="page-title">Flaggues</div>
+          <div class="page-title">FlagGuess</div>
           <div class="page-sub">
             <a href="https://flaggues.pages.dev" target="_blank"
                style="color:var(--text3);text-decoration:none">flaggues.pages.dev</a>
@@ -24,13 +24,15 @@
     </div>
 
     <div class="site-tabs">
-      <button class="tab-btn active" onclick="showTab('flaggues','daten',this)">📊 Daten</button>
+      <button class="tab-btn active" onclick="showTab('flaggues','kontakt',this)">✉️ Kontakt</button>
+      <button class="tab-btn"        onclick="showTab('flaggues','daten',this)">📊 Daten</button>
       <button class="tab-btn"        onclick="showTab('flaggues','errors',this)">⚠ Errors</button>
       <button class="tab-btn"        onclick="showTab('flaggues','notifications',this)">🔔 Notifs</button>
     </div>
 
     <div class="tab-content-area">
-      <div id="tab-daten"         class="tab-panel active"></div>
+      <div id="tab-kontakt"       class="tab-panel active"></div>
+      <div id="tab-daten"         class="tab-panel"></div>
       <div id="tab-errors"        class="tab-panel"></div>
       <div id="tab-notifications" class="tab-panel"></div>
     </div>
@@ -43,6 +45,6 @@
 <script src="../js/auth.js"></script>
 <script src="../js/layout.js"></script>
 <script src="../js/components.js"></script>
-<script>initSitePage('flaggues', 'daten');</script>
+<script>initSitePage('flaggues', 'kontakt');</script>
 </body>
 </html>
