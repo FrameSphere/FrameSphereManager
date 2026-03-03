@@ -33,6 +33,7 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Site-Id, X-Auth-Token',
+  'Access-Control-Allow-Credentials': 'false',
 };
 
 function json(data, status = 200) {
