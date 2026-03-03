@@ -128,6 +128,8 @@ async function handleRequest(request, env) {
       stack ? String(stack).slice(0, 2000) : null,
       ePath || null
     ).run();
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind(site_id, 'error', `🚨 ${error_type}`, String(message).slice(0, 120)).run();
     return json({ success: true });
   }
 
