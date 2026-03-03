@@ -23,6 +23,11 @@ async function api(path, opts = {}) {
       location.reload();
       return null;
     }
+    if (!r.ok) {
+      const errBody = await r.json().catch(() => ({}));
+      console.error('API error', r.status, errBody);
+      return null;
+    }
     return await r.json();
   } catch (e) {
     console.error('API error:', e);

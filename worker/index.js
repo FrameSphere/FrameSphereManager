@@ -50,6 +50,29 @@ function err(msg, status = 400) {
   return json({ error: msg }, status);
 }
 
+async function ensureTables(db) {
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS daily_words (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      site_id TEXT NOT NULL DEFAULT 'wordify',
+      date TEXT NOT NULL,
+      language TEXT NOT NULL,
+      word TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(date, language)
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS contact_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      site_id TEXT NOT NULL DEFAULT 'wordify',
+      name TEXT,
+      message TEXT NOT NULL,
+      language TEXT DEFAULT 'de',
+      read INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`),
+  ]);
+}
+
 async function handleRequest(request, env) {
   if (request.method === 'OPTIONS') return new Response(null, { headers: CORS_HEADERS });
 
@@ -89,6 +112,7 @@ async function handleRequest(request, env) {
   // ── GET /api/daily-word ── public (Wordify fetches today’s word) ───
   if (request.method === 'GET' && path === '/api/daily-word') {
     const db = env.DB;
+    await ensureTables(db);
     const lang = url.searchParams.get('lang') || 'de';
     const date = url.searchParams.get('date') || new Date().toISOString().slice(0, 10);
     const row = await db.prepare('SELECT word FROM daily_words WHERE date=? AND language=?')
@@ -99,6 +123,7 @@ async function handleRequest(request, env) {
   // ── POST /api/contact ── public (Wordify contact form) ─────────
   if (request.method === 'POST' && path === '/api/contact') {
     const db = env.DB;
+    await ensureTables(db);
     const body = await request.json().catch(() => ({}));
     const { name, message, language } = body;
     if (!message || message.trim().length < 5)  return err('Nachricht zu kurz (min. 5 Zeichen)');
@@ -479,6 +504,7 @@ async function handleRequest(request, env) {
 
   // ── GET /api/daily-words ── dashboard list ───────────────────────
   if (request.method === 'GET' && path === '/api/daily-words') {
+    await ensureTables(db);
     const lang = url.searchParams.get('lang');
     let q = 'SELECT * FROM daily_words WHERE 1=1';
     const params = [];
@@ -507,6 +533,7 @@ async function handleRequest(request, env) {
 
   // ── GET /api/contact ── dashboard messages list ──────────────────
   if (request.method === 'GET' && path === '/api/contact') {
+    await ensureTables(db);
     const result = await db.prepare('SELECT * FROM contact_messages ORDER BY created_at DESC LIMIT 200').all();
     return json(result.results);
   }
