@@ -14,10 +14,6 @@ async function generateToken(secret) {
 async function verifyAuth(request, env) {
   const token = request.headers.get('X-Auth-Token');
   if (!token) return false;
-  // Token format: HMAC(password+timestamp)
-  // Simple approach: store valid tokens in KV or validate with password hash
-  // We use a stateless approach: token = SHA256(PASSWORD + DATE_HOUR)
-  // Valid for current and previous hour (handles hour boundary)
   const pass = env.DASHBOARD_PASSWORD || 'changeme';
   const now = Date.now();
   for (const offset of [0, -1, -2]) {
@@ -50,6 +46,22 @@ function err(msg, status = 400) {
   return json({ error: msg }, status);
 }
 
+// ── Auto-create error_logs table if missing ───────────────────────
+async function ensureErrorTable(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS error_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id TEXT NOT NULL,
+    error_type TEXT NOT NULL,
+    message TEXT NOT NULL,
+    stack TEXT,
+    path TEXT,
+    status_code INTEGER,
+    resolved INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`).run();
+}
+
+// ── Auto-create daily_words + contact_messages tables ────────────
 async function ensureTables(db) {
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS daily_words (
@@ -87,29 +99,51 @@ async function handleRequest(request, env) {
     if (!body.password || body.password !== pass) {
       return json({ error: 'Falsches Passwort' }, 401);
     }
-    // Generate stateless token: SHA256(password + current hour slot)
     const hourSlot = Math.floor(Date.now() / 3600000).toString();
     const token = await sha256(pass + ':' + hourSlot);
     return json({ token, expires_in: 3600 });
   }
 
   // ── Public endpoints (no auth) ───────────────────────────
-  // POST /api/words - public word requests from game sites (no login needed)
+
+  // POST /api/errors ── Wordify error tracking (public, no auth needed)
+  if (request.method === 'POST' && path === '/api/errors') {
+    const db = env.DB;
+    await ensureErrorTable(db);
+    const body = await request.json().catch(() => ({}));
+    const { site_id, error_type, message, stack, path: ePath } = body;
+    if (!site_id || !error_type || !message) return err('Missing fields');
+    // Dedup: gleicher Fehler max. 1x pro 10 Minuten speichern
+    const dupe = await db.prepare(
+      `SELECT id FROM error_logs WHERE site_id=? AND error_type=? AND message=? AND created_at > datetime('now','-10 minutes') LIMIT 1`
+    ).bind(site_id, error_type, String(message).slice(0, 500)).first();
+    if (dupe) return json({ success: true, skipped: true });
+    await db.prepare(
+      'INSERT INTO error_logs (site_id, error_type, message, stack, path) VALUES (?,?,?,?,?)'
+    ).bind(
+      site_id,
+      error_type,
+      String(message).slice(0, 500),
+      stack ? String(stack).slice(0, 2000) : null,
+      ePath || null
+    ).run();
+    return json({ success: true });
+  }
+
+  // POST /api/words ── public word requests from game sites
   if (request.method === 'POST' && path === '/api/words') {
     const db = env.DB;
     const body = await request.json().catch(() => ({}));
     const { word, language, requester_email } = body;
-    // requested_at from client is informational only; DB uses created_at (auto timestamp)
     if (!word) return err('Missing word');
     await db.prepare('INSERT INTO word_requests (word, language, requester_email) VALUES (?,?,?)')
       .bind(word, language || 'de', requester_email || null).run();
-    // Fire notification
     await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
       .bind('wordify', 'info', `Wort-Anfrage: ${word}`, `Sprache: ${language || 'de'}`).run();
     return json({ success: true });
   }
 
-  // ── GET /api/daily-word ── public (Wordify fetches today’s word) ───
+  // GET /api/daily-word ── public (Wordify fetches today's word)
   if (request.method === 'GET' && path === '/api/daily-word') {
     const db = env.DB;
     await ensureTables(db);
@@ -120,13 +154,13 @@ async function handleRequest(request, env) {
     return json({ word: row ? row.word.toUpperCase() : null, date, lang });
   }
 
-  // ── POST /api/contact ── public (Wordify contact form) ─────────
+  // POST /api/contact ── public (Wordify contact form)
   if (request.method === 'POST' && path === '/api/contact') {
     const db = env.DB;
     await ensureTables(db);
     const body = await request.json().catch(() => ({}));
     const { name, message, language } = body;
-    if (!message || message.trim().length < 5)  return err('Nachricht zu kurz (min. 5 Zeichen)');
+    if (!message || message.trim().length < 5) return err('Nachricht zu kurz (min. 5 Zeichen)');
     if (message.length > 1000) return err('Nachricht zu lang (max 1000 Zeichen)');
     await db.prepare('INSERT INTO contact_messages (name, message, language) VALUES (?,?,?)')
       .bind((name || 'Anonym').slice(0, 60), message.trim(), language || 'de').run();
@@ -135,7 +169,7 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // ── Public: FrameTrain users submit support tickets ──────────
+  // POST /api/support/submit ── Public: FrameTrain users submit support tickets
   if (request.method === 'POST' && path === '/api/support/submit') {
     const db = env.DB;
     const body = await request.json().catch(() => ({}));
@@ -154,7 +188,7 @@ async function handleRequest(request, env) {
     return json({ success: true, ticket_id: ticketId, user_token });
   }
 
-  // ── Public: get ticket thread by user_token ──────────────────
+  // GET /api/support/:id/thread ── Public: get ticket thread by user_token
   if (request.method === 'GET' && segments[1] === 'support' && segments[2] && segments[3] === 'thread') {
     const db = env.DB;
     const ticketId = segments[2];
@@ -166,7 +200,7 @@ async function handleRequest(request, env) {
     return json({ ticket, messages: messages.results });
   }
 
-  // ── Public: user sends follow-up message ─────────────────────
+  // POST /api/support/:id/reply ── Public: user sends follow-up message
   if (request.method === 'POST' && segments[1] === 'support' && segments[2] && segments[3] === 'reply') {
     const db = env.DB;
     const ticketId = segments[2];
@@ -182,7 +216,7 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // ── Public: published changelog for frametrain website ───────
+  // GET /api/changelog/published ── Public: published changelog for frametrain website
   if (request.method === 'GET' && path === '/api/changelog/published') {
     const db = env.DB;
     const siteId = url.searchParams.get('site_id') || 'frametrain';
@@ -347,7 +381,6 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // ── DELETE /api/changelog/:id ─────────────────────────────────────
   // ── PATCH /api/changelog/:id (toggle published) ──────────────────
   if (request.method === 'PATCH' && segments[1] === 'changelog' && segments[2]) {
     const body = await request.json().catch(() => ({}));
@@ -357,6 +390,7 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
+  // ── DELETE /api/changelog/:id ─────────────────────────────────────
   if (request.method === 'DELETE' && segments[1] === 'changelog' && segments[2]) {
     await db.prepare('DELETE FROM changelog_entries WHERE id=?').bind(segments[2]).run();
     return json({ success: true });
@@ -405,16 +439,6 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // ── POST /api/words ───────────────────────────────────────────────
-  if (request.method === 'POST' && path === '/api/words') {
-    const body = await request.json();
-    const { word, language, requester_email } = body;
-    if (!word) return err('Missing word');
-    await db.prepare('INSERT INTO word_requests (word, language, requester_email) VALUES (?,?,?)')
-      .bind(word, language || 'de', requester_email || null).run();
-    return json({ success: true });
-  }
-
   // ── GET /api/suggestions ──────────────────────────────────────────
   if (request.method === 'GET' && path === '/api/suggestions') {
     const status = url.searchParams.get('status');
@@ -435,28 +459,16 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // ── GET /api/errors ───────────────────────────────────────────────
+  // ── GET /api/errors (authenticated dashboard read) ────────────────
   if (request.method === 'GET' && path === '/api/errors') {
+    await ensureErrorTable(db);
     const siteId = url.searchParams.get('site_id');
     let q = 'SELECT * FROM error_logs WHERE 1=1';
     const params = [];
     if (siteId) { q += ' AND site_id=?'; params.push(siteId); }
-    q += ' ORDER BY created_at DESC LIMIT 100';
+    q += ' ORDER BY created_at DESC LIMIT 200';
     const result = await db.prepare(q).bind(...params).all();
     return json(result.results);
-  }
-
-  // ── POST /api/errors ──────────────────────────────────────────────
-  if (request.method === 'POST' && path === '/api/errors') {
-    const body = await request.json();
-    const { site_id, error_type, message, stack, path: ePath, status_code } = body;
-    if (!site_id || !error_type || !message) return err('Missing fields');
-    await db.prepare(
-      'INSERT INTO error_logs (site_id, error_type, message, stack, path, status_code) VALUES (?,?,?,?,?,?)'
-    ).bind(site_id, error_type, message, stack || null, ePath || null, status_code || null).run();
-    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
-      .bind(site_id, 'error', `Error: ${error_type}`, message).run();
-    return json({ success: true });
   }
 
   // ── PATCH /api/errors/:id/resolve ─────────────────────────────────
@@ -470,13 +482,11 @@ async function handleRequest(request, env) {
     const siteId = url.searchParams.get('site_id');
     const days = parseInt(url.searchParams.get('days') || '7');
 
-    // Event counts by type
     let q1 = `SELECT event_type, COUNT(*) as count FROM analytics_events WHERE created_at >= datetime('now', '-${days} days')`;
     const params1 = [];
     if (siteId) { q1 += ' AND site_id=?'; params1.push(siteId); }
     q1 += ' GROUP BY event_type';
 
-    // Daily pageviews
     let q2 = `SELECT date(created_at) as day, COUNT(*) as views FROM analytics_events WHERE event_type='pageview' AND created_at >= datetime('now', '-${days} days')`;
     const params2 = [];
     if (siteId) { q2 += ' AND site_id=?'; params2.push(siteId); }
