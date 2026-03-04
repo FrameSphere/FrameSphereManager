@@ -8,7 +8,7 @@
 </head>
 <body>
 <div id="layout">
-  <div id="main">
+  <div id="main" data-site-id="ratelimit">
 
     <div class="page-header" style="border-left:3px solid #10b981;padding-left:25px">
       <div class="flex items-center gap-12">
@@ -18,25 +18,34 @@
           <div class="page-sub">
             <a href="https://ratelimit-api.pages.dev" target="_blank"
                style="color:var(--text3);text-decoration:none">ratelimit-api.pages.dev</a>
+            &nbsp;·&nbsp;
+            <a href="https://ratelimit-api.pages.dev/changelog" target="_blank"
+               style="color:var(--text3);text-decoration:none">Changelog</a>
           </div>
         </div>
+        <div class="flex-1"></div>
+        <!-- Quick stats badges updated live -->
+        <span id="rl-badge-errors"  style="display:none;font-size:11px;padding:3px 9px;border-radius:5px;background:rgba(239,68,68,.15);color:#ef4444;font-weight:700"></span>
+        <span id="rl-badge-tickets" style="display:none;font-size:11px;padding:3px 9px;border-radius:5px;background:rgba(96,165,250,.12);color:#60a5fa;font-weight:700"></span>
       </div>
     </div>
 
     <div class="site-tabs">
       <button class="tab-btn active" onclick="showTab('ratelimit','analytics',this)">📈 Analytics</button>
+      <button class="tab-btn"        onclick="showTab('ratelimit','support',this)">🎫 Support</button>
       <button class="tab-btn"        onclick="showTab('ratelimit','changelog',this)">📋 Changelog</button>
-      <button class="tab-btn"        onclick="showTab('ratelimit','daten',this)">📊 Daten</button>
-      <button class="tab-btn"        onclick="showTab('ratelimit','errors',this)">⚠ Errors</button>
+      <button class="tab-btn"        onclick="showTab('ratelimit','errors',this)" id="tab-btn-errors">⚠ Errors</button>
       <button class="tab-btn"        onclick="showTab('ratelimit','notifications',this)">🔔 Notifs</button>
+      <button class="tab-btn"        onclick="showTab('ratelimit','daten',this)">📊 Daten</button>
     </div>
 
     <div class="tab-content-area">
       <div id="tab-analytics"     class="tab-panel active"></div>
+      <div id="tab-support"       class="tab-panel"></div>
       <div id="tab-changelog"     class="tab-panel"></div>
-      <div id="tab-daten"         class="tab-panel"></div>
       <div id="tab-errors"        class="tab-panel"></div>
       <div id="tab-notifications" class="tab-panel"></div>
+      <div id="tab-daten"         class="tab-panel"></div>
     </div>
 
   </div>
@@ -47,6 +56,34 @@
 <script src="../js/auth.js"></script>
 <script src="../js/layout.js"></script>
 <script src="../js/components.js"></script>
-<script>initSitePage('ratelimit', 'analytics');</script>
+<script>
+  initSitePage('ratelimit', 'analytics');
+
+  // After auth: also show live error/ticket counts in the header
+  const _origInit = window.initAfterLogin;
+  window.initAfterLogin = function() {
+    if (_origInit) _origInit();
+    refreshRlHeaderBadges();
+    setInterval(refreshRlHeaderBadges, 60000);
+  };
+
+  async function refreshRlHeaderBadges() {
+    const [errors, tickets] = await Promise.all([
+      api('/api/errors?site_id=ratelimit'),
+      api('/api/support?site_id=ratelimit'),
+    ]);
+    const unresolved = (errors || []).filter(e => !e.resolved).length;
+    const openT      = (tickets|| []).filter(t => t.status === 'open').length;
+
+    const eb = document.getElementById('rl-badge-errors');
+    const tb = document.getElementById('rl-badge-tickets');
+    if (eb) { eb.textContent = `${unresolved} Errors`; eb.style.display = unresolved ? '' : 'none'; }
+    if (tb) { tb.textContent = `${openT} Tickets`;    tb.style.display = openT     ? '' : 'none'; }
+
+    // Highlight errors tab button if unresolved
+    const btn = document.getElementById('tab-btn-errors');
+    if (btn) btn.style.color = unresolved > 0 ? 'var(--red)' : '';
+  }
+</script>
 </body>
 </html>

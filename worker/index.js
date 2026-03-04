@@ -212,12 +212,12 @@ async function handleRequest(request, env) {
     const body = await request.json().catch(() => ({}));
     const { token, message } = body;
     if (!token || !message) return err('Token und Nachricht erforderlich');
-    const ticket = await db.prepare('SELECT id FROM support_tickets WHERE id=? AND user_token=?').bind(ticketId, token).first();
+    const ticket = await db.prepare('SELECT id, site_id FROM support_tickets WHERE id=? AND user_token=?').bind(ticketId, token).first();
     if (!ticket) return err('Ticket not found', 404);
     await db.prepare('INSERT INTO support_messages (ticket_id, sender, message) VALUES (?,?,?)').bind(ticketId, 'user', message).run();
     await db.prepare("UPDATE support_tickets SET status='in_progress', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(ticketId).run();
     await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
-      .bind('frametrain', 'info', `💬 Antwort auf Ticket #${ticketId}`, message.slice(0, 80)).run();
+      .bind(ticket.site_id || 'frametrain', 'info', `💬 Antwort auf Ticket #${ticketId}`, message.slice(0, 80)).run();
     return json({ success: true });
   }
 
@@ -245,6 +245,62 @@ async function handleRequest(request, env) {
   {
     const authed2 = await verifyAuth(request, env);
     if (!authed2) return json({ error: 'Nicht authentifiziert' }, 401);
+  }
+
+  // ── RATELIMIT API STATS (reads RLDB = ratelimit D1 directly) ──────────
+  if (request.method === 'GET' && path === '/api/ratelimit-stats') {
+    const rl = env.RLDB;
+    if (!rl) return err('RLDB binding nicht konfiguriert', 503);
+    const range = url.searchParams.get('range') || '24h';
+    let hoursBack = 24;
+    if (range === '7d')  hoursBack = 168;
+    if (range === '30d') hoursBack = 720;
+    const timeAgo = new Date(Date.now() - hoursBack * 3600000).toISOString();
+
+    const [summary, hourly, topEndpoints, topIps, blockedTrend] = await Promise.all([
+      rl.prepare(`
+        SELECT
+          COUNT(*) as total_requests,
+          SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END) as blocked_requests,
+          COUNT(DISTINCT ip_address) as unique_ips
+        FROM request_logs WHERE timestamp > ?`).bind(timeAgo).first(),
+      rl.prepare(`
+        SELECT strftime('%Y-%m-%d %H:00', timestamp) as hour,
+          COUNT(*) as requests,
+          SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END) as blocked
+        FROM request_logs WHERE timestamp > ?
+        GROUP BY hour ORDER BY hour ASC LIMIT 168`).bind(timeAgo).all(),
+      rl.prepare(`
+        SELECT endpoint, COUNT(*) as count
+        FROM request_logs WHERE timestamp > ?
+        GROUP BY endpoint ORDER BY count DESC LIMIT 10`).bind(timeAgo).all(),
+      rl.prepare(`
+        SELECT ip_address, COUNT(*) as count,
+          SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END) as blocked
+        FROM request_logs WHERE timestamp > ?
+        GROUP BY ip_address ORDER BY count DESC LIMIT 10`).bind(timeAgo).all(),
+      rl.prepare(`
+        SELECT date(timestamp) as day,
+          COUNT(*) as total,
+          SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END) as blocked
+        FROM request_logs WHERE timestamp > ?
+        GROUP BY day ORDER BY day ASC`).bind(timeAgo).all(),
+    ]);
+
+    // Also get total all-time
+    const allTime = await rl.prepare(
+      'SELECT COUNT(*) as total, SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END) as blocked FROM request_logs'
+    ).first();
+
+    return json({
+      range,
+      summary: summary || { total_requests: 0, blocked_requests: 0, unique_ips: 0 },
+      all_time: allTime || { total: 0, blocked: 0 },
+      hourly:   hourly.results   || [],
+      daily:    blockedTrend.results || [],
+      top_endpoints: topEndpoints.results || [],
+      top_ips:       topIps.results       || [],
+    });
   }
 
   // ── TODO TASKS ────────────────────────────────────────────────────

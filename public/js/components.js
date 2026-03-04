@@ -846,6 +846,145 @@ async function markContactRead(id, siteId, btn) {
   loadTopbarStats();
 }
 
+// ── RATELIMIT ANALYTICS ────────────────────────────────────────────────
+async function renderRatelimitAnalytics(siteId, panel) {
+  const range = panel.dataset.range || '24h';
+  const data = await api(`/api/ratelimit-stats?range=${range}`);
+  if (!data) { panel.innerHTML = errState(); return; }
+
+  const { summary, all_time, hourly, daily, top_endpoints, top_ips } = data;
+  const total    = summary?.total_requests    || 0;
+  const blocked  = summary?.blocked_requests  || 0;
+  const allowed  = total - blocked;
+  const uniqueIps = summary?.unique_ips       || 0;
+  const blockRate = total > 0 ? ((blocked / total) * 100).toFixed(1) : '0.0';
+
+  // Chart data: hourly or daily depending on range
+  const chartData = range === '24h' ? hourly : daily;
+  const maxVal = Math.max(...chartData.map(d => d.requests || d.total || 0), 1);
+
+  const rangeLabel = { '24h': 'Letzte 24 Stunden', '7d': 'Letzte 7 Tage', '30d': 'Letzte 30 Tage' };
+
+  panel.innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+      <div style="font-size:13px;font-weight:800;flex:1">⚡ RateLimit API – Anfragen-Statistiken</div>
+      <div style="display:flex;gap:4px">
+        ${['24h','7d','30d'].map(r => `
+          <button onclick="setRlRange('${r}', this)" style="
+            padding:5px 12px;font-size:11px;font-weight:700;border-radius:6px;cursor:pointer;
+            border:1px solid ${r === range ? 'var(--accent2)' : 'var(--border)'};
+            background:${r === range ? 'rgba(99,102,241,.15)' : 'var(--surface)'};
+            color:${r === range ? 'var(--accent2)' : 'var(--text2)'};
+            font-family:inherit"
+          >${r}</button>`).join('')}
+        <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','analytics')">&#8635;</button>
+      </div>
+    </div>
+
+    <!-- KPI Cards -->
+    <div class="stats-row" style="margin-bottom:16px">
+      <div class="stat-card">
+        <div class="stat-label">Anfragen gesamt</div>
+        <div class="stat-val" style="color:var(--accent2)">${total.toLocaleString('de-DE')}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">${rangeLabel[range]}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Durchgelassen</div>
+        <div class="stat-val green">${allowed.toLocaleString('de-DE')}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">${total > 0 ? (100 - parseFloat(blockRate)).toFixed(1) : '0.0'}% der Anfragen</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Blockiert</div>
+        <div class="stat-val red">${blocked.toLocaleString('de-DE')}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">${blockRate}% Block-Rate</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Unique IPs</div>
+        <div class="stat-val yellow">${uniqueIps.toLocaleString('de-DE')}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:2px">${rangeLabel[range]}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Gesamt (all-time)</div>
+        <div class="stat-val">${(all_time?.total || 0).toLocaleString('de-DE')}</div>
+        <div style="font-size:10px;color:var(--red);margin-top:2px">${(all_time?.blocked || 0).toLocaleString('de-DE')} blockiert</div>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="form-card" style="margin-bottom:16px">
+      <div class="form-card-title">Anfragen-Verlauf – ${rangeLabel[range]}</div>
+      ${chartData.length ? `
+        <div style="display:flex;align-items:flex-end;gap:2px;height:90px;margin-top:12px;overflow-x:auto;padding-bottom:4px">
+          ${chartData.map(d => {
+            const total_d = d.requests || d.total || 0;
+            const blocked_d = d.blocked || 0;
+            const h = Math.max(Math.round((total_d / maxVal) * 80), 2);
+            const bh = Math.max(Math.round((blocked_d / Math.max(total_d,1)) * h), total_d > 0 && blocked_d > 0 ? 2 : 0);
+            const label = (d.hour || d.day || '').slice(5, 13).replace('T',' ');
+            return `<div style="display:flex;flex-direction:column;align-items:center;gap:1px;flex:1;min-width:12px" title="${esc(d.hour || d.day || '')}\nGesamt: ${total_d}\nBlockiert: ${blocked_d}">
+              <div style="width:100%;display:flex;flex-direction:column;justify-content:flex-end;height:80px">
+                <div style="width:100%;background:#10b981;border-radius:2px 2px 0 0;height:${h - bh}px"></div>
+                ${bh > 0 ? `<div style="width:100%;background:#ef4444;height:${bh}px"></div>` : ''}
+              </div>
+              <div style="font-size:8px;color:var(--text3);white-space:nowrap;overflow:hidden;max-width:40px">${label}</div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="display:flex;gap:16px;margin-top:8px">
+          <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)">
+            <span style="width:10px;height:10px;border-radius:2px;background:#10b981"></span> Durchgelassen
+          </span>
+          <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)">
+            <span style="width:10px;height:10px;border-radius:2px;background:#ef4444"></span> Blockiert
+          </span>
+        </div>` : '<div style="color:var(--text3);font-size:12px;padding:20px 0;text-align:center">Noch keine Daten im Zeitraum</div>'}
+    </div>
+
+    <!-- Top Endpoints + Top IPs -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <!-- Top Endpoints -->
+      <div class="form-card">
+        <div class="form-card-title">Top Endpoints</div>
+        ${top_endpoints.length ? `
+          <table class="data-table" style="margin-top:8px">
+            <thead><tr><th>Endpoint</th><th style="text-align:right">Anfragen</th></tr></thead>
+            <tbody>
+              ${top_endpoints.map(e => `<tr>
+                <td class="mono" style="font-size:11px;color:var(--text2);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.endpoint || '–')}</td>
+                <td style="text-align:right;font-weight:700;color:var(--accent2)">${(e.count || 0).toLocaleString('de-DE')}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>` : '<div style="color:var(--text3);font-size:12px;padding:12px 0">Keine Daten</div>'}
+      </div>
+      <!-- Top IPs -->
+      <div class="form-card">
+        <div class="form-card-title">Top IPs</div>
+        ${top_ips.length ? `
+          <table class="data-table" style="margin-top:8px">
+            <thead><tr><th>IP</th><th style="text-align:right">Anfragen</th><th style="text-align:right">Blockiert</th></tr></thead>
+            <tbody>
+              ${top_ips.map(ip => `<tr>
+                <td class="mono" style="font-size:11px">${esc(ip.ip_address || '–')}</td>
+                <td style="text-align:right;font-weight:700">${(ip.count || 0).toLocaleString('de-DE')}</td>
+                <td style="text-align:right;color:${ip.blocked > 0 ? 'var(--red)' : 'var(--text3)'};font-weight:${ip.blocked > 0 ? 700 : 400}">${ip.blocked || 0}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>` : '<div style="color:var(--text3);font-size:12px;padding:12px 0">Keine Daten</div>'}
+      </div>
+    </div>
+  `;
+}
+
+window.setRlRange = function(range, btn) {
+  const panel = document.getElementById('tab-analytics');
+  if (!panel) return;
+  panel.dataset.range = range;
+  panel.dataset.reload = '1';
+  // Get current siteId from page
+  const siteId = document.querySelector('[data-site-id]')?.dataset.siteId || 'ratelimit';
+  renderRatelimitAnalytics(siteId, panel);
+};
+
 // ── Tab Switcher (shared by all site pages) ───────────────────────
 function showTab(siteId, tabName, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
@@ -867,6 +1006,11 @@ function loadTabContent(siteId, tabName) {
   delete panel.dataset.reload;
 
   panel.innerHTML = loadingState();
+  // Ratelimit uses its own analytics renderer
+  if (siteId === 'ratelimit' && tabName === 'analytics') {
+    renderRatelimitAnalytics(siteId, panel);
+    return;
+  }
   switch (tabName) {
     case 'support':       renderSupport(siteId, panel);       break;
     case 'changelog':     renderChangelog(siteId, panel);     break;

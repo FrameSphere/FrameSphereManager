@@ -8,6 +8,11 @@ binding = "DB"
 database_name = "webcontrol-hq"
 database_id = "e22c8e57-4550-4566-9937-cd7d51560b70"
 
+[[d1_databases]]
+binding = "RLDB"
+database_name = "ratelimit-db"
+database_id = "33fba40f-abcc-43b1-b931-04baca75462b"
+
 [vars]
 ENVIRONMENT = "production"
 # DASHBOARD_PASSWORD wird als Secret gesetzt, NICHT hier im File!
