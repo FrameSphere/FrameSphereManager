@@ -242,9 +242,134 @@ async function handleRequest(request, env) {
   }
 
   // ── Auth guard (all other /api routes) ────────────────────
-  const authed = await verifyAuth(request, env);
-  if (!authed) {
-    return json({ error: 'Nicht authentifiziert' }, 401);
+  {
+    const authed2 = await verifyAuth(request, env);
+    if (!authed2) return json({ error: 'Nicht authentifiziert' }, 401);
+  }
+
+  // ── TODO TASKS ────────────────────────────────────────────────────
+
+  // GET /api/todos
+  if (request.method === 'GET' && path === '/api/todos') {
+    const db = env.DB;
+    await db.prepare(`CREATE TABLE IF NOT EXISTS todo_tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      site_id TEXT DEFAULT '',
+      title TEXT NOT NULL,
+      notes TEXT,
+      priority INTEGER DEFAULT 3,
+      due_date TEXT,
+      important INTEGER DEFAULT 0,
+      done INTEGER DEFAULT 0,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    const siteId = url.searchParams.get('site_id');
+    let q = 'SELECT * FROM todo_tasks WHERE 1=1';
+    const params = [];
+    if (siteId !== null && siteId !== '') { q += ' AND site_id=?'; params.push(siteId); }
+    q += ' ORDER BY done ASC, priority DESC, due_date ASC, sort_order ASC, created_at DESC';
+    const result = await db.prepare(q).bind(...params).all();
+    return json(result.results);
+  }
+
+  // POST /api/todos
+  if (request.method === 'POST' && path === '/api/todos') {
+    const db = env.DB;
+    await db.prepare(`CREATE TABLE IF NOT EXISTS todo_tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      site_id TEXT DEFAULT '',
+      title TEXT NOT NULL,
+      notes TEXT,
+      priority INTEGER DEFAULT 3,
+      due_date TEXT,
+      important INTEGER DEFAULT 0,
+      done INTEGER DEFAULT 0,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    const body = await request.json().catch(() => ({}));
+    const { site_id, title, notes, priority, due_date, important } = body;
+    if (!title) return err('Titel erforderlich');
+    const r = await db.prepare(
+      'INSERT INTO todo_tasks (site_id, title, notes, priority, due_date, important) VALUES (?,?,?,?,?,?)'
+    ).bind(site_id || '', title, notes || null, priority || 3, due_date || null, important ? 1 : 0).run();
+    return json({ success: true, id: r.meta.last_row_id });
+  }
+
+  // PATCH /api/todos/:id
+  if (request.method === 'PATCH' && segments[1] === 'todos' && segments[2] && !segments[3]) {
+    const db = env.DB;
+    const body = await request.json().catch(() => ({}));
+    const sets = []; const params = [];
+    if (body.title     !== undefined) { sets.push('title=?');      params.push(body.title); }
+    if (body.notes     !== undefined) { sets.push('notes=?');      params.push(body.notes); }
+    if (body.priority  !== undefined) { sets.push('priority=?');   params.push(body.priority); }
+    if (body.due_date  !== undefined) { sets.push('due_date=?');   params.push(body.due_date); }
+    if (body.important !== undefined) { sets.push('important=?');  params.push(body.important ? 1 : 0); }
+    if (body.done      !== undefined) { sets.push('done=?');       params.push(body.done ? 1 : 0); }
+    if (body.sort_order!== undefined) { sets.push('sort_order=?'); params.push(body.sort_order); }
+    if (!sets.length) return err('Nothing to update');
+    await db.prepare(`UPDATE todo_tasks SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
+    return json({ success: true });
+  }
+
+  // DELETE /api/todos/:id
+  if (request.method === 'DELETE' && segments[1] === 'todos' && segments[2]) {
+    await env.DB.prepare('DELETE FROM todo_tasks WHERE id=?').bind(segments[2]).run();
+    return json({ success: true });
+  }
+
+  // ── PROMPTS ────────────────────────────────────────────────────
+
+  // GET /api/prompts
+  if (request.method === 'GET' && path === '/api/prompts') {
+    const db = env.DB;
+    await db.prepare(`CREATE TABLE IF NOT EXISTS todo_prompts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      tags TEXT DEFAULT '',
+      prompt TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    const result = await db.prepare('SELECT * FROM todo_prompts ORDER BY created_at DESC').all();
+    return json(result.results);
+  }
+
+  // POST /api/prompts
+  if (request.method === 'POST' && path === '/api/prompts') {
+    const db = env.DB;
+    await db.prepare(`CREATE TABLE IF NOT EXISTS todo_prompts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      tags TEXT DEFAULT '',
+      prompt TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    const body = await request.json().catch(() => ({}));
+    if (!body.title || !body.prompt) return err('Titel und Prompt erforderlich');
+    const r = await db.prepare('INSERT INTO todo_prompts (title, tags, prompt) VALUES (?,?,?)')
+      .bind(body.title, body.tags || '', body.prompt).run();
+    return json({ success: true, id: r.meta.last_row_id });
+  }
+
+  // PATCH /api/prompts/:id
+  if (request.method === 'PATCH' && segments[1] === 'prompts' && segments[2]) {
+    const db = env.DB;
+    const body = await request.json().catch(() => ({}));
+    const sets = []; const params = [];
+    if (body.title  !== undefined) { sets.push('title=?');  params.push(body.title); }
+    if (body.tags   !== undefined) { sets.push('tags=?');   params.push(body.tags); }
+    if (body.prompt !== undefined) { sets.push('prompt=?'); params.push(body.prompt); }
+    if (!sets.length) return err('Nothing to update');
+    await db.prepare(`UPDATE todo_prompts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
+    return json({ success: true });
+  }
+
+  // DELETE /api/prompts/:id
+  if (request.method === 'DELETE' && segments[1] === 'prompts' && segments[2]) {
+    await env.DB.prepare('DELETE FROM todo_prompts WHERE id=?').bind(segments[2]).run();
+    return json({ success: true });
   }
 
   const db = env.DB;

@@ -101,8 +101,11 @@ function injectSidebar(activeSiteId = null) {
   el.innerHTML = `
     <div class="sidebar-section">
       <div class="sidebar-label">Übersicht</div>
-      <a class="nav-item${!activeSiteId ? ' active' : ''}" href="${pathPrefix()}index.html">
+      <a class="nav-item${!activeSiteId && !window.location.pathname.includes('todo') ? ' active' : ''}" href="${pathPrefix()}index.html">
         <span class="icon">⚡</span> Dashboard
+      </a>
+      <a class="nav-item${window.location.pathname.includes('todo') ? ' active' : ''}" href="${pathPrefix()}todo.html">
+        <span class="icon">📋</span> To Do
       </a>
     </div>
     <div class="sidebar-section">

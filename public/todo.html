@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>To Do – WebControl HQ</title>
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    /* ── Tabs ── */
+    .todo-tabs { display:flex; gap:4px; padding:20px 28px 0; border-bottom:1px solid var(--border); }
+    .todo-tab {
+      padding:9px 20px; font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+      background:none; border:none; border-bottom:2px solid transparent; color:var(--text3);
+      cursor:pointer; font-family:inherit; transition:color .15s,border-color .15s; margin-bottom:-1px;
+    }
+    .todo-tab.active { color:var(--accent2); border-bottom-color:var(--accent2); }
+    .todo-tab:hover:not(.active) { color:var(--text1); }
+
+    /* ── Tab panels ── */
+    .tab-panel { display:none; flex:1; overflow:hidden; }
+    .tab-panel.active { display:flex; flex-direction:column; }
+
+    /* ── Toolbar ── */
+    .todo-toolbar {
+      display:flex; align-items:center; gap:10px; padding:16px 28px;
+      border-bottom:1px solid var(--border); flex-shrink:0; flex-wrap:wrap;
+    }
+    .todo-toolbar select, .todo-toolbar input[type="text"] {
+      padding:6px 12px; font-size:12px; background:var(--surface);
+      border:1px solid var(--border); border-radius:7px; color:var(--text1);
+      font-family:inherit; outline:none;
+    }
+    .todo-toolbar select:focus, .todo-toolbar input:focus { border-color:var(--accent2); }
+
+    /* ── Task list ── */
+    .task-scroll { flex:1; overflow-y:auto; padding:16px 28px; display:flex; flex-direction:column; gap:6px; }
+
+    .task-row {
+      display:flex; align-items:flex-start; gap:10px; padding:11px 14px;
+      background:var(--surface); border:1px solid var(--border); border-radius:10px;
+      transition:border-color .15s, opacity .2s; cursor:default;
+      position:relative;
+    }
+    .task-row.done-row { opacity:.45; }
+    .task-row.important-row { border-left:3px solid var(--yellow); }
+    .task-row:hover { border-color:rgba(255,255,255,.18); }
+
+    .task-check {
+      flex-shrink:0; width:18px; height:18px; border-radius:5px;
+      border:2px solid var(--border); cursor:pointer; display:flex;
+      align-items:center; justify-content:center; margin-top:1px;
+      transition:background .15s,border-color .15s; background:var(--bg);
+    }
+    .task-check.checked { background:var(--green); border-color:var(--green); }
+    .task-check.checked::after { content:'✓'; font-size:11px; color:#fff; font-weight:800; }
+
+    .task-body { flex:1; min-width:0; }
+    .task-title {
+      font-size:13px; font-weight:600; color:var(--text1);
+      word-break:break-word; line-height:1.4;
+    }
+    .task-row.done-row .task-title { text-decoration:line-through; color:var(--text3); }
+    .task-meta { display:flex; align-items:center; gap:8px; margin-top:4px; flex-wrap:wrap; }
+    .task-notes { font-size:11px; color:var(--text3); margin-top:3px; line-height:1.4; }
+
+    .chip-site { font-size:10px; font-weight:700; padding:2px 7px; border-radius:4px; background:rgba(255,255,255,.07); color:var(--text2); }
+    .chip-due  { font-size:10px; font-weight:700; padding:2px 7px; border-radius:4px; background:rgba(96,165,250,.12); color:#60a5fa; }
+    .chip-due.overdue { background:rgba(239,68,68,.15); color:#f87171; }
+    .chip-due.today   { background:rgba(251,191,36,.15); color:#fbbf24; }
+
+    .prio-stars { display:flex; gap:2px; }
+    .prio-star  { font-size:11px; opacity:.25; }
+    .prio-star.on { opacity:1; }
+
+    .task-actions { display:flex; gap:4px; flex-shrink:0; opacity:0; transition:opacity .15s; }
+    .task-row:hover .task-actions { opacity:1; }
+    .task-act-btn {
+      width:26px; height:26px; border-radius:6px; border:none; background:none;
+      cursor:pointer; font-size:13px; display:flex; align-items:center; justify-content:center;
+      transition:background .12s; color:var(--text2);
+    }
+    .task-act-btn:hover { background:rgba(255,255,255,.1); }
+    .task-act-btn.active { color:var(--yellow); }
+
+    /* ── Add task form ── */
+    .add-task-form {
+      display:flex; gap:8px; padding:14px 28px; border-top:1px solid var(--border);
+      flex-shrink:0; flex-wrap:wrap; align-items:flex-end;
+    }
+    .add-task-form input, .add-task-form textarea, .add-task-form select {
+      background:var(--surface); border:1px solid var(--border); border-radius:8px;
+      color:var(--text1); font-family:inherit; font-size:12px; padding:8px 11px; outline:none;
+    }
+    .add-task-form input:focus, .add-task-form textarea:focus, .add-task-form select:focus {
+      border-color:var(--accent2);
+    }
+    .add-task-title { flex:1; min-width:160px; }
+    .add-task-form textarea { resize:vertical; min-height:36px; flex:1; min-width:160px; }
+
+    /* ── Priority selector ── */
+    .prio-select { display:flex; gap:3px; }
+    .prio-btn {
+      width:22px; height:22px; border-radius:5px; border:1px solid var(--border);
+      background:none; cursor:pointer; font-size:12px; color:var(--text3);
+      display:flex; align-items:center; justify-content:center; transition:all .12s;
+    }
+    .prio-btn.sel { background:var(--yellow); border-color:var(--yellow); color:#000; }
+
+    /* ── Empty state ── */
+    .todo-empty { text-align:center; padding:4rem 1rem; color:var(--text3); font-size:13px; }
+    .todo-empty .emoji { font-size:3rem; display:block; margin-bottom:1rem; }
+
+    /* ── Edit modal ── */
+    .edit-overlay {
+      display:none; position:fixed; inset:0; z-index:9000;
+      background:rgba(0,0,0,.75); backdrop-filter:blur(4px);
+      align-items:center; justify-content:center;
+    }
+    .edit-overlay.open { display:flex; }
+    .edit-box {
+      background:var(--surface); border:1px solid var(--border); border-radius:16px;
+      padding:24px; width:min(520px,95vw); display:flex; flex-direction:column; gap:14px;
+    }
+    .edit-box label { font-size:10px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--text3); display:block; margin-bottom:4px; }
+    .edit-box input, .edit-box textarea, .edit-box select {
+      width:100%; box-sizing:border-box; background:var(--bg); border:1px solid var(--border);
+      border-radius:8px; color:var(--text1); font-family:inherit; font-size:13px; padding:9px 12px; outline:none;
+    }
+    .edit-box input:focus, .edit-box textarea:focus, .edit-box select:focus { border-color:var(--accent2); }
+    .edit-box textarea { min-height:80px; resize:vertical; }
+    .edit-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:4px; }
+
+    /* ── Calendar ── */
+    .cal-wrap { flex:1; overflow-y:auto; padding:20px 28px; }
+    .cal-nav { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+    .cal-nav h3 { flex:1; font-size:15px; font-weight:800; }
+    .cal-grid {
+      display:grid; grid-template-columns:repeat(7,1fr); gap:3px;
+    }
+    .cal-head { text-align:center; font-size:10px; font-weight:700; letter-spacing:.08em; color:var(--text3); padding:6px 0; }
+    .cal-day {
+      min-height:80px; background:var(--surface); border:1px solid var(--border); border-radius:8px;
+      padding:6px; font-size:11px; transition:border-color .15s;
+    }
+    .cal-day.other-month { opacity:.3; }
+    .cal-day.today { border-color:var(--accent2); }
+    .cal-day-num { font-weight:700; color:var(--text2); margin-bottom:4px; font-size:12px; }
+    .cal-day.today .cal-day-num { color:var(--accent2); }
+    .cal-task-dot {
+      display:block; font-size:10px; padding:2px 5px; border-radius:4px; margin-bottom:2px;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:default;
+      line-height:1.4;
+    }
+    .cal-task-dot.prio-5 { background:rgba(239,68,68,.2); color:#f87171; }
+    .cal-task-dot.prio-4 { background:rgba(251,191,36,.2); color:#fbbf24; }
+    .cal-task-dot.prio-3 { background:rgba(99,102,241,.2); color:#a78bfa; }
+    .cal-task-dot.prio-2,.cal-task-dot.prio-1 { background:rgba(255,255,255,.07); color:var(--text3); }
+    .cal-task-dot.done { opacity:.4; text-decoration:line-through; }
+
+    /* ── Prompts ── */
+    .prompts-wrap { flex:1; overflow-y:auto; padding:16px 28px; display:flex; flex-direction:column; gap:8px; }
+    .prompt-card {
+      background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px;
+      transition:border-color .15s;
+    }
+    .prompt-card:hover { border-color:rgba(255,255,255,.18); }
+    .prompt-card-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+    .prompt-card-title { font-size:13px; font-weight:700; flex:1; }
+    .prompt-tags { display:flex; gap:4px; flex-wrap:wrap; }
+    .prompt-tag { font-size:10px; padding:2px 7px; border-radius:4px; background:rgba(99,102,241,.15); color:#a78bfa; font-weight:700; }
+    .prompt-text {
+      font-family:'Space Mono',monospace; font-size:11px; color:var(--text2); line-height:1.6;
+      background:var(--bg); border:1px solid var(--border); border-radius:7px; padding:10px 12px;
+      white-space:pre-wrap; word-break:break-word; max-height:120px; overflow-y:auto;
+      cursor:text;
+    }
+    .prompt-actions { display:flex; gap:6px; margin-top:10px; }
+
+    /* ── Priority ranking panel ── */
+    .rank-panel { padding:16px 28px; border-top:1px solid var(--border); flex-shrink:0; }
+    .rank-row { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); }
+    .rank-handle { color:var(--text3); cursor:grab; font-size:14px; }
+    .rank-num { font-size:11px; font-family:Space Mono; color:var(--text3); width:20px; text-align:right; }
+  </style>
+</head>
+<body>
+
+<div id="layout">
+  <div id="main">
+
+    <div class="page-header">
+      <div class="page-title">📋 To Do</div>
+      <div class="page-sub">Aufgaben · Kalender · Prompts · Priority Ranking</div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="todo-tabs">
+      <button class="todo-tab active" onclick="showTodoTab('tasks',this)">✅ Aufgaben</button>
+      <button class="todo-tab" onclick="showTodoTab('calendar',this)">📅 Kalender</button>
+      <button class="todo-tab" onclick="showTodoTab('prompts',this)">💬 Prompts</button>
+      <button class="todo-tab" onclick="showTodoTab('ranking',this)">🏆 Priority Ranking</button>
+    </div>
+
+    <!-- ── TASKS TAB ─────────────────────────────────────── -->
+    <div id="tab-tasks" class="tab-panel active" style="display:flex;flex-direction:column">
+
+      <div class="todo-toolbar">
+        <select id="filter-site" onchange="reloadTasks()">
+          <option value="">Alle Projekte</option>
+          <option value="_global">🌐 Allgemein</option>
+        </select>
+        <select id="filter-status" onchange="renderTasks()">
+          <option value="open">Offen</option>
+          <option value="done">Erledigt</option>
+          <option value="all">Alle</option>
+        </select>
+        <select id="filter-sort" onchange="renderTasks()">
+          <option value="priority">Nach Priorität</option>
+          <option value="due">Nach Fälligkeit</option>
+          <option value="created">Nach Erstellung</option>
+          <option value="important">Wichtige zuerst</option>
+        </select>
+        <input type="text" id="filter-search" placeholder="🔍 Suchen…" oninput="renderTasks()" style="width:160px">
+        <div class="flex-1"></div>
+        <button class="btn btn-ghost btn-sm" onclick="reloadTasks()">↻ Aktualisieren</button>
+      </div>
+
+      <div class="task-scroll" id="task-list"></div>
+
+      <!-- Add task form -->
+      <div class="add-task-form">
+        <input class="add-task-title" type="text" id="new-title" placeholder="+ Neue Aufgabe…"
+          onkeydown="if(event.key==='Enter')quickAddTask()">
+        <select id="new-site" style="min-width:130px">
+          <option value="">🌐 Allgemein</option>
+        </select>
+        <input type="date" id="new-due" style="width:140px">
+        <div class="prio-select" id="new-prio-sel" title="Priorität">
+          <button class="prio-btn sel" data-p="1" onclick="setPrio(1)">1</button>
+          <button class="prio-btn" data-p="2" onclick="setPrio(2)">2</button>
+          <button class="prio-btn" data-p="3" onclick="setPrio(3)">3</button>
+          <button class="prio-btn" data-p="4" onclick="setPrio(4)">4</button>
+          <button class="prio-btn" data-p="5" onclick="setPrio(5)">5</button>
+        </div>
+        <button class="btn btn-primary" onclick="quickAddTask()">Hinzufügen</button>
+      </div>
+    </div>
+
+    <!-- ── CALENDAR TAB ─────────────────────────────────── -->
+    <div id="tab-calendar" class="tab-panel">
+      <div class="cal-wrap" id="cal-wrap">
+        <div class="loading">Lade…</div>
+      </div>
+    </div>
+
+    <!-- ── PROMPTS TAB ──────────────────────────────────── -->
+    <div id="tab-prompts" class="tab-panel">
+      <div class="todo-toolbar">
+        <input type="text" id="prompt-search" placeholder="🔍 Prompts suchen…" oninput="renderPrompts()" style="width:200px">
+        <div class="flex-1"></div>
+        <button class="btn btn-primary btn-sm" onclick="openPromptEdit(null)">+ Neuer Prompt</button>
+      </div>
+      <div class="prompts-wrap" id="prompt-list"></div>
+    </div>
+
+    <!-- ── RANKING TAB ──────────────────────────────────── -->
+    <div id="tab-ranking" class="tab-panel">
+      <div class="todo-toolbar">
+        <select id="rank-site" onchange="renderRanking()">
+          <option value="">Alle Projekte</option>
+          <option value="_global">🌐 Allgemein</option>
+        </select>
+        <span style="font-size:12px;color:var(--text3)">Drag &amp; Drop zum Umordnen · Nur offene Aufgaben</span>
+        <div class="flex-1"></div>
+        <button class="btn btn-ghost btn-sm" onclick="reloadTasks().then(renderRanking)">↻</button>
+      </div>
+      <div class="task-scroll" id="rank-list" style="padding-bottom:40px"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Edit Task Modal ── -->
+<div class="edit-overlay" id="edit-overlay">
+  <div class="edit-box">
+    <div style="font-size:14px;font-weight:800;margin-bottom:4px">Aufgabe bearbeiten</div>
+    <input type="hidden" id="edit-id">
+    <div>
+      <label>Titel *</label>
+      <input type="text" id="edit-title">
+    </div>
+    <div>
+      <label>Notizen</label>
+      <textarea id="edit-notes" rows="3"></textarea>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:120px">
+        <label>Projekt</label>
+        <select id="edit-site" style="width:100%"></select>
+      </div>
+      <div style="flex:1;min-width:120px">
+        <label>Fälligkeitsdatum</label>
+        <input type="date" id="edit-due" style="width:100%">
+      </div>
+    </div>
+    <div>
+      <label>Priorität (1=niedrig, 5=kritisch)</label>
+      <div class="prio-select" id="edit-prio-sel">
+        <button class="prio-btn" data-p="1" onclick="setEditPrio(1)">1</button>
+        <button class="prio-btn" data-p="2" onclick="setEditPrio(2)">2</button>
+        <button class="prio-btn" data-p="3" onclick="setEditPrio(3)">3</button>
+        <button class="prio-btn" data-p="4" onclick="setEditPrio(4)">4</button>
+        <button class="prio-btn" data-p="5" onclick="setEditPrio(5)">5</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <label style="margin:0;display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0">
+        <input type="checkbox" id="edit-important"> Als wichtig markieren ⭐
+      </label>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-ghost" onclick="closeEditModal()">Abbrechen</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteTask(document.getElementById('edit-id').value)">🗑 Löschen</button>
+      <button class="btn btn-primary" onclick="saveEditTask()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit Prompt Modal ── -->
+<div class="edit-overlay" id="prompt-overlay">
+  <div class="edit-box">
+    <div style="font-size:14px;font-weight:800;margin-bottom:4px" id="prompt-modal-title">Neuer Prompt</div>
+    <input type="hidden" id="pedit-id">
+    <div>
+      <label>Titel *</label>
+      <input type="text" id="pedit-title" placeholder="z.B. Feature-Idee umsetzen">
+    </div>
+    <div>
+      <label>Tags (kommagetrennt)</label>
+      <input type="text" id="pedit-tags" placeholder="UI, Backend, Fix…">
+    </div>
+    <div>
+      <label>Prompt *</label>
+      <textarea id="pedit-prompt" rows="8" placeholder="Prompt-Text hier…" style="font-family:'Space Mono',monospace;font-size:12px"></textarea>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-ghost" onclick="closePromptModal()">Abbrechen</button>
+      <button class="btn btn-danger btn-sm" id="pedit-del-btn" onclick="deletePrompt()" style="display:none">🗑 Löschen</button>
+      <button class="btn btn-primary" onclick="savePrompt()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
+<script>
+// ── State ─────────────────────────────────────────────────────────
+let allTasks   = [];
+let allPrompts = [];
+let newPrio    = 3;
+let editPrio   = 3;
+let calYear, calMonth;
+const today    = new Date();
+calYear  = today.getFullYear();
+calMonth = today.getMonth();
+
+const SITE_OPTS = [
+  { value: '',           label: '🌐 Allgemein' },
+  ...SITES.map(s => ({ value: s.id, label: s.icon + ' ' + s.name }))
+];
+
+// ── Tab switching ─────────────────────────────────────────────────
+function showTodoTab(name, btn) {
+  document.querySelectorAll('.todo-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => { p.classList.remove('active'); p.style.display = 'none'; });
+  btn.classList.add('active');
+  const panel = document.getElementById('tab-' + name);
+  panel.classList.add('active');
+  panel.style.display = 'flex';
+  if (name === 'calendar') renderCalendar();
+  if (name === 'ranking')  renderRanking();
+  if (name === 'prompts')  renderPrompts();
+}
+
+// ── Populate site selects ─────────────────────────────────────────
+function populateSiteSelects() {
+  ['filter-site','new-site','edit-site','rank-site'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const isFilter = id.startsWith('filter') || id.startsWith('rank');
+    const base = isFilter ? '<option value="">Alle Projekte</option>' : '';
+    el.innerHTML = base + SITE_OPTS.map(o =>
+      `<option value="${o.value}">${o.label}</option>`
+    ).join('');
+  });
+}
+
+// ── Load tasks ────────────────────────────────────────────────────
+async function reloadTasks() {
+  const siteId = document.getElementById('filter-site')?.value ?? '';
+  const qp = siteId ? `?site_id=${encodeURIComponent(siteId)}` : '';
+  const data = await api('/api/todos' + qp);
+  allTasks = data || [];
+  renderTasks();
+  renderRanking();
+  return allTasks;
+}
+
+function renderTasks() {
+  const list = document.getElementById('task-list');
+  const status = document.getElementById('filter-status')?.value || 'open';
+  const sort   = document.getElementById('filter-sort')?.value   || 'priority';
+  const search = (document.getElementById('filter-search')?.value || '').toLowerCase();
+
+  let tasks = allTasks.filter(t => {
+    if (status === 'open' && t.done) return false;
+    if (status === 'done' && !t.done) return false;
+    if (search && !t.title.toLowerCase().includes(search) && !(t.notes||'').toLowerCase().includes(search)) return false;
+    return true;
+  });
+
+  tasks = [...tasks].sort((a, b) => {
+    if (sort === 'priority') return (b.priority - a.priority) || (a.done - b.done);
+    if (sort === 'due') {
+      if (!a.due_date && !b.due_date) return 0;
+      if (!a.due_date) return 1;
+      if (!b.due_date) return -1;
+      return a.due_date.localeCompare(b.due_date);
+    }
+    if (sort === 'important') return (b.important - a.important) || (b.priority - a.priority);
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+
+  if (!tasks.length) {
+    list.innerHTML = `<div class="todo-empty"><span class="emoji">${status === 'done' ? '🎉' : '✅'}</span>${
+      status === 'done' ? 'Noch nichts erledigt.' : 'Keine offenen Aufgaben – alles done!'
+    }</div>`;
+    return;
+  }
+
+  list.innerHTML = tasks.map(t => taskRowHtml(t)).join('');
+}
+
+function taskRowHtml(t) {
+  const siteLabel = t.site_id ? (SITES.find(s => s.id === t.site_id)?.name || t.site_id) : 'Allgemein';
+  const siteIcon  = t.site_id ? (SITES.find(s => s.id === t.site_id)?.icon || '🌐') : '🌐';
+  const stars = [1,2,3,4,5].map(i =>
+    `<span class="prio-star${i <= t.priority ? ' on' : ''}">★</span>`
+  ).join('');
+
+  let dueCls = 'chip-due';
+  let dueLabel = '';
+  if (t.due_date) {
+    const due = new Date(t.due_date + 'T23:59:59');
+    const diff = Math.ceil((due - today) / 86400000);
+    dueLabel = formatDueLabel(t.due_date);
+    if (diff < 0)      dueCls += ' overdue';
+    else if (diff <= 1) dueCls += ' today';
+  }
+
+  return `<div class="task-row${t.done ? ' done-row' : ''}${t.important && !t.done ? ' important-row' : ''}" data-id="${t.id}">
+    <div class="task-check${t.done ? ' checked' : ''}" onclick="toggleDone(${t.id},${t.done ? 0 : 1})"></div>
+    <div class="task-body">
+      <div class="task-title">${esc(t.title)}</div>
+      ${t.notes ? `<div class="task-notes">${esc(t.notes)}</div>` : ''}
+      <div class="task-meta">
+        <span class="chip-site">${siteIcon} ${esc(siteLabel)}</span>
+        ${t.due_date ? `<span class="${dueCls}">📅 ${dueLabel}</span>` : ''}
+        <div class="prio-stars" title="Priorität ${t.priority}">${stars}</div>
+      </div>
+    </div>
+    <div class="task-actions">
+      <button class="task-act-btn${t.important ? ' active' : ''}" title="Wichtig" onclick="toggleImportant(${t.id},${t.important ? 0 : 1})">⭐</button>
+      <button class="task-act-btn" title="Bearbeiten" onclick="openEditModal(${t.id})">✏️</button>
+    </div>
+  </div>`;
+}
+
+function formatDueLabel(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const diff = Math.ceil((d - new Date(today.toDateString())) / 86400000);
+  if (diff === 0) return 'Heute';
+  if (diff === 1) return 'Morgen';
+  if (diff === -1) return 'Gestern';
+  if (diff < 0) return `${Math.abs(diff)}d überfällig`;
+  if (diff < 7) return `in ${diff}d`;
+  return d.toLocaleDateString('de-DE', { day:'2-digit', month:'short' });
+}
+
+// ── Task actions ──────────────────────────────────────────────────
+async function toggleDone(id, val) {
+  await api(`/api/todos/${id}`, { method:'PATCH', body:{ done: !!val } });
+  const t = allTasks.find(t => t.id === id);
+  if (t) t.done = !!val;
+  renderTasks();
+  renderCalendar(false);
+}
+
+async function toggleImportant(id, val) {
+  await api(`/api/todos/${id}`, { method:'PATCH', body:{ important: !!val } });
+  const t = allTasks.find(t => t.id === id);
+  if (t) t.important = !!val;
+  renderTasks();
+}
+
+async function deleteTask(id) {
+  if (!confirm('Aufgabe löschen?')) return;
+  await api(`/api/todos/${id}`, { method:'DELETE' });
+  allTasks = allTasks.filter(t => String(t.id) !== String(id));
+  closeEditModal();
+  renderTasks();
+  renderRanking();
+  renderCalendar(false);
+}
+
+// ── Quick add ────────────────────────────────────────────────────
+function setPrio(p) {
+  newPrio = p;
+  document.querySelectorAll('#new-prio-sel .prio-btn').forEach(b => {
+    b.classList.toggle('sel', parseInt(b.dataset.p) === p);
+  });
+}
+
+async function quickAddTask() {
+  const title = document.getElementById('new-title').value.trim();
+  if (!title) return;
+  const body = {
+    title,
+    site_id:  document.getElementById('new-site').value || '',
+    due_date: document.getElementById('new-due').value  || null,
+    priority: newPrio,
+  };
+  const res = await api('/api/todos', { method:'POST', body });
+  if (res?.success) {
+    document.getElementById('new-title').value = '';
+    document.getElementById('new-due').value   = '';
+    await reloadTasks();
+  }
+}
+
+// ── Edit modal ────────────────────────────────────────────────────
+function openEditModal(id) {
+  const t = allTasks.find(t => t.id === id);
+  if (!t) return;
+  document.getElementById('edit-id').value        = t.id;
+  document.getElementById('edit-title').value     = t.title;
+  document.getElementById('edit-notes').value     = t.notes || '';
+  document.getElementById('edit-site').value      = t.site_id || '';
+  document.getElementById('edit-due').value       = t.due_date || '';
+  document.getElementById('edit-important').checked = !!t.important;
+  editPrio = t.priority || 3;
+  document.querySelectorAll('#edit-prio-sel .prio-btn').forEach(b => {
+    b.classList.toggle('sel', parseInt(b.dataset.p) === editPrio);
+  });
+  document.getElementById('edit-overlay').classList.add('open');
+}
+
+function closeEditModal() {
+  document.getElementById('edit-overlay').classList.remove('open');
+}
+
+function setEditPrio(p) {
+  editPrio = p;
+  document.querySelectorAll('#edit-prio-sel .prio-btn').forEach(b => {
+    b.classList.toggle('sel', parseInt(b.dataset.p) === p);
+  });
+}
+
+async function saveEditTask() {
+  const id = document.getElementById('edit-id').value;
+  const body = {
+    title:     document.getElementById('edit-title').value.trim(),
+    notes:     document.getElementById('edit-notes').value.trim() || null,
+    site_id:   document.getElementById('edit-site').value,
+    due_date:  document.getElementById('edit-due').value || null,
+    priority:  editPrio,
+    important: document.getElementById('edit-important').checked,
+  };
+  if (!body.title) return;
+  await api(`/api/todos/${id}`, { method:'PATCH', body });
+  closeEditModal();
+  await reloadTasks();
+}
+
+// ── Calendar ──────────────────────────────────────────────────────
+function renderCalendar(doFetch = true) {
+  const wrap = document.getElementById('cal-wrap');
+  if (!wrap) return;
+
+  const firstDay = new Date(calYear, calMonth, 1);
+  const lastDay  = new Date(calYear, calMonth + 1, 0);
+  const monthName = firstDay.toLocaleDateString('de-DE', { month:'long', year:'numeric' });
+
+  const tasksByDate = {};
+  allTasks.forEach(t => {
+    if (t.due_date) {
+      tasksByDate[t.due_date] = tasksByDate[t.due_date] || [];
+      tasksByDate[t.due_date].push(t);
+    }
+  });
+
+  const todayStr = today.toISOString().slice(0,10);
+  let startDow = firstDay.getDay(); // 0=Sun
+  startDow = (startDow === 0) ? 6 : startDow - 1; // Mon-first
+
+  const days = [];
+  // Prev month padding
+  for (let i = startDow - 1; i >= 0; i--) {
+    const d = new Date(calYear, calMonth, -i);
+    days.push({ date: d, cur: false });
+  }
+  // Current month
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    days.push({ date: new Date(calYear, calMonth, d), cur: true });
+  }
+  // Next month padding
+  const remaining = 42 - days.length;
+  for (let d = 1; d <= remaining; d++) {
+    days.push({ date: new Date(calYear, calMonth + 1, d), cur: false });
+  }
+
+  wrap.innerHTML = `
+    <div class="cal-nav">
+      <button class="btn btn-ghost btn-sm" onclick="calNav(-1)">◀</button>
+      <h3>${monthName}</h3>
+      <button class="btn btn-ghost btn-sm" onclick="calNav(1)">▶</button>
+      <button class="btn btn-ghost btn-sm" onclick="calGoToday()">Heute</button>
+    </div>
+    <div class="cal-grid">
+      ${['Mo','Di','Mi','Do','Fr','Sa','So'].map(d => `<div class="cal-head">${d}</div>`).join('')}
+      ${days.map(({ date, cur }) => {
+        const ds = date.toISOString().slice(0,10);
+        const isToday = ds === todayStr;
+        const tasks = (tasksByDate[ds] || []).sort((a,b) => b.priority - a.priority);
+        return `<div class="cal-day${!cur ? ' other-month' : ''}${isToday ? ' today' : ''}">
+          <div class="cal-day-num">${date.getDate()}</div>
+          ${tasks.slice(0,3).map(t =>
+            `<span class="cal-task-dot prio-${t.priority}${t.done ? ' done' : ''}" title="${esc(t.title)}">${esc(t.title)}</span>`
+          ).join('')}
+          ${tasks.length > 3 ? `<span class="cal-task-dot" style="color:var(--text3)">+${tasks.length - 3} weitere</span>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+function calNav(dir) { calMonth += dir; if (calMonth > 11) { calMonth = 0; calYear++; } if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendar(false); }
+function calGoToday() { calYear = today.getFullYear(); calMonth = today.getMonth(); renderCalendar(false); }
+
+// ── Prompts ───────────────────────────────────────────────────────
+async function reloadPrompts() {
+  const data = await api('/api/prompts');
+  allPrompts = data || [];
+  renderPrompts();
+}
+
+function renderPrompts() {
+  const list = document.getElementById('prompt-list');
+  const search = (document.getElementById('prompt-search')?.value || '').toLowerCase();
+  let prompts = allPrompts.filter(p =>
+    !search || p.title.toLowerCase().includes(search) || (p.tags||'').toLowerCase().includes(search) || p.prompt.toLowerCase().includes(search)
+  );
+  if (!prompts.length) {
+    list.innerHTML = `<div class="todo-empty"><span class="emoji">💬</span>Noch keine Prompts gespeichert.</div>`;
+    return;
+  }
+  list.innerHTML = prompts.map(p => {
+    const tags = (p.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+    return `<div class="prompt-card">
+      <div class="prompt-card-head">
+        <div class="prompt-card-title">${esc(p.title)}</div>
+        <div class="prompt-tags">${tags.map(t => `<span class="prompt-tag">${esc(t)}</span>`).join('')}</div>
+      </div>
+      <div class="prompt-text" id="pt-${p.id}">${esc(p.prompt)}</div>
+      <div class="prompt-actions">
+        <button class="btn btn-ghost btn-sm" onclick="copyPrompt(${p.id})">📋 Kopieren</button>
+        <button class="btn btn-ghost btn-sm" onclick="openPromptEdit(${p.id})">✏️ Bearbeiten</button>
+        <button class="btn btn-danger btn-sm" onclick="deletePromptById(${p.id})">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function copyPrompt(id) {
+  const p = allPrompts.find(p => p.id === id);
+  if (!p) return;
+  navigator.clipboard.writeText(p.prompt).then(() => {
+    const el = document.querySelector(`#pt-${id}`);
+    if (el) { el.style.borderColor = 'var(--green)'; setTimeout(() => el.style.borderColor = '', 1200); }
+  });
+}
+
+function openPromptEdit(id) {
+  const p = id ? allPrompts.find(p => p.id === id) : null;
+  document.getElementById('pedit-id').value      = p ? p.id : '';
+  document.getElementById('pedit-title').value   = p ? p.title : '';
+  document.getElementById('pedit-tags').value    = p ? (p.tags || '') : '';
+  document.getElementById('pedit-prompt').value  = p ? p.prompt : '';
+  document.getElementById('prompt-modal-title').textContent = p ? 'Prompt bearbeiten' : 'Neuer Prompt';
+  document.getElementById('pedit-del-btn').style.display = p ? '' : 'none';
+  document.getElementById('prompt-overlay').classList.add('open');
+}
+
+function closePromptModal() { document.getElementById('prompt-overlay').classList.remove('open'); }
+
+async function savePrompt() {
+  const id    = document.getElementById('pedit-id').value;
+  const title = document.getElementById('pedit-title').value.trim();
+  const tags  = document.getElementById('pedit-tags').value.trim();
+  const prompt= document.getElementById('pedit-prompt').value.trim();
+  if (!title || !prompt) return;
+  if (id) {
+    await api(`/api/prompts/${id}`, { method:'PATCH', body:{ title, tags, prompt } });
+  } else {
+    await api('/api/prompts', { method:'POST', body:{ title, tags, prompt } });
+  }
+  closePromptModal();
+  await reloadPrompts();
+}
+
+async function deletePrompt() {
+  const id = document.getElementById('pedit-id').value;
+  if (!id || !confirm('Prompt löschen?')) return;
+  await deletePromptById(id);
+  closePromptModal();
+}
+
+async function deletePromptById(id) {
+  await api(`/api/prompts/${id}`, { method:'DELETE' });
+  allPrompts = allPrompts.filter(p => String(p.id) !== String(id));
+  renderPrompts();
+}
+
+// ── Priority Ranking ──────────────────────────────────────────────
+function renderRanking() {
+  const list = document.getElementById('rank-list');
+  if (!list) return;
+  const siteFilter = document.getElementById('rank-site')?.value ?? '';
+  let tasks = allTasks
+    .filter(t => !t.done)
+    .filter(t => !siteFilter || t.site_id === siteFilter)
+    .sort((a, b) => (b.priority - a.priority) || (a.sort_order - b.sort_order) || (new Date(a.created_at) - new Date(b.created_at)));
+
+  if (!tasks.length) {
+    list.innerHTML = `<div class="todo-empty"><span class="emoji">🏆</span>Keine offenen Aufgaben.</div>`;
+    return;
+  }
+
+  const PRIO_COLORS = { 5:'#f87171',4:'#fbbf24',3:'#a78bfa',2:'#60a5fa',1:'#9ca3af' };
+  const PRIO_LABELS = { 5:'🔴 Kritisch',4:'🟡 Hoch',3:'🟣 Mittel',2:'🔵 Niedrig',1:'⬜ Minimal' };
+
+  list.innerHTML = tasks.map((t, i) => {
+    const site = SITES.find(s => s.id === t.site_id);
+    const dueTxt = t.due_date ? ` · 📅 ${formatDueLabel(t.due_date)}` : '';
+    return `<div class="rank-row" data-id="${t.id}" data-prio="${t.priority}">
+      <span class="rank-handle" title="Ziehen zum Umordnen">⠿</span>
+      <span class="rank-num">#${i+1}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700;color:var(--text1)">${esc(t.title)}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${site ? site.icon + ' ' + site.name : '🌐 Allgemein'}${dueTxt}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:${PRIO_COLORS[t.priority]}22;color:${PRIO_COLORS[t.priority]}">${PRIO_LABELS[t.priority]||t.priority}</span>
+        <select style="font-size:11px;padding:3px 6px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text1);font-family:inherit"
+          onchange="updatePrio(${t.id},this.value,this)">
+          <option value="5"${t.priority===5?' selected':''}>5 – Kritisch</option>
+          <option value="4"${t.priority===4?' selected':''}>4 – Hoch</option>
+          <option value="3"${t.priority===3?' selected':''}>3 – Mittel</option>
+          <option value="2"${t.priority===2?' selected':''}>2 – Niedrig</option>
+          <option value="1"${t.priority===1?' selected':''}>1 – Minimal</option>
+        </select>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Drag & drop reorder
+  enableRankDrag(list, tasks);
+}
+
+async function updatePrio(id, val, sel) {
+  const p = parseInt(val);
+  await api(`/api/todos/${id}`, { method:'PATCH', body:{ priority: p } });
+  const t = allTasks.find(t => t.id === id);
+  if (t) t.priority = p;
+  renderRanking();
+  renderTasks();
+}
+
+function enableRankDrag(container, tasks) {
+  let dragging = null;
+  container.querySelectorAll('.rank-row').forEach(row => {
+    row.setAttribute('draggable', 'true');
+    row.addEventListener('dragstart', e => {
+      dragging = row;
+      row.style.opacity = '0.4';
+    });
+    row.addEventListener('dragend', async e => {
+      row.style.opacity = '';
+      dragging = null;
+      // Persist new order via sort_order
+      const rows = [...container.querySelectorAll('.rank-row')];
+      await Promise.all(rows.map((r, i) =>
+        api(`/api/todos/${r.dataset.id}`, { method:'PATCH', body:{ sort_order: i } })
+      ));
+      await reloadTasks();
+    });
+    row.addEventListener('dragover', e => {
+      e.preventDefault();
+      if (!dragging || dragging === row) return;
+      const box = row.getBoundingClientRect();
+      const mid = box.top + box.height / 2;
+      if (e.clientY < mid) container.insertBefore(dragging, row);
+      else container.insertBefore(dragging, row.nextSibling);
+    });
+  });
+}
+
+// ── Close modals on backdrop click ───────────────────────────────
+document.getElementById('edit-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeEditModal(); });
+document.getElementById('prompt-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closePromptModal(); });
+
+// ── Boot ──────────────────────────────────────────────────────────
+injectLoginScreen();
+checkAuth(() => {
+  initLayout(null);
+  populateSiteSelects();
+  reloadTasks();
+  reloadPrompts();
+  // Activate first panel
+  document.getElementById('tab-tasks').style.display = 'flex';
+});
+
+window.initAfterLogin = () => {
+  initLayout(null);
+  populateSiteSelects();
+  reloadTasks();
+  reloadPrompts();
+  document.getElementById('tab-tasks').style.display = 'flex';
+};
+</script>
+</body>
+</html>
