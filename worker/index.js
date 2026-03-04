@@ -221,12 +221,22 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // GET /api/changelog/published ── Public: published changelog for frametrain website
+  // GET /api/changelog/published ── Public: published changelog entries
   if (request.method === 'GET' && path === '/api/changelog/published') {
     const db = env.DB;
     const siteId = url.searchParams.get('site_id') || 'frametrain';
     const result = await db.prepare(
       'SELECT * FROM changelog_entries WHERE site_id=? AND published=1 ORDER BY created_at DESC'
+    ).bind(siteId).all();
+    return json(result.results);
+  }
+
+  // GET /api/blog/published ── Public: published blog posts
+  if (request.method === 'GET' && path === '/api/blog/published') {
+    const db = env.DB;
+    const siteId = url.searchParams.get('site_id') || 'frametrain';
+    const result = await db.prepare(
+      "SELECT * FROM blog_posts WHERE site_id=? AND status='published' ORDER BY created_at DESC"
     ).bind(siteId).all();
     return json(result.results);
   }
