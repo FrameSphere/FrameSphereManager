@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analytics – WebControl HQ</title>
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    .an-scroll { flex:1; overflow-y:auto; padding:24px 28px; }
+
+    /* KPI Cards */
+    .kpi-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin-bottom:24px; }
+    .kpi-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; transition:border-color .2s; }
+    .kpi-card:hover { border-color:var(--border2); }
+    .kpi-label { font-size:9px; font-family:'Space Mono',monospace; text-transform:uppercase; letter-spacing:.12em; color:var(--text3); margin-bottom:6px; }
+    .kpi-val { font-size:26px; font-weight:800; letter-spacing:-.03em; line-height:1; }
+    .kpi-sub { font-size:10px; color:var(--text3); margin-top:4px; font-family:'Space Mono',monospace; }
+    .kpi-trend { font-size:10px; margin-top:4px; font-family:'Space Mono',monospace; }
+    .kpi-trend.up   { color:var(--green); }
+    .kpi-trend.down { color:var(--red); }
+
+    /* Section headers */
+    .an-section { margin-bottom:28px; }
+    .an-title { font-size:11px; font-family:'Space Mono',monospace; text-transform:uppercase; letter-spacing:.12em; color:var(--text3); margin-bottom:14px; display:flex; align-items:center; gap:10px; }
+    .an-title::after { content:''; flex:1; height:1px; background:var(--border); }
+
+    /* Chart cards */
+    .chart-row { display:grid; gap:12px; margin-bottom:12px; }
+    .chart-row-2 { grid-template-columns:1fr 1fr; }
+    .chart-row-3 { grid-template-columns:2fr 1fr 1fr; }
+    .an-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:18px 20px; }
+    .an-card-title { font-size:10px; font-family:'Space Mono',monospace; text-transform:uppercase; letter-spacing:.1em; color:var(--text3); margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; }
+
+    /* SVG Bar Chart */
+    .bar-wrap { display:flex; align-items:flex-end; gap:3px; height:80px; }
+    .bar-col  { display:flex; flex-direction:column; align-items:center; gap:3px; flex:1; cursor:default; }
+    .bar-fill { width:100%; border-radius:3px 3px 0 0; min-height:2px; transition:opacity .15s; }
+    .bar-fill:hover { opacity:.75; }
+    .bar-lbl  { font-size:8px; font-family:'Space Mono',monospace; color:var(--text3); white-space:nowrap; text-align:center; }
+    .bar-val  { font-size:8px; font-family:'Space Mono',monospace; color:var(--text2); }
+
+    /* Site comparison grid */
+    .site-compare-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; }
+    .sc-card { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:12px 14px; cursor:pointer; transition:border-color .15s; }
+    .sc-card:hover { border-color:var(--border2); }
+    .sc-card.selected { border-color:var(--accent); background:rgba(59,130,246,.06); }
+    .sc-name { font-size:12px; font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+    .sc-row  { display:flex; justify-content:space-between; font-size:10px; font-family:'Space Mono',monospace; color:var(--text3); margin-bottom:3px; }
+    .sc-row span:last-child { font-weight:700; color:var(--text2); }
+
+    /* Mini sparkline */
+    .sparkline { width:100%; height:28px; }
+
+    /* Rank table */
+    .rank-table { width:100%; border-collapse:collapse; }
+    .rank-table th { font-size:9px; font-family:'Space Mono',monospace; text-transform:uppercase; letter-spacing:.1em; color:var(--text3); padding:0 10px 8px; text-align:left; border-bottom:1px solid var(--border); }
+    .rank-table td { padding:9px 10px; font-size:12px; border-bottom:1px solid rgba(35,46,66,.4); }
+    .rank-table tr:last-child td { border-bottom:none; }
+    .rank-table tr:hover td { background:rgba(30,38,54,.4); }
+
+    /* Tab bar */
+    .an-tabs { display:flex; gap:2px; margin-bottom:24px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:4px; width:fit-content; }
+    .an-tab { padding:7px 16px; font-size:11px; font-family:'Space Mono',monospace; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--text3); cursor:pointer; border-radius:7px; border:none; background:none; transition:all .15s; }
+    .an-tab:hover { color:var(--text2); }
+    .an-tab.active { background:var(--surface2); color:var(--accent2); border:1px solid var(--border2); }
+
+    /* Donut */
+    .donut-wrap { display:flex; align-items:center; gap:20px; }
+    .donut-legend { display:flex; flex-direction:column; gap:6px; }
+    .donut-leg-item { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text2); }
+    .donut-leg-dot { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+
+    /* Inline mini bar */
+    .mini-bar { height:5px; border-radius:2px; background:var(--border2); overflow:hidden; margin-top:3px; }
+    .mini-bar-fill { height:100%; border-radius:2px; transition:width .4s ease; }
+
+    /* Error badge */
+    .err-badge { display:inline-flex; align-items:center; gap:3px; font-size:9px; font-family:'Space Mono',monospace; font-weight:700; padding:2px 6px; border-radius:4px; }
+
+    /* Pulse dot */
+    @keyframes livePulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
+    .live-dot { width:6px; height:6px; border-radius:50%; background:var(--green); animation:livePulse 2s infinite; flex-shrink:0; }
+  </style>
+</head>
+<body>
+<div id="layout">
+  <div id="main">
+
+    <div class="page-header" style="border-left:3px solid #a855f7;padding-left:25px">
+      <div class="flex items-center gap-12">
+        <i data-lucide="bar-chart-2" style="width:22px;height:22px;color:#a855f7"></i>
+        <div>
+          <div class="page-title">Analytics</div>
+          <div class="page-sub">Alle Webseiten · Pageviews · Fehler · Tickets · Cloudflare</div>
+        </div>
+        <div class="flex-1"></div>
+        <!-- Range selector -->
+        <div style="display:flex;gap:4px;align-items:center">
+          <button class="an-tab active" id="range-7d"  onclick="setRange('7d',this)">7 Tage</button>
+          <button class="an-tab"        id="range-30d" onclick="setRange('30d',this)">30 Tage</button>
+        </div>
+        <div class="live-dot" title="Live-Daten"></div>
+        <button class="btn btn-ghost btn-sm" id="refresh-btn" onclick="loadAll()">
+          <i data-lucide="refresh-cw" id="refresh-icon" style="width:12px;height:12px"></i>
+          Aktualisieren
+        </button>
+      </div>
+    </div>
+
+    <div class="an-scroll" id="an-scroll">
+      <div class="loading">Lade Analytics…</div>
+    </div>
+
+  </div>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  Analytics Dashboard
+// ═══════════════════════════════════════════════════════════════
+
+let _range = '7d';
+let _activeTab = 'overview';
+let _siteData  = {};   // site_id → analytics data
+let _overview  = null;
+let _errors    = null;
+let _rlData    = null;
+let _cfData    = null;
+let _selectedSite = null;
+
+function setRange(r, btn) {
+  _range = r;
+  document.querySelectorAll('[id^="range-"]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadAll();
+}
+
+// ── Chart helpers ─────────────────────────────────────────────────
+function barChart(data, maxVal, color = 'var(--accent)', height = 80, labelKey = 'day', valKey = 'views') {
+  if (!data.length) return '<div style="color:var(--text3);font-size:11px;font-family:\'Space Mono\',monospace;padding:20px 0;text-align:center">Keine Daten</div>';
+  const max = maxVal || Math.max(...data.map(d => d[valKey] || 0), 1);
+  return `<div class="bar-wrap" style="height:${height}px">
+    ${data.map(d => {
+      const v = d[valKey] || 0;
+      const h = Math.max(Math.round((v / max) * (height - 12)), v > 0 ? 3 : 1);
+      const lbl = (d[labelKey] || '').slice(5);
+      return `<div class="bar-col" title="${d[labelKey]}: ${v}">
+        <div class="bar-val" style="font-size:7px;opacity:${v>0?1:0}">${v > 999 ? (v/1000).toFixed(1)+'k' : v}</div>
+        <div class="bar-fill" style="height:${h}px;background:${color}"></div>
+        <div class="bar-lbl">${lbl}</div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function svgLine(data, valKey = 'views', color = '#3b82f6', w = 300, h = 50) {
+  if (!data.length) return '';
+  const vals = data.map(d => d[valKey] || 0);
+  const max = Math.max(...vals, 1);
+  const pts = vals.map((v, i) => {
+    const x = (i / (vals.length - 1 || 1)) * w;
+    const y = h - (v / max) * (h - 4) - 2;
+    return `${x},${y}`;
+  }).join(' ');
+  const area = vals.map((v, i) => {
+    const x = (i / (vals.length - 1 || 1)) * w;
+    const y = h - (v / max) * (h - 4) - 2;
+    return `${x},${y}`;
+  });
+  const areaPath = `M${area[0]} L${area.join(' L')} L${w},${h} L0,${h} Z`;
+  return `<svg viewBox="0 0 ${w} ${h}" class="sparkline" preserveAspectRatio="none">
+    <defs>
+      <linearGradient id="sg-${color.replace('#','')}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.3"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path d="${areaPath}" fill="url(#sg-${color.replace('#','')})" />
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
+}
+
+function donutSVG(segments, size = 80) {
+  // segments: [{val, color, label}]
+  const total = segments.reduce((a, s) => a + s.val, 0) || 1;
+  let cumAngle = -90;
+  const cx = size/2, cy = size/2, r = size/2 - 6, inner = r * 0.55;
+
+  const paths = segments.map(s => {
+    const angle = (s.val / total) * 360;
+    const startAngle = cumAngle * Math.PI / 180;
+    const endAngle   = (cumAngle + angle) * Math.PI / 180;
+    cumAngle += angle;
+    if (angle === 0) return '';
+    if (angle >= 359.9) {
+      return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${s.color}" opacity=".85"/>
+              <circle cx="${cx}" cy="${cy}" r="${inner}" fill="var(--surface)"/>`;
+    }
+    const x1 = cx + r * Math.cos(startAngle), y1 = cy + r * Math.sin(startAngle);
+    const x2 = cx + r * Math.cos(endAngle),   y2 = cy + r * Math.sin(endAngle);
+    const xi1 = cx + inner * Math.cos(startAngle), yi1 = cy + inner * Math.sin(startAngle);
+    const xi2 = cx + inner * Math.cos(endAngle),   yi2 = cy + inner * Math.sin(endAngle);
+    const la = angle > 180 ? 1 : 0;
+    return `<path d="M${x1},${y1} A${r},${r} 0 ${la},1 ${x2},${y2} L${xi2},${yi2} A${inner},${inner} 0 ${la},0 ${xi1},${yi1} Z" fill="${s.color}" opacity=".85"/>`;
+  });
+
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${paths.join('')}<circle cx="${cx}" cy="${cy}" r="${inner}" fill="var(--surface)"/></svg>`;
+}
+
+// ── Data Loader ───────────────────────────────────────────────────
+async function loadAll() {
+  const icon = document.getElementById('refresh-icon');
+  if (icon) icon.classList.add('spinning');
+
+  const days = _range === '7d' ? 7 : 30;
+  const rlRange = _range;
+
+  // Parallel: global overview, stats, errors, ratelimit, CF
+  const [overview, allErrors, rlData] = await Promise.all([
+    api('/api/overview'),
+    api('/api/errors'),
+    api(`/api/ratelimit-stats?range=${rlRange}`),
+  ]);
+
+  _overview = overview;
+  _errors   = allErrors || [];
+  _rlData   = rlData;
+
+  // CF Analytics (if token)
+  const cfTok = localStorage.getItem('cf_api_token');
+  if (cfTok) {
+    _cfData = await api('/api/cf-analytics', { headers: { 'CF-Token': cfTok } });
+  }
+
+  // Per-site analytics (parallel)
+  const siteAnalytics = await Promise.all(
+    SITES.map(s => api(`/api/analytics?site_id=${s.id}&days=${days}`).then(d => ({ id: s.id, d })))
+  );
+  _siteData = {};
+  siteAnalytics.forEach(({ id, d }) => { _siteData[id] = d; });
+
+  if (icon) icon.classList.remove('spinning');
+
+  render();
+  refreshIcons();
+}
+
+// ── Main Render ───────────────────────────────────────────────────
+function render() {
+  const scroll = document.getElementById('an-scroll');
+
+  // Build KPIs
+  const totalErrors   = (_overview?.sites || []).reduce((a,s) => a+s.unresolved_errors,   0);
+  const totalTickets  = (_overview?.sites || []).reduce((a,s) => a+s.open_tickets,         0);
+  const totalUnread   = (_overview?.sites || []).reduce((a,s) => a+s.unread_notifications, 0);
+  const totalViews    = Object.values(_siteData).reduce((a,d) => a + (d?.by_day?.reduce((x,r) => x+r.views,0)||0), 0);
+  const rlBlocked     = _rlData?.summary?.blocked_requests || 0;
+  const rlTotal       = _rlData?.summary?.total_requests || 0;
+  const blockRate     = rlTotal > 0 ? ((rlBlocked/rlTotal)*100).toFixed(1) : '0.0';
+
+  scroll.innerHTML = `
+    <!-- KPI Row -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Pageviews (${_range})</div>
+        <div class="kpi-val" style="color:var(--accent2)">${totalViews.toLocaleString('de-DE')}</div>
+        <div class="kpi-sub">Alle Seiten</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Fehler ungelöst</div>
+        <div class="kpi-val ${totalErrors > 0 ? 'red' : 'green'}">${totalErrors}</div>
+        <div class="kpi-sub">${_errors.filter(e=>!e.resolved).length} offen</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Offene Tickets</div>
+        <div class="kpi-val yellow">${totalTickets}</div>
+        <div class="kpi-sub">über alle Sites</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">RL-Blockierungen</div>
+        <div class="kpi-val" style="color:var(--red)">${rlBlocked.toLocaleString('de-DE')}</div>
+        <div class="kpi-sub">${blockRate}% Block-Rate</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">CF Worker (24h)</div>
+        <div class="kpi-val" style="color:${_cfData ? 'var(--green)' : 'var(--text3)'}">${_cfData ? _cfData.requests.toLocaleString('de-DE') : '–'}</div>
+        <div class="kpi-sub">${_cfData ? ((_cfData.errors/_cfData.requests*100)||0).toFixed(2)+'% Fehlerrate' : 'CF Token erforderlich'}</div>
+      </div>
+    </div>
+
+    <!-- Tab Nav -->
+    <div class="an-tabs">
+      <button class="an-tab${_activeTab==='overview'?' active':''}"   onclick="switchTab('overview')">Überblick</button>
+      <button class="an-tab${_activeTab==='pageviews'?' active':''}"  onclick="switchTab('pageviews')">Pageviews</button>
+      <button class="an-tab${_activeTab==='errors'?' active':''}"     onclick="switchTab('errors')">Fehler</button>
+      <button class="an-tab${_activeTab==='tickets'?' active':''}"    onclick="switchTab('tickets')">Tickets</button>
+      <button class="an-tab${_activeTab==='ratelimit'?' active':''}"  onclick="switchTab('ratelimit')">Ratelimit API</button>
+      <button class="an-tab${_activeTab==='cloudflare'?' active':''}" onclick="switchTab('cloudflare')">Cloudflare</button>
+    </div>
+
+    <div id="tab-content"></div>
+  `;
+
+  renderTab(_activeTab);
+}
+
+function switchTab(t) {
+  _activeTab = t;
+  document.querySelectorAll('.an-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.an-tab').forEach(b => { if (b.textContent.toLowerCase().includes(tabLabel(t).toLowerCase())) b.classList.add('active'); });
+  renderTab(t);
+  refreshIcons();
+}
+
+function tabLabel(t) {
+  return { overview:'Überblick', pageviews:'Pageviews', errors:'Fehler', tickets:'Tickets', ratelimit:'Ratelimit API', cloudflare:'Cloudflare' }[t] || t;
+}
+
+// ── Tab: Overview ─────────────────────────────────────────────────
+function renderOverview() {
+  const siteStats = SITES.map(s => {
+    const ov   = (_overview?.sites || []).find(x => x.id === s.id) || {};
+    const ad   = _siteData[s.id];
+    const views = ad?.by_day?.reduce((a,r) => a+r.views, 0) || 0;
+    const errs  = _errors.filter(e => e.site_id === s.id && !e.resolved).length;
+    return { ...s, views, errs, tickets: ov.open_tickets||0, notifs: ov.unread_notifications||0, byDay: ad?.by_day || [] };
+  }).sort((a,b) => b.views - a.views);
+
+  const maxViews = Math.max(...siteStats.map(s => s.views), 1);
+
+  // All-sites aggregated chart
+  const allDays = {};
+  SITES.forEach(s => {
+    (_siteData[s.id]?.by_day || []).forEach(d => {
+      allDays[d.day] = (allDays[d.day] || 0) + d.views;
+    });
+  });
+  const allDayArr = Object.entries(allDays).sort().map(([day,views]) => ({ day, views }));
+
+  document.getElementById('tab-content').innerHTML = `
+    <!-- Aggregated chart -->
+    <div class="an-section">
+      <div class="an-title">Gesamte Pageviews – alle Sites (${_range})</div>
+      <div class="an-card">
+        <div class="an-card-title">
+          <span>Pageviews Gesamt</span>
+          <span style="color:var(--accent2);font-size:14px;font-weight:800">${allDayArr.reduce((a,d)=>a+d.views,0).toLocaleString('de-DE')}</span>
+        </div>
+        ${barChart(allDayArr, null, 'var(--accent)', 90)}
+      </div>
+    </div>
+
+    <!-- Site comparison -->
+    <div class="an-section">
+      <div class="an-title">Sites im Vergleich</div>
+      <div class="an-card" style="padding:0;overflow:hidden">
+        <table class="rank-table">
+          <thead>
+            <tr>
+              <th style="padding-left:18px">Website</th>
+              <th>Pageviews</th>
+              <th>Trend</th>
+              <th>Fehler</th>
+              <th>Tickets</th>
+              <th>Notifs</th>
+              <th>Gesundheit</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${siteStats.map((s, i) => {
+              const pct = Math.round((s.views / maxViews) * 100);
+              const health = s.errs > 5 ? 'red' : s.errs > 0 ? 'yellow' : 'green';
+              const healthLabel = { red:'Kritisch', yellow:'Warnung', green:'OK' }[health];
+              return `<tr>
+                <td style="padding-left:18px">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <div style="width:8px;height:8px;border-radius:50%;background:${s.color};flex-shrink:0"></div>
+                    <a href="sites/${s.id}.html" style="font-weight:700;color:var(--text);text-decoration:none;font-size:12px">${s.name}</a>
+                  </div>
+                  <div style="font-size:9px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:1px;padding-left:16px">${s.url.replace('https://','')}</div>
+                </td>
+                <td>
+                  <div style="font-weight:800;font-size:13px;color:var(--accent2)">${s.views.toLocaleString('de-DE')}</div>
+                  <div class="mini-bar" style="width:80px"><div class="mini-bar-fill" style="width:${pct}%;background:${s.color}"></div></div>
+                </td>
+                <td style="width:90px">${svgLine(s.byDay,'views',s.color,80,28)}</td>
+                <td><span class="${s.errs>0?'err-badge':''}${s.errs>5?' error':s.errs>0?' warn':' ok'}" style="${s.errs>0?'background:rgba(239,68,68,.1);color:var(--red);border:1px solid rgba(239,68,68,.25)':'color:var(--green)'}">${s.errs > 0 ? `⚠ ${s.errs}` : '✓ 0'}</span></td>
+                <td><span style="font-family:'Space Mono',monospace;font-size:11px;color:${s.tickets>0?'var(--yellow)':'var(--text3)'}">${s.tickets || '–'}</span></td>
+                <td><span style="font-family:'Space Mono',monospace;font-size:11px;color:${s.notifs>0?'var(--accent2)':'var(--text3)'}">${s.notifs || '–'}</span></td>
+                <td>
+                  <span class="chip ${health === 'green' ? 'ok' : health === 'yellow' ? 'warn' : 'error'}">${healthLabel}</span>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Error + Tickets donut row -->
+    <div class="chart-row chart-row-2">
+      ${renderErrorDonut()}
+      ${renderTicketDonut()}
+    </div>
+  `;
+}
+
+function renderErrorDonut() {
+  const unresCounts = SITES.map(s => ({
+    name: s.name, color: s.color,
+    val: _errors.filter(e => e.site_id === s.id && !e.resolved).length
+  })).filter(s => s.val > 0);
+
+  const total = unresCounts.reduce((a,s) => a+s.val, 0);
+  const segs = unresCounts.length ? unresCounts : [{ name:'Keine', color:'var(--green)', val:1 }];
+
+  return `<div class="an-card">
+    <div class="an-card-title"><span>Fehler-Verteilung</span><span style="color:var(--red)">${total} offen</span></div>
+    <div class="donut-wrap">
+      ${donutSVG(segs.map(s => ({...s, color: s.color})), 100)}
+      <div class="donut-legend">
+        ${segs.slice(0,6).map(s => `
+          <div class="donut-leg-item">
+            <div class="donut-leg-dot" style="background:${s.color}"></div>
+            <span>${s.name}</span>
+            <span style="font-family:'Space Mono',monospace;font-weight:700;margin-left:auto;padding-left:8px">${s.val}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderTicketDonut() {
+  const open  = (_overview?.sites||[]).reduce((a,s)=>a+s.open_tickets,0);
+  const notif = (_overview?.sites||[]).reduce((a,s)=>a+s.unread_notifications,0);
+  const err   = (_overview?.sites||[]).reduce((a,s)=>a+s.unresolved_errors,0);
+  const segs  = [
+    { name:'Offene Tickets', color:'#3b82f6', val: open  },
+    { name:'Neue Notifs',    color:'#a855f7', val: notif },
+    { name:'Fehler',         color:'#ef4444', val: err   },
+  ].filter(s => s.val > 0);
+  const total = segs.reduce((a,s)=>a+s.val,0);
+  const display = segs.length ? segs : [{ name:'Alles OK', color:'#22c55e', val:1 }];
+
+  return `<div class="an-card">
+    <div class="an-card-title"><span>Handlungsbedarf</span><span style="color:var(--yellow)">${total} gesamt</span></div>
+    <div class="donut-wrap">
+      ${donutSVG(display, 100)}
+      <div class="donut-legend">
+        ${display.map(s => `
+          <div class="donut-leg-item">
+            <div class="donut-leg-dot" style="background:${s.color}"></div>
+            <span>${s.name}</span>
+            <span style="font-family:'Space Mono',monospace;font-weight:700;margin-left:auto;padding-left:8px">${s.val}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Tab: Pageviews ────────────────────────────────────────────────
+function renderPageviews() {
+  const cards = SITES.map(s => {
+    const d    = _siteData[s.id];
+    const byDay = d?.by_day || [];
+    const total = byDay.reduce((a,r) => a+r.views, 0);
+    const byType = d?.by_type || [];
+    const events = byType.reduce((a,r) => a+r.count, 0);
+    return { ...s, byDay, total, events };
+  }).sort((a,b) => b.total - a.total);
+
+  const maxTotal = Math.max(...cards.map(c => c.total), 1);
+
+  // Build aggregate by day across all sites
+  const byDaySite = {};
+  SITES.forEach(s => {
+    (_siteData[s.id]?.by_day || []).forEach(d => {
+      if (!byDaySite[d.day]) byDaySite[d.day] = {};
+      byDaySite[d.day][s.id] = d.views;
+    });
+  });
+  const allDates = Object.keys(byDaySite).sort();
+
+  document.getElementById('tab-content').innerHTML = `
+    <!-- All-sites stacked info -->
+    <div class="an-section">
+      <div class="an-title">Pageviews per Site</div>
+      <div class="site-compare-grid">
+        ${cards.map(s => `
+          <div class="sc-card${_selectedSite===s.id?' selected':''}" onclick="selectSite('${s.id}')">
+            <div class="sc-name">
+              <div style="width:8px;height:8px;border-radius:50%;background:${s.color};flex-shrink:0"></div>
+              ${s.name}
+            </div>
+            ${svgLine(s.byDay,'views',s.color)}
+            <div style="display:flex;justify-content:space-between;margin-top:4px">
+              <span style="font-size:9px;color:var(--text3);font-family:'Space Mono',monospace">Views</span>
+              <span style="font-size:12px;font-weight:800;color:var(--accent2)">${s.total.toLocaleString('de-DE')}</span>
+            </div>
+            <div class="mini-bar"><div class="mini-bar-fill" style="width:${Math.round(s.total/maxTotal*100)}%;background:${s.color}"></div></div>
+            ${s.events ? `<div style="font-size:9px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:4px">${s.events} Events</div>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <!-- Selected site detail or combined chart -->
+    <div id="pv-detail" class="an-section">
+      ${_selectedSite ? renderSiteDetail(_selectedSite) : renderCombinedChart(cards, allDates, byDaySite)}
+    </div>
+
+    <!-- Event type breakdown -->
+    <div class="an-section">
+      <div class="an-title">Event-Typen</div>
+      <div class="an-card">
+        <div class="an-card-title"><span>Alle Events nach Typ</span></div>
+        ${renderEventTypes()}
+      </div>
+    </div>
+  `;
+}
+
+function renderCombinedChart(cards, allDates, byDaySite) {
+  // Top 5 sites stacked bars
+  const top5 = cards.slice(0,5);
+  if (!allDates.length) return `<div class="an-card"><div style="text-align:center;color:var(--text3);font-family:'Space Mono',monospace;font-size:12px;padding:20px">Noch keine Pageview-Daten.<br><br>Tracking-Snippet in die Sites einbauen.</div></div>`;
+  const maxDay = Math.max(...allDates.map(d => top5.reduce((a,s) => a+(byDaySite[d]?.[s.id]||0), 0)), 1);
+
+  return `<div class="an-card">
+    <div class="an-card-title"><span>Top 5 Sites – tägliche Pageviews</span><span style="font-size:9px">Klicke eine Site oben für Details</span></div>
+    <div style="display:flex;align-items:flex-end;gap:4px;height:100px;overflow-x:auto">
+      ${allDates.map(d => {
+        const dayTotal = top5.reduce((a,s) => a+(byDaySite[d]?.[s.id]||0), 0);
+        const h = Math.max(Math.round((dayTotal/maxDay)*88), dayTotal>0?2:1);
+        return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;min-width:20px" title="${d}: ${dayTotal} views">
+          <div style="width:100%;display:flex;flex-direction:column;justify-content:flex-end;height:88px;gap:1px">
+            ${top5.map(s => {
+              const v = byDaySite[d]?.[s.id] || 0;
+              const sh = Math.round((v/Math.max(dayTotal,1))*h);
+              return sh > 0 ? `<div style="width:100%;height:${sh}px;background:${s.color};opacity:.8;min-height:1px"></div>` : '';
+            }).reverse().join('')}
+          </div>
+          <div style="font-size:8px;color:var(--text3);font-family:'Space Mono',monospace">${d.slice(5)}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px">
+      ${top5.map(s => `<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--text2)">
+        <span style="width:8px;height:8px;border-radius:2px;background:${s.color}"></span>${s.name}
+      </span>`).join('')}
+    </div>
+  </div>`;
+}
+
+window.selectSite = function(id) {
+  _selectedSite = _selectedSite === id ? null : id;
+  const det = document.getElementById('pv-detail');
+  if (!det) return;
+  const cards = SITES.map(s => ({ ...s, byDay: _siteData[s.id]?.by_day||[], total: (_siteData[s.id]?.by_day||[]).reduce((a,r)=>a+r.views,0) }));
+  const allDates = [...new Set(Object.values(_siteData).flatMap(d => (d?.by_day||[]).map(r=>r.day)))].sort();
+  const byDaySite = {};
+  SITES.forEach(s => { (_siteData[s.id]?.by_day||[]).forEach(d => { if(!byDaySite[d.day])byDaySite[d.day]={}; byDaySite[d.day][s.id]=d.views; }); });
+  det.innerHTML = _selectedSite ? renderSiteDetail(_selectedSite) : renderCombinedChart(cards, allDates, byDaySite);
+  document.querySelectorAll('.sc-card').forEach(c => c.classList.remove('selected'));
+  if (_selectedSite) document.querySelector(`[onclick="selectSite('${_selectedSite}')"]`)?.classList.add('selected');
+  refreshIcons();
+};
+
+function renderSiteDetail(siteId) {
+  const s = SITES.find(x => x.id === siteId);
+  const d = _siteData[siteId];
+  const byDay = d?.by_day || [];
+  const byType = d?.by_type || [];
+  const total = byDay.reduce((a,r) => a+r.views, 0);
+  return `<div class="an-card">
+    <div class="an-card-title">
+      <span style="display:flex;align-items:center;gap:8px">
+        <span style="width:8px;height:8px;border-radius:50%;background:${s.color}"></span>
+        ${s.name} – Detail
+      </span>
+      <span style="color:var(--accent2)">${total.toLocaleString('de-DE')} Views</span>
+    </div>
+    ${barChart(byDay, null, s.color, 90)}
+    ${byType.length ? `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px">
+      ${byType.map(t => `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px">
+        <div style="font-size:8px;font-family:'Space Mono',monospace;color:var(--text3);text-transform:uppercase;margin-bottom:3px">${esc(t.event_type)}</div>
+        <div style="font-size:18px;font-weight:800;color:var(--accent2)">${t.count}</div>
+      </div>`).join('')}
+    </div>` : ''}
+    <div style="margin-top:12px;font-size:9px;font-family:'Space Mono',monospace;color:var(--text3)">
+      <a href="sites/${siteId}.html" style="color:var(--accent2);text-decoration:none">→ Site verwalten</a>
+      &nbsp;·&nbsp;
+      <a href="${s.url}" target="_blank" style="color:var(--text3);text-decoration:none">${s.url.replace('https://','')}</a>
+    </div>
+  </div>`;
+}
+
+function renderEventTypes() {
+  const allTypes = {};
+  SITES.forEach(s => {
+    (_siteData[s.id]?.by_type||[]).forEach(t => {
+      allTypes[t.event_type] = (allTypes[t.event_type]||0) + t.count;
+    });
+  });
+  const types = Object.entries(allTypes).sort((a,b) => b[1]-a[1]);
+  const max = Math.max(...types.map(t=>t[1]), 1);
+  if (!types.length) return '<div style="color:var(--text3);font-size:11px;font-family:\'Space Mono\',monospace">Keine Event-Daten</div>';
+  return `<div style="display:flex;flex-direction:column;gap:8px">
+    ${types.map(([type,count]) => `
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="font-size:11px;font-family:'Space Mono',monospace;color:var(--text2);width:120px;flex-shrink:0">${esc(type)}</div>
+        <div class="mini-bar" style="flex:1"><div class="mini-bar-fill" style="width:${Math.round(count/max*100)}%;background:var(--accent)"></div></div>
+        <div style="font-size:12px;font-weight:700;font-family:'Space Mono',monospace;color:var(--accent2);width:60px;text-align:right">${count.toLocaleString('de-DE')}</div>
+      </div>`).join('')}
+  </div>`;
+}
+
+// ── Tab: Errors ────────────────────────────────────────────────────
+function renderErrors() {
+  const bySite = {};
+  SITES.forEach(s => { bySite[s.id] = { name:s.name, color:s.color, unres:0, res:0, all:[] }; });
+  (_errors||[]).forEach(e => {
+    if (!bySite[e.site_id]) bySite[e.site_id] = { name:e.site_id, color:'#888', unres:0, res:0, all:[] };
+    if (e.resolved) bySite[e.site_id].res++;
+    else bySite[e.site_id].unres++;
+    bySite[e.site_id].all.push(e);
+  });
+
+  const sites = Object.entries(bySite).filter(([,s]) => s.all.length).sort((a,b) => b[1].unres - a[1].unres);
+  const maxUnres = Math.max(...sites.map(([,s]) => s.unres), 1);
+
+  // Error types
+  const byType = {};
+  (_errors||[]).forEach(e => { byType[e.error_type] = (byType[e.error_type]||0)+1; });
+  const types = Object.entries(byType).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+  document.getElementById('tab-content').innerHTML = `
+    <div class="chart-row chart-row-2" style="margin-bottom:24px">
+      <!-- Unresolved per site -->
+      <div class="an-card">
+        <div class="an-card-title"><span>Ungelöste Fehler per Site</span><span style="color:var(--red)">${(_errors||[]).filter(e=>!e.resolved).length} gesamt</span></div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          ${sites.slice(0,8).map(([id,s]) => `
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="font-size:11px;font-family:'Space Mono',monospace;color:var(--text2);width:90px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${s.name}</div>
+              <div class="mini-bar" style="flex:1"><div class="mini-bar-fill" style="width:${Math.round(s.unres/maxUnres*100)}%;background:var(--red)"></div></div>
+              <span style="font-size:11px;font-weight:700;font-family:'Space Mono',monospace;color:${s.unres>0?'var(--red)':'var(--green)'};">${s.unres}</span>
+              <span style="font-size:9px;color:var(--text3);font-family:'Space Mono',monospace">${s.res} gelöst</span>
+            </div>`).join('')}
+        </div>
+      </div>
+      <!-- Error types -->
+      <div class="an-card">
+        <div class="an-card-title"><span>Fehler-Typen</span></div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          ${types.map(([type,count]) => `
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="font-size:10px;font-family:'Space Mono',monospace;color:var(--text2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(type)}</div>
+              <span style="font-size:11px;font-weight:700;color:var(--red);font-family:'Space Mono',monospace">${count}</span>
+            </div>`).join('')}
+          ${!types.length ? '<div style="color:var(--text3);font-size:11px">Keine Fehler ✓</div>' : ''}
+        </div>
+      </div>
+    </div>
+
+    <!-- Error table -->
+    <div class="an-section">
+      <div class="an-title">Letzte Fehler (ungelöst)</div>
+      <div class="an-card" style="padding:0;overflow:hidden">
+        ${(_errors||[]).filter(e=>!e.resolved).length
+          ? `<table class="rank-table">
+              <thead><tr><th style="padding-left:18px">Site</th><th>Typ</th><th>Nachricht</th><th>Pfad</th><th>Datum</th></tr></thead>
+              <tbody>
+                ${(_errors||[]).filter(e=>!e.resolved).slice(0,30).map(e => {
+                  const s = SITES.find(x=>x.id===e.site_id);
+                  return `<tr>
+                    <td style="padding-left:18px">
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <div style="width:6px;height:6px;border-radius:50%;background:${s?.color||'#888'};flex-shrink:0"></div>
+                        <span style="font-size:11px;font-weight:700">${s?.name||e.site_id}</span>
+                      </div>
+                    </td>
+                    <td><span style="font-family:'Space Mono',monospace;font-size:10px;color:var(--red)">${esc(e.error_type)}</span></td>
+                    <td style="max-width:200px;font-size:11px;color:var(--text2)">${esc(e.message).slice(0,60)}${e.message.length>60?'…':''}</td>
+                    <td class="mono" style="color:var(--text3);font-size:10px">${esc(e.path||'–')}</td>
+                    <td class="mono" style="color:var(--text3);font-size:10px">${fmtDate(e.created_at)}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+             </table>`
+          : '<div style="padding:40px;text-align:center;color:var(--green);font-family:\'Space Mono\',monospace;font-size:12px">✓ Keine ungelösten Fehler</div>'}
+      </div>
+    </div>
+  `;
+}
+
+// ── Tab: Tickets ──────────────────────────────────────────────────
+async function renderTickets() {
+  document.getElementById('tab-content').innerHTML = '<div class="loading">Lade Tickets…</div>';
+
+  const allTickets = await Promise.all(
+    SITES.map(s => api(`/api/support?site_id=${s.id}`).then(d => (d||[]).map(t => ({...t, _site:s}))))
+  );
+  const tickets = allTickets.flat();
+
+  const byStatus = { open:0, in_progress:0, resolved:0, closed:0 };
+  tickets.forEach(t => { byStatus[t.status] = (byStatus[t.status]||0)+1; });
+
+  const bySite = {};
+  SITES.forEach(s => { bySite[s.id] = { name:s.name, color:s.color, open:0, total:0 }; });
+  tickets.forEach(t => {
+    if (!bySite[t.site_id]) return;
+    bySite[t.site_id].total++;
+    if (t.status === 'open' || t.status === 'in_progress') bySite[t.site_id].open++;
+  });
+
+  const siteArr = Object.entries(bySite).filter(([,s])=>s.total>0).sort((a,b)=>b[1].total-a[1].total);
+  const maxTotal = Math.max(...siteArr.map(([,s])=>s.total), 1);
+
+  const statusColors = { open:'#3b82f6', in_progress:'#f59e0b', resolved:'#22c55e', closed:'#4a5568' };
+  const statusLabels = { open:'Offen', in_progress:'In Bearbeitung', resolved:'Gelöst', closed:'Geschlossen' };
+  const donutSegs = Object.entries(byStatus).map(([k,v]) => ({ name:statusLabels[k], color:statusColors[k], val:v })).filter(s=>s.val>0);
+
+  document.getElementById('tab-content').innerHTML = `
+    <div class="chart-row chart-row-2" style="margin-bottom:24px">
+      <div class="an-card">
+        <div class="an-card-title"><span>Status-Verteilung</span><span>${tickets.length} Tickets gesamt</span></div>
+        <div class="donut-wrap">
+          ${donutSVG(donutSegs.length ? donutSegs : [{name:'Keine',color:'#22c55e',val:1}], 100)}
+          <div class="donut-legend">
+            ${Object.entries(byStatus).map(([k,v]) => `
+              <div class="donut-leg-item">
+                <div class="donut-leg-dot" style="background:${statusColors[k]}"></div>
+                <span>${statusLabels[k]}</span>
+                <span style="font-family:'Space Mono',monospace;font-weight:700;margin-left:auto;padding-left:12px">${v}</span>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="an-card">
+        <div class="an-card-title"><span>Tickets per Site</span></div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          ${siteArr.map(([id,s]) => `
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="font-size:11px;font-family:'Space Mono',monospace;width:90px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text2)">${s.name}</div>
+              <div class="mini-bar" style="flex:1"><div class="mini-bar-fill" style="width:${Math.round(s.total/maxTotal*100)}%;background:${s.color}"></div></div>
+              <span style="font-size:11px;font-weight:700;font-family:'Space Mono',monospace">${s.total}</span>
+              ${s.open ? `<span style="font-size:9px;color:var(--yellow);font-family:'Space Mono',monospace">${s.open} offen</span>` : ''}
+            </div>`).join('')}
+          ${!siteArr.length ? '<div style="color:var(--text3);font-size:11px">Keine Tickets</div>' : ''}
+        </div>
+      </div>
+    </div>
+
+    <div class="an-section">
+      <div class="an-title">Offene Tickets</div>
+      <div class="an-card" style="padding:0;overflow:hidden">
+        ${tickets.filter(t=>t.status==='open'||t.status==='in_progress').length
+          ? `<table class="rank-table">
+              <thead><tr><th style="padding-left:18px">Site</th><th>Betreff</th><th>Von</th><th>Status</th><th>Priorität</th><th>Datum</th></tr></thead>
+              <tbody>
+                ${tickets.filter(t=>t.status==='open'||t.status==='in_progress').slice(0,30).map(t => `
+                  <tr>
+                    <td style="padding-left:18px">
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <div style="width:6px;height:6px;border-radius:50%;background:${t._site.color};flex-shrink:0"></div>
+                        <span style="font-size:11px;font-weight:700">${t._site.name}</span>
+                      </div>
+                    </td>
+                    <td style="font-weight:600;font-size:12px;max-width:200px">${esc(t.subject).slice(0,45)}${t.subject.length>45?'…':''}</td>
+                    <td style="font-size:11px;color:var(--text2)">${esc(t.name||t.email||'Anonym')}</td>
+                    <td><span class="badge ${t.status}">${statusLabels[t.status]||t.status}</span></td>
+                    <td><span class="badge ${t.priority||'normal'}">${t.priority||'normal'}</span></td>
+                    <td class="mono" style="color:var(--text3);font-size:10px">${fmtDate(t.created_at)}</td>
+                  </tr>`).join('')}
+              </tbody>
+             </table>`
+          : '<div style="padding:40px;text-align:center;color:var(--green);font-family:\'Space Mono\',monospace;font-size:12px">✓ Keine offenen Tickets</div>'}
+      </div>
+    </div>
+  `;
+  refreshIcons();
+}
+
+// ── Tab: Ratelimit ────────────────────────────────────────────────
+function renderRatelimitTab() {
+  const d = _rlData;
+  if (!d) { document.getElementById('tab-content').innerHTML = `<div class="an-card"><div style="color:var(--text3);font-family:'Space Mono',monospace;font-size:12px;text-align:center;padding:40px">Keine Ratelimit-Daten</div></div>`; return; }
+
+  const { summary, all_time, hourly, daily, top_endpoints, top_ips } = d;
+  const total   = summary?.total_requests   || 0;
+  const blocked = summary?.blocked_requests || 0;
+  const allowed = total - blocked;
+  const uniqueIps = summary?.unique_ips || 0;
+  const blockRate = total > 0 ? ((blocked/total)*100).toFixed(2) : '0.00';
+
+  const chartData = _range === '7d' ? daily : daily;
+  const maxVal = Math.max(...(chartData||[]).map(d => d.total||d.requests||0), 1);
+
+  document.getElementById('tab-content').innerHTML = `
+    <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:20px">
+      <div class="kpi-card"><div class="kpi-label">Requests (${_range})</div><div class="kpi-val" style="color:var(--accent2)">${total.toLocaleString('de-DE')}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Durchgelassen</div><div class="kpi-val green">${allowed.toLocaleString('de-DE')}</div><div class="kpi-sub">${(100-parseFloat(blockRate)).toFixed(1)}%</div></div>
+      <div class="kpi-card"><div class="kpi-label">Blockiert</div><div class="kpi-val red">${blocked.toLocaleString('de-DE')}</div><div class="kpi-sub">${blockRate}% Block-Rate</div></div>
+      <div class="kpi-card"><div class="kpi-label">Unique IPs</div><div class="kpi-val yellow">${uniqueIps.toLocaleString('de-DE')}</div></div>
+      <div class="kpi-card"><div class="kpi-label">All-Time</div><div class="kpi-val" style="font-size:18px">${(all_time?.total||0).toLocaleString('de-DE')}</div><div class="kpi-sub red">${(all_time?.blocked||0).toLocaleString('de-DE')} blockiert</div></div>
+    </div>
+
+    <div class="an-section">
+      <div class="an-title">Anfragen-Verlauf</div>
+      <div class="an-card">
+        <div class="an-card-title"><span>Täglich</span></div>
+        ${chartData?.length ? `
+          <div style="display:flex;align-items:flex-end;gap:3px;height:100px">
+            ${chartData.map(d => {
+              const tot  = d.total||d.requests||0;
+              const blk  = d.blocked||0;
+              const h    = Math.max(Math.round((tot/maxVal)*88),tot>0?2:1);
+              const bh   = tot>0 ? Math.max(Math.round((blk/tot)*h),blk>0?1:0) : 0;
+              return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;min-width:12px" title="${d.day||d.hour}: ${tot} total, ${blk} blocked">
+                <div style="width:100%;display:flex;flex-direction:column;justify-content:flex-end;height:88px">
+                  <div style="background:#10b981;border-radius:2px 2px 0 0;height:${h-bh}px;width:100%"></div>
+                  ${bh>0?`<div style="background:#ef4444;height:${bh}px;width:100%"></div>`:''}
+                </div>
+                <div style="font-size:8px;color:var(--text3);font-family:'Space Mono',monospace">${(d.day||'').slice(5)}</div>
+              </div>`;
+            }).join('')}
+          </div>
+          <div style="display:flex;gap:16px;margin-top:10px">
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:#10b981"></span>Durchgelassen</span>
+            <span style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)"><span style="width:10px;height:10px;border-radius:2px;background:#ef4444"></span>Blockiert</span>
+          </div>` : '<div style="color:var(--text3);font-size:11px">Keine Daten</div>'}
+      </div>
+    </div>
+
+    <div class="chart-row chart-row-2">
+      <div class="an-card">
+        <div class="an-card-title"><span>Top Endpoints</span></div>
+        ${(top_endpoints||[]).length ? `<table class="rank-table">
+          <thead><tr><th>Endpoint</th><th style="text-align:right">Anfragen</th></tr></thead>
+          <tbody>${(top_endpoints||[]).map(e => `<tr>
+            <td class="mono" style="font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.endpoint||'–')}</td>
+            <td style="text-align:right;font-weight:700;color:var(--accent2)">${(e.count||0).toLocaleString('de-DE')}</td>
+          </tr>`).join('')}</tbody>
+        </table>` : '<div style="color:var(--text3);font-size:11px">Keine Daten</div>'}
+      </div>
+      <div class="an-card">
+        <div class="an-card-title"><span>Top IPs</span></div>
+        ${(top_ips||[]).length ? `<table class="rank-table">
+          <thead><tr><th>IP</th><th style="text-align:right">Req</th><th style="text-align:right">Blk</th></tr></thead>
+          <tbody>${(top_ips||[]).map(ip => `<tr>
+            <td class="mono" style="font-size:10px">${esc(ip.ip_address||'–')}</td>
+            <td style="text-align:right;font-weight:700">${ip.count||0}</td>
+            <td style="text-align:right;color:${ip.blocked>0?'var(--red)':'var(--text3)'};">${ip.blocked||0}</td>
+          </tr>`).join('')}</tbody>
+        </table>` : '<div style="color:var(--text3);font-size:11px">Keine Daten</div>'}
+      </div>
+    </div>
+  `;
+}
+
+// ── Tab: Cloudflare ───────────────────────────────────────────────
+function renderCloudflareTab() {
+  const cfTok = localStorage.getItem('cf_api_token');
+
+  document.getElementById('tab-content').innerHTML = `
+    <div class="an-section">
+      <div class="an-title">Cloudflare Worker Analytics (24h)</div>
+      ${!cfTok ? `<div class="an-card" style="text-align:center;padding:40px">
+        <div style="font-size:32px;margin-bottom:12px">🔑</div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:6px">CF API Token erforderlich</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:16px">Auf der Infrastruktur-Seite hinterlegen</div>
+        <a href="infrastructure.html" class="btn btn-primary" style="text-decoration:none">→ Infrastruktur-Seite</a>
+      </div>` : `
+      <div id="cf-analytics-box">
+        <div class="loading">Lade CF Analytics…</div>
+      </div>`}
+    </div>
+
+    <div class="an-section">
+      <div class="an-title">Cloudflare Pages – Übersicht</div>
+      <div class="an-card">
+        <div class="an-card-title"><span>Alle Sites auf Cloudflare Pages</span></div>
+        <table class="rank-table">
+          <thead><tr><th style="padding-left:0">Site</th><th>Domain</th><th>Plattform</th><th>Status</th></tr></thead>
+          <tbody>
+            ${SITES.map(s => `<tr>
+              <td style="padding-left:0">
+                <div style="display:flex;align-items:center;gap:7px">
+                  <div style="width:6px;height:6px;border-radius:50%;background:${s.color}"></div>
+                  <span style="font-weight:700;font-size:12px">${s.name}</span>
+                </div>
+              </td>
+              <td><a href="${s.url}" target="_blank" style="color:var(--text3);font-family:'Space Mono',monospace;font-size:10px;text-decoration:none">${s.url.replace('https://','')}</a></td>
+              <td><span class="chip neutral" style="font-size:8px">${s.url.includes('pages.dev')?'CF Pages':'Vercel'}</span></td>
+              <td><span id="cf-status-${s.id}" style="font-size:9px;font-family:'Space Mono',monospace;color:var(--text3)">–</span></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="an-section">
+      <div class="an-title">Worker Info</div>
+      <div class="an-card">
+        <table class="rank-table">
+          <thead><tr><th style="padding-left:0">Eigenschaft</th><th>Wert</th></tr></thead>
+          <tbody>
+            <tr><td style="padding-left:0;font-size:11px;color:var(--text3);font-family:'Space Mono',monospace">Worker Name</td><td class="mono">webcontrol-hq-api</td></tr>
+            <tr><td style="padding-left:0;font-size:11px;color:var(--text3);font-family:'Space Mono',monospace">Account ID</td><td class="mono">75ab77c2ccd4045de59e99835480bc53</td></tr>
+            <tr><td style="padding-left:0;font-size:11px;color:var(--text3);font-family:'Space Mono',monospace">D1 Haupt-DB</td><td class="mono">e22c8e57-4550-4566-9937-cd7d51560b70</td></tr>
+            <tr><td style="padding-left:0;font-size:11px;color:var(--text3);font-family:'Space Mono',monospace">D1 Ratelimit</td><td class="mono">33fba40f-abcc-43b1-b931-04baca75462b</td></tr>
+            <tr><td style="padding-left:0;font-size:11px;color:var(--text3);font-family:'Space Mono',monospace">Endpoint</td><td><a href="https://webcontrol-hq-api.karol-paschek.workers.dev" target="_blank" style="color:var(--accent2);font-family:'Space Mono',monospace;font-size:10px;text-decoration:none">workers.dev</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  if (cfTok) loadCFAnalyticsInTab(cfTok);
+}
+
+async function loadCFAnalyticsInTab(token) {
+  const data = await api('/api/cf-analytics', { headers: { 'CF-Token': token } });
+  const box  = document.getElementById('cf-analytics-box');
+  if (!box) return;
+
+  if (!data || data.error) {
+    box.innerHTML = `<div class="an-card"><div style="color:var(--red);font-family:'Space Mono',monospace;font-size:12px">Fehler: ${data?.error||'Nicht erreichbar'}</div></div>`;
+    return;
+  }
+
+  const errRate  = data.requests > 0 ? ((data.errors/data.requests)*100).toFixed(3) : '0.000';
+  const errColor = parseFloat(errRate) > 1 ? 'var(--red)' : parseFloat(errRate) > 0.1 ? 'var(--yellow)' : 'var(--green)';
+
+  box.innerHTML = `
+    <div class="kpi-grid" style="grid-template-columns:repeat(5,1fr)">
+      <div class="kpi-card"><div class="kpi-label">Requests (24h)</div><div class="kpi-val" style="color:var(--accent2)">${data.requests.toLocaleString('de-DE')}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Fehlerrate</div><div class="kpi-val" style="color:${errColor}">${errRate}%</div><div class="kpi-sub">${data.errors} Fehler</div></div>
+      <div class="kpi-card"><div class="kpi-label">CPU P50</div><div class="kpi-val" style="font-size:20px">${data.cpuP50}µs</div><div class="kpi-sub">Median</div></div>
+      <div class="kpi-card"><div class="kpi-label">CPU P99</div><div class="kpi-val" style="font-size:20px;color:${data.cpuP99>50000?'var(--yellow)':'var(--text)'}">${data.cpuP99}µs</div><div class="kpi-sub">99. Perzentil</div></div>
+      <div class="kpi-card"><div class="kpi-label">Subrequests</div><div class="kpi-val" style="font-size:20px">${data.subrequests.toLocaleString('de-DE')}</div><div class="kpi-sub">D1 + CF API</div></div>
+    </div>
+  `;
+  refreshIcons();
+}
+
+// ── Tab Dispatcher ────────────────────────────────────────────────
+function renderTab(t) {
+  switch(t) {
+    case 'overview':   renderOverview();       break;
+    case 'pageviews':  renderPageviews();      break;
+    case 'errors':     renderErrors();         break;
+    case 'tickets':    renderTickets();        break;
+    case 'ratelimit':  renderRatelimitTab();   break;
+    case 'cloudflare': renderCloudflareTab();  break;
+  }
+  refreshIcons();
+}
+
+// ── Boot ──────────────────────────────────────────────────────────
+injectLoginScreen();
+checkAuth(() => {
+  initLayout(null);
+  loadAll();
+  setInterval(loadAll, 5 * 60 * 1000);
+});
+window.initAfterLogin = () => {
+  initLayout(null);
+  loadAll();
+  setInterval(loadAll, 5 * 60 * 1000);
+};
+
+// Tab click sync
+window.switchTab = function(t) {
+  _activeTab = t;
+  document.querySelectorAll('.an-tab').forEach(b => b.classList.remove('active'));
+  event?.target?.classList?.add('active');
+  const box = document.getElementById('tab-content');
+  if (box) box.innerHTML = '<div class="loading">Lade…</div>';
+  setTimeout(() => { renderTab(t); refreshIcons(); }, 50);
+};
+</script>
+</body>
+</html>
