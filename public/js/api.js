@@ -8,14 +8,15 @@ const API_URL = (
   : 'https://webcontrol-hq-api.karol-paschek.workers.dev';
 
 async function api(path, opts = {}) {
+  const { headers: extraHeaders, ...restOpts } = opts;
   try {
     const r = await fetch(API_URL + path, {
       headers: {
         'Content-Type': 'application/json',
         'X-Auth-Token': getToken() || '',
-        ...opts.headers,
+        ...(extraHeaders || {}),
       },
-      ...opts,
+      ...restOpts,
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
     if (r.status === 401) {
