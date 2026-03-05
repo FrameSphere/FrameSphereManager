@@ -1,27 +1,12 @@
 // ── Utils ─────────────────────────────────────────────────────────
 
-// ── Lucide loader (auto-inject script once) ───────────────────────
-(function () {
-  const s = document.createElement('script');
-  s.src = 'https://cdn.jsdelivr.net/npm/lucide@0.263.1/dist/umd/lucide.min.js';
-  s.onload = () => {
-    lucide.createIcons();
-    if (window._iconQueue) { window._iconQueue.forEach(fn => fn()); window._iconQueue = []; }
-  };
-  document.head.appendChild(s);
-})();
-
 // ── Lucide icon helper ───────────────────────────────────────────
 function icon(name, size = 14, style = '') {
   return `<i data-lucide="${name}" style="width:${size}px;height:${size}px;display:inline-flex;flex-shrink:0;vertical-align:-2px;${style}"></i>`;
 }
 
 function refreshIcons() {
-  if (window.lucide) {
-    requestAnimationFrame(() => lucide.createIcons());
-  } else {
-    (window._iconQueue = window._iconQueue || []).push(() => lucide.createIcons());
-  }
+  requestAnimationFrame(() => { if (window.lucide) window.lucide.createIcons(); });
 }
 
 function esc(str) {
