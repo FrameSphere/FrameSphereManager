@@ -133,20 +133,13 @@
       <div id="graph-wrap">
         <svg id="infra-svg" viewBox="0 0 1100 540" preserveAspectRatio="xMidYMid meet">
           <defs>
-            <!-- Background dot grid -->
             <pattern id="dots" width="32" height="32" patternUnits="userSpaceOnUse">
               <circle cx="16" cy="16" r="0.8" fill="rgba(35,46,66,0.5)"/>
             </pattern>
-            <!-- Glow filter -->
             <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
               <feGaussianBlur stdDeviation="5" result="b"/>
               <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
             </filter>
-            <filter id="glow-sm" x="-30%" y="-30%" width="160%" height="160%">
-              <feGaussianBlur stdDeviation="2.5" result="b"/>
-              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-            <!-- Arrow markers -->
             <marker id="arr-blue" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
               <path d="M0,0 L0,5 L7,2.5z" fill="rgba(59,130,246,0.55)"/>
             </marker>
@@ -158,19 +151,11 @@
             </marker>
           </defs>
 
-          <!-- Background -->
           <rect width="1100" height="540" fill="url(#dots)"/>
-
-          <!-- Layer: connections (drawn behind nodes) -->
           <g id="g-connections"></g>
-
-          <!-- Layer: animated data flow particles -->
           <g id="g-particles"></g>
-
-          <!-- Layer: nodes -->
           <g id="g-nodes"></g>
 
-          <!-- Legend (bottom left) -->
           <g transform="translate(22, 508)" font-family="Space Mono, monospace" font-size="9" fill="#4a5568">
             <circle cx="5" cy="5" r="4" fill="#22c55e"/>
             <text x="14" y="9">Online</text>
@@ -198,10 +183,10 @@
         </div>
         <div id="node-detail-scroll"></div>
       </div>
-    </div><!-- /#infra-body -->
+    </div>
 
-  </div><!-- /#main -->
-</div><!-- /#layout -->
+  </div>
+</div>
 
 <!-- Cloudflare API Token Modal -->
 <div id="cf-modal">
@@ -213,15 +198,13 @@
     <div class="login-sub">API Token für Workers-Metriken (Analytics:Read)</div>
     <div class="form-group" style="margin-bottom:14px">
       <label>API TOKEN</label>
-      <div style="position:relative">
-        <input id="cf-token-input" type="password" placeholder="Dein Cloudflare API Token…" style="width:100%">
-      </div>
+      <input id="cf-token-input" type="password" placeholder="Dein Cloudflare API Token…" style="width:100%">
     </div>
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:10px;font-family:'Space Mono',monospace;color:var(--text3);line-height:1.7;margin-bottom:16px">
       Account ID: <span style="color:var(--accent2)">75ab77c2ccd4045de59e99835480bc53</span><br>
       Worker: <span style="color:var(--text2)">webcontrol-hq-api</span><br>
-      Berechtigungen: Account → Workers Scripts:Read, Analytics:Read<br>
-      <span style="color:var(--text3)">Token gilt nur für diese Sitzung (sessionStorage)</span>
+      Berechtigung: Account → Account Analytics → Read<br>
+      <span style="color:var(--green)">Token wird persistent im localStorage gespeichert</span>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:8px">
       <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="saveCFToken()">
@@ -253,11 +236,7 @@
 
 const CF_ACCOUNT_ID  = '75ab77c2ccd4045de59e99835480bc53';
 const CF_WORKER_NAME = 'webcontrol-hq-api';
-const CF_GQL         = 'https://api.cloudflare.com/graphql';
 
-// ── Node Layout ─────────────────────────────────────────────────
-// Center: Worker at (550, 268)
-// 10 Sites in a ring, radius 195, starting at -90° clockwise
 const CX = 550, CY = 268, R = 195;
 
 const INFRA_SITES = SITES.map((s, i) => {
@@ -289,11 +268,9 @@ const DATABASES = [
 
 const ALL_NODES = [...INFRA_SITES, WORKER, ...DATABASES];
 
-// ── State ────────────────────────────────────────────────────────
 const nodeStatus = {};
 ALL_NODES.forEach(n => { nodeStatus[n.id] = { state: 'checking', latency: null }; });
 
-// ── SVG Helpers ──────────────────────────────────────────────────
 const NS = 'http://www.w3.org/2000/svg';
 const XLINKNS = 'http://www.w3.org/1999/xlink';
 
@@ -310,29 +287,20 @@ function stateColor(s) {
 function nodeW(n) { return n.type === 'worker' ? 150 : n.type === 'database' ? 124 : 112; }
 function nodeH(n) { return n.type === 'worker' ? 54 : 48; }
 
-// ── Build Graph ──────────────────────────────────────────────────
 function buildGraph() {
   const gConn = document.getElementById('g-connections');
   const gNode = document.getElementById('g-nodes');
   gConn.innerHTML = '';
   gNode.innerHTML = '';
 
-  // — Connections: Sites → Worker
   INFRA_SITES.forEach(s => drawConn(gConn, s.x, s.y, WORKER.x, WORKER.y,
     'rgba(59,130,246,0.38)', 'arr-blue', `conn-${s.id}`));
 
-  // — Connection: Worker → DB-main
   drawConn(gConn, WORKER.x, WORKER.y, DATABASES[0].x, DATABASES[0].y,
     'rgba(16,185,129,0.5)', 'arr-green', 'conn-worker-db0');
-
-  // — Connection: Worker → DB-ratelimit
   drawConn(gConn, WORKER.x, WORKER.y, DATABASES[1].x, DATABASES[1].y,
     'rgba(6,182,212,0.5)', 'arr-cyan', 'conn-worker-db1');
 
-  // — ratelimit site also directly noted (same worker but specific)
-  // Already covered by the site → worker connection for 'ratelimit' id
-
-  // — Render all nodes
   ALL_NODES.forEach(n => renderNode(gNode, n));
 }
 
@@ -362,48 +330,36 @@ function renderNode(parent, n) {
   });
   g.addEventListener('click', () => selectNode(n.id));
 
-  // Glow halo
-  const halo = sel('rect', { x: -2, y: -2, width: w+4, height: h+4, rx: 12,
-    fill: 'none', stroke: n.color, 'stroke-width': 6, opacity: 0.06, filter: 'url(#glow)' });
-  g.appendChild(halo);
+  g.appendChild(sel('rect', { x: -2, y: -2, width: w+4, height: h+4, rx: 12,
+    fill: 'none', stroke: n.color, 'stroke-width': 6, opacity: 0.06, filter: 'url(#glow)' }));
 
-  // Card bg
-  const card = sel('rect', { x: 0, y: 0, width: w, height: h, rx: 10,
-    fill: '#161c28', stroke: '#232e42', 'stroke-width': 1, id: `card-${n.id}` });
-  g.appendChild(card);
+  g.appendChild(sel('rect', { x: 0, y: 0, width: w, height: h, rx: 10,
+    fill: '#161c28', stroke: '#232e42', 'stroke-width': 1, id: `card-${n.id}` }));
 
-  // Color left bar
   g.appendChild(sel('rect', { x: 0, y: 8, width: 3, height: h-16, rx: 1.5, fill: n.color }));
 
-  // Name
   const nameEl = sel('text', {
     x: 13, y: n.type === 'worker' ? 21 : 18,
     'font-size': n.type === 'worker' ? 12 : 10,
-    'font-weight': 700,
-    fill: '#e8edf5',
+    'font-weight': 700, fill: '#e8edf5',
     'font-family': 'Syne, sans-serif',
   });
   nameEl.textContent = n.name;
   g.appendChild(nameEl);
 
-  // Subtitle
   const sub = (n.subtitle || '').length > 22 ? n.subtitle.slice(0,22)+'…' : (n.subtitle || '');
   if (sub) {
     const subEl = sel('text', {
       x: 13, y: n.type === 'worker' ? 35 : 30,
-      'font-size': 7.5,
-      fill: '#4a5568',
+      'font-size': 7.5, fill: '#4a5568',
       'font-family': 'Space Mono, monospace',
     });
     subEl.textContent = sub;
     g.appendChild(subEl);
   }
 
-  // Status dot (top-right)
-  const dot = sel('circle', { cx: w-10, cy: 9, r: 4.5, fill: '#f59e0b', id: `dot-${n.id}` });
-  g.appendChild(dot);
+  g.appendChild(sel('circle', { cx: w-10, cy: 9, r: 4.5, fill: '#f59e0b', id: `dot-${n.id}` }));
 
-  // Latency text (bottom-right)
   const lat = sel('text', {
     x: w-8, y: h-7,
     'font-size': 7.5, fill: '#4a5568',
@@ -417,18 +373,16 @@ function renderNode(parent, n) {
   parent.appendChild(g);
 }
 
-// ── Update Node Visuals ──────────────────────────────────────────
 function updateVisual(id) {
   const s = nodeStatus[id] || {};
-  const dot = document.getElementById(`dot-${id}`);
-  const lat = document.getElementById(`lat-${id}`);
+  const dot  = document.getElementById(`dot-${id}`);
+  const lat  = document.getElementById(`lat-${id}`);
   const card = document.getElementById(`card-${id}`);
-  if (dot) dot.setAttribute('fill', stateColor(s.state));
-  if (lat) lat.textContent = s.latency ? `${s.latency}ms` : (s.state === 'down' ? 'DOWN' : '–');
+  if (dot)  dot.setAttribute('fill', stateColor(s.state));
+  if (lat)  lat.textContent = s.latency ? `${s.latency}ms` : (s.state === 'down' ? 'DOWN' : '–');
   if (card) card.setAttribute('stroke', s.state === 'down' ? 'rgba(239,68,68,0.35)' : '#232e42');
 }
 
-// ── Uptime Check ─────────────────────────────────────────────────
 async function ping(url) {
   const t0 = performance.now();
   try {
@@ -439,7 +393,6 @@ async function ping(url) {
     return { state: 'up', latency: Math.round(performance.now() - t0) };
   } catch(e) {
     if (e.name === 'AbortError') return { state: 'down', latency: null };
-    // no-cors often throws TypeError on opaque success (Firefox) → treat as up
     return { state: 'up', latency: Math.round(performance.now() - t0) };
   }
 }
@@ -452,10 +405,8 @@ async function runChecks() {
   const icon = document.getElementById('refresh-icon');
   if (icon) icon.classList.add('spinning');
 
-  // Reset to 'checking'
   ALL_NODES.forEach(n => { nodeStatus[n.id] = { state: 'checking', latency: null }; updateVisual(n.id); });
 
-  // Ping all sites in parallel
   const sitePromises = INFRA_SITES.map(async s => {
     const r = await ping(s.url);
     nodeStatus[s.id] = r;
@@ -463,7 +414,6 @@ async function runChecks() {
     return r;
   });
 
-  // Ping worker via existing API (gives real status + auth)
   const workerPromise = (async () => {
     const t0 = performance.now();
     const data = await api('/api/stats');
@@ -471,8 +421,6 @@ async function runChecks() {
     const r = { state: data ? 'up' : 'down', latency: data ? latency : null };
     nodeStatus[WORKER.id] = r;
     updateVisual(WORKER.id);
-
-    // DBs accessible via worker → show up if worker is up
     DATABASES.forEach(db => {
       nodeStatus[db.id] = { state: data ? 'up' : 'unknown', latency: null };
       updateVisual(db.id);
@@ -482,7 +430,6 @@ async function runChecks() {
 
   await Promise.all([...sitePromises, workerPromise]);
 
-  // Summary stats
   const upCount   = INFRA_SITES.filter(s => nodeStatus[s.id].state === 'up').length;
   const downCount = INFRA_SITES.filter(s => nodeStatus[s.id].state === 'down').length;
   const lats      = INFRA_SITES.filter(s => nodeStatus[s.id].latency).map(s => nodeStatus[s.id].latency);
@@ -496,15 +443,13 @@ async function runChecks() {
 
   const ws = nodeStatus[WORKER.id];
   if (el('stat-worker')) {
-    el('stat-worker').textContent  = ws.state === 'up' ? '✓ Online' : '✗ Offline';
+    el('stat-worker').textContent = ws.state === 'up' ? '✓ Online' : '✗ Offline';
     el('stat-worker').style.color = ws.state === 'up' ? 'var(--green)' : 'var(--red)';
   }
 
-  // Kick off particle animation
   spawnParticles();
 
-  // Load CF analytics if token set
-  const cfTok = sessionStorage.getItem('cf_api_token');
+  const cfTok = localStorage.getItem('cf_api_token');
   if (cfTok) loadCFAnalytics(cfTok, null);
 
   if (icon) icon.classList.remove('spinning');
@@ -512,7 +457,6 @@ async function runChecks() {
   refreshIcons();
 }
 
-// ── Particle Animation ────────────────────────────────────────────
 let _partTimer = null;
 function spawnParticles() {
   if (_partTimer) clearInterval(_partTimer);
@@ -522,7 +466,6 @@ function spawnParticles() {
     if (!pg) return;
     pg.innerHTML = '';
 
-    // Site → Worker particles (only for 'up' sites, random subset)
     INFRA_SITES.forEach(s => {
       if (nodeStatus[s.id]?.state !== 'up') return;
       if (Math.random() > 0.45) return;
@@ -535,7 +478,6 @@ function spawnParticles() {
       pg.appendChild(circle);
     });
 
-    // Worker → DB particles
     if (nodeStatus[WORKER.id]?.state === 'up') {
       ['conn-worker-db0','conn-worker-db1'].forEach((cid, i) => {
         if (Math.random() > 0.55) return;
@@ -554,7 +496,6 @@ function spawnParticles() {
   _partTimer = setInterval(spawn, 2200);
 }
 
-// ── Node Detail Panel ─────────────────────────────────────────────
 let _activeNode = null;
 
 function selectNode(id) {
@@ -569,7 +510,6 @@ function selectNode(id) {
   const s    = nodeStatus[id] || {};
   const sc   = stateColor(s.state);
   const stateLabel = { up: 'Online', down: 'Offline', checking: 'Prüfe…', unknown: 'Unbekannt' }[s.state] || s.state;
-
   const latColor = !s.latency ? 'var(--text3)'
     : s.latency < 400 ? 'var(--green)' : s.latency < 1000 ? 'var(--yellow)' : 'var(--red)';
 
@@ -588,7 +528,6 @@ function selectNode(id) {
   const typeLabels = { site: 'Pages Site', worker: 'CF Worker', database: 'D1 Database' };
 
   scroll.innerHTML = `
-    <!-- Header -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <div style="width:36px;height:36px;border-radius:9px;background:${node.color}1a;border:1px solid ${node.color}44;display:flex;align-items:center;justify-content:center;flex-shrink:0">
         <i data-lucide="${node.icon || 'globe'}" style="width:16px;height:16px;color:${node.color}"></i>
@@ -599,12 +538,10 @@ function selectNode(id) {
       </div>
     </div>
 
-    <!-- Status card -->
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px;margin-bottom:12px">
       <div style="display:flex;align-items:center;gap:7px;margin-bottom:10px">
         <div style="width:7px;height:7px;border-radius:50%;background:${sc};box-shadow:0 0 6px ${sc}"></div>
         <div style="font-size:12px;font-weight:800;color:${sc}">${stateLabel}</div>
-        ${s.state === 'checking' ? `<div style="font-size:9px;color:var(--text3);font-family:'Space Mono',monospace;margin-left:auto">laufend…</div>` : ''}
       </div>
       <div class="detail-metric" style="margin-bottom:0">
         <div class="detail-metric-card">
@@ -620,39 +557,34 @@ function selectNode(id) {
 
     ${node.url ? `<div style="font-size:9px;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:10px;word-break:break-all;line-height:1.5">${esc(node.url)}</div>` : ''}
 
-    <!-- CF Analytics block (only for worker) -->
     ${node.type === 'worker' ? `
       <div class="detail-section-title">Cloudflare Analytics (24h)</div>
-      <div id="cf-detail-box" style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px;margin-bottom:12px">
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px;margin-bottom:12px">
         <div id="cf-detail-content" style="font-size:11px;color:var(--text3);font-family:'Space Mono',monospace">
-          ${sessionStorage.getItem('cf_api_token') ? '<span style="color:var(--yellow)">Lade…</span>' : 'CF API Token erforderlich → Button oben rechts'}
+          CF API Token erforderlich → Button oben rechts
         </div>
       </div>` : ''}
 
-    <!-- DB info -->
     ${node.type === 'database' ? `
       <div class="detail-section-title">Datenbank-Info</div>
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px;font-size:10px;font-family:'Space Mono',monospace;color:var(--text2);line-height:1.8;margin-bottom:12px">
-        ${node.id === 'db-main' ? `ID: e22c8e57-4550-4566-9937-cd7d51560b70<br>Binding: DB<br>Zugriff: über Worker-API` : `ID: 33fba40f-abcc-43b1-b931-04baca75462b<br>Binding: RLDB<br>Zugriff: über Worker-API`}
+        ${node.id === 'db-main' ? 'ID: e22c8e57-4550-4566-9937-cd7d51560b70<br>Binding: DB<br>Zugriff: über Worker-API' : 'ID: 33fba40f-abcc-43b1-b931-04baca75462b<br>Binding: RLDB<br>Zugriff: über Worker-API'}
       </div>` : ''}
 
-    <!-- Connections info -->
     <div class="detail-section-title">Datenflüsse</div>
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:12px;font-size:10px;font-family:'Space Mono',monospace;color:var(--text2);line-height:1.9">
-      ${node.type === 'site' ? `→ webcontrol-hq-api (API-Calls)<br><span style="color:var(--text3)">Support · Errors · Notifications · Daten</span>` : ''}
-      ${node.type === 'worker' ? `← 10 Pages-Sites (eingehend)<br>→ webcontrol-hq D1 (lesen/schreiben)<br>→ ratelimit-db D1 (ratelimiting)` : ''}
-      ${node.type === 'database' ? (node.id === 'db-main' ? `← webcontrol-hq-api Worker<br><span style="color:var(--text3)">Tickets · Errors · Notifs · Changelog</span>` : `← webcontrol-hq-api Worker<br><span style="color:var(--text3)">Rate-Limit-Tracking · API-Keys</span>`) : ''}
+      ${node.type === 'site' ? '→ webcontrol-hq-api (API-Calls)<br><span style="color:var(--text3)">Support · Errors · Notifications · Daten</span>' : ''}
+      ${node.type === 'worker' ? '← 10 Pages-Sites (eingehend)<br>→ webcontrol-hq D1 (lesen/schreiben)<br>→ ratelimit-db D1 (ratelimiting)' : ''}
+      ${node.type === 'database' ? (node.id === 'db-main' ? '← webcontrol-hq-api Worker<br><span style="color:var(--text3)">Tickets · Errors · Notifs · Changelog</span>' : '← webcontrol-hq-api Worker<br><span style="color:var(--text3)">Rate-Limit-Tracking · API-Keys</span>') : ''}
     </div>
 
-    <!-- Action buttons -->
     ${links.join('')}
   `;
 
   refreshIcons();
 
-  // Load CF data if worker node
   if (node.type === 'worker') {
-    const tok = sessionStorage.getItem('cf_api_token');
+    const tok = localStorage.getItem('cf_api_token');
     if (tok) loadCFAnalytics(tok, 'cf-detail-content');
   }
 }
@@ -662,36 +594,28 @@ function closeDetail() {
   _activeNode = null;
 }
 
-// ── Cloudflare GraphQL Analytics ─────────────────────────────────
+// ── Cloudflare Analytics via Worker Proxy (kein CORS) ────────────
 async function loadCFAnalytics(token, targetId) {
-  const now   = new Date();
-  const start = new Date(now - 24*60*60*1000).toISOString();
-  const end   = now.toISOString();
-
-  const query = `{viewer{accounts(filter:{accountTag:"${CF_ACCOUNT_ID}"}){workersInvocationsAdaptive(limit:1 filter:{scriptName:"${CF_WORKER_NAME}" datetime_geq:"${start}" datetime_leq:"${end}"}){sum{requests errors subrequests}quantiles{cpuTimeP50 cpuTimeP99}}}}}`;
+  const boxId = targetId || 'cf-detail-content';
+  const box = document.getElementById(boxId);
+  if (box) box.innerHTML = '<span style="color:var(--yellow)">Lade…</span>';
 
   try {
-    const r = await fetch(CF_GQL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ query }),
+    const data = await api('/api/cf-analytics', {
+      headers: { 'CF-Token': token },
     });
+    if (!data) throw new Error('Worker-Proxy nicht erreichbar');
+    if (data.error) throw new Error(data.error);
 
-    const data = await r.json();
-    if (data.errors) throw new Error(data.errors[0]?.message || 'GraphQL Fehler');
-
-    const inv = data?.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive?.[0];
-    if (!inv) throw new Error('Keine Daten verfügbar');
-
-    const errRate = inv.sum.requests > 0
-      ? ((inv.sum.errors / inv.sum.requests) * 100).toFixed(2) : '0.00';
+    const errRate = data.requests > 0
+      ? ((data.errors / data.requests) * 100).toFixed(2) : '0.00';
     const errColor = parseFloat(errRate) > 5 ? 'var(--red)' : parseFloat(errRate) > 1 ? 'var(--yellow)' : 'var(--green)';
 
     const html = `
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div class="detail-metric-card">
           <div class="detail-metric-label">Requests</div>
-          <div class="detail-metric-val" style="color:var(--accent2)">${inv.sum.requests.toLocaleString('de-DE')}</div>
+          <div class="detail-metric-val" style="color:var(--accent2)">${data.requests.toLocaleString('de-DE')}</div>
         </div>
         <div class="detail-metric-card">
           <div class="detail-metric-label">Fehlerrate</div>
@@ -699,34 +623,31 @@ async function loadCFAnalytics(token, targetId) {
         </div>
         <div class="detail-metric-card">
           <div class="detail-metric-label">CPU P50</div>
-          <div class="detail-metric-val" style="font-size:14px;color:var(--text)">${inv.quantiles.cpuTimeP50}µs</div>
+          <div class="detail-metric-val" style="font-size:14px;color:var(--text)">${data.cpuP50}µs</div>
         </div>
         <div class="detail-metric-card">
           <div class="detail-metric-label">CPU P99</div>
-          <div class="detail-metric-val" style="font-size:14px;color:${inv.quantiles.cpuTimeP99 > 50000 ? 'var(--yellow)' : 'var(--text)'}">${inv.quantiles.cpuTimeP99}µs</div>
+          <div class="detail-metric-val" style="font-size:14px;color:${data.cpuP99 > 50000 ? 'var(--yellow)' : 'var(--text)'}">${data.cpuP99}µs</div>
         </div>
       </div>
       <div style="margin-top:8px;font-size:9px;font-family:'Space Mono',monospace;color:var(--text3)">
-        ${inv.sum.subrequests.toLocaleString('de-DE')} Subrequests · Letzten 24h
+        ${data.subrequests.toLocaleString('de-DE')} Subrequests · Letzten 24h
       </div>`;
 
-    const box = document.getElementById(targetId || 'cf-detail-content');
     if (box) box.innerHTML = html;
     refreshIcons();
 
-    // Update CF token button to show it's active
     const cfBtn = document.getElementById('cf-btn');
     if (cfBtn) cfBtn.style.color = 'var(--green)';
 
   } catch(e) {
-    const box = document.getElementById(targetId || 'cf-detail-content');
     if (box) box.innerHTML = `<span style="color:var(--red)">Fehler: ${esc(e.message)}</span>`;
   }
 }
 
 // ── CF Token Modal ────────────────────────────────────────────────
 function openCFSettings() {
-  const tok = sessionStorage.getItem('cf_api_token');
+  const tok = localStorage.getItem('cf_api_token');
   document.getElementById('cf-token-input').value = tok ? '••••••••••••' : '';
   document.getElementById('cf-modal').classList.add('open');
   refreshIcons();
@@ -736,13 +657,13 @@ function closeCFModal() {
 }
 function saveCFToken() {
   const val = document.getElementById('cf-token-input').value.trim();
-  if (val && !val.startsWith('•')) sessionStorage.setItem('cf_api_token', val);
+  if (val && !val.startsWith('•')) localStorage.setItem('cf_api_token', val);
   closeCFModal();
   if (_activeNode === WORKER.id) selectNode(WORKER.id);
-  else loadCFAnalytics(sessionStorage.getItem('cf_api_token'), null);
+  else loadCFAnalytics(localStorage.getItem('cf_api_token'), null);
 }
 function clearCFToken() {
-  sessionStorage.removeItem('cf_api_token');
+  localStorage.removeItem('cf_api_token');
   closeCFModal();
   const cfBtn = document.getElementById('cf-btn');
   if (cfBtn) cfBtn.style.color = '';
@@ -754,7 +675,6 @@ checkAuth(() => {
   initLayout(null);
   buildGraph();
   runChecks();
-  // Auto-refresh every 5 minutes
   setInterval(runChecks, 5 * 60 * 1000);
 });
 window.initAfterLogin = () => {

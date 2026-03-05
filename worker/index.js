@@ -755,6 +755,38 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
+  // ── GET /api/cf-analytics ── Cloudflare GraphQL Proxy (CORS-frei) ──────
+  if (request.method === 'GET' && path === '/api/cf-analytics') {
+    const cfToken = request.headers.get('CF-Token');
+    if (!cfToken) return err('CF-Token Header fehlt', 400);
+    const accountId = '75ab77c2ccd4045de59e99835480bc53';
+    const workerName = 'webcontrol-hq-api';
+    const now = new Date();
+    const start = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+    const end = now.toISOString();
+    const query = `{viewer{accounts(filter:{accountTag:"${accountId}"}){workersInvocationsAdaptive(limit:1 filter:{scriptName:"${workerName}" datetime_geq:"${start}" datetime_leq:"${end}"}){sum{requests errors subrequests}quantiles{cpuTimeP50 cpuTimeP99}}}}}`;
+    try {
+      const r = await fetch('https://api.cloudflare.com/graphql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfToken}` },
+        body: JSON.stringify({ query }),
+      });
+      const data = await r.json();
+      if (data.errors) return err(data.errors[0]?.message || 'CF GraphQL Fehler', 502);
+      const inv = data?.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive?.[0];
+      if (!inv) return json({ requests: 0, errors: 0, subrequests: 0, cpuP50: 0, cpuP99: 0 });
+      return json({
+        requests:    inv.sum.requests,
+        errors:      inv.sum.errors,
+        subrequests: inv.sum.subrequests,
+        cpuP50:      inv.quantiles.cpuTimeP50,
+        cpuP99:      inv.quantiles.cpuTimeP99,
+      });
+    } catch(e) {
+      return err('CF fetch fehlgeschlagen: ' + e.message, 502);
+    }
+  }
+
   // ── GET /api/stats ────────────────────────────────────────────────
   if (request.method === 'GET' && path === '/api/stats') {
     const tickets = await db.prepare("SELECT status, COUNT(*) as c FROM support_tickets GROUP BY status").all();
