@@ -189,16 +189,27 @@
   <div id="main">
 
     <div class="page-header">
-      <div class="page-title">📋 To Do</div>
+      <div class="page-title" style="display:flex;align-items:center;gap:10px">
+        <i data-lucide="check-square-2" style="width:20px;height:20px;color:var(--accent2)"></i>
+        To Do
+      </div>
       <div class="page-sub">Aufgaben · Kalender · Prompts · Priority Ranking</div>
     </div>
 
     <!-- Tabs -->
     <div class="todo-tabs">
-      <button class="todo-tab active" onclick="showTodoTab('tasks',this)">✅ Aufgaben</button>
-      <button class="todo-tab" onclick="showTodoTab('calendar',this)">📅 Kalender</button>
-      <button class="todo-tab" onclick="showTodoTab('prompts',this)">💬 Prompts</button>
-      <button class="todo-tab" onclick="showTodoTab('ranking',this)">🏆 Priority Ranking</button>
+      <button class="todo-tab active" onclick="showTodoTab('tasks',this)">
+        <i data-lucide="check-square-2" style="width:13px;height:13px"></i> Aufgaben
+      </button>
+      <button class="todo-tab" onclick="showTodoTab('calendar',this)">
+        <i data-lucide="calendar" style="width:13px;height:13px"></i> Kalender
+      </button>
+      <button class="todo-tab" onclick="showTodoTab('prompts',this)">
+        <i data-lucide="message-square" style="width:13px;height:13px"></i> Prompts
+      </button>
+      <button class="todo-tab" onclick="showTodoTab('ranking',this)">
+        <i data-lucide="trophy" style="width:13px;height:13px"></i> Priority Ranking
+      </button>
     </div>
 
     <!-- ── TASKS TAB ─────────────────────────────────────── -->
@@ -207,7 +218,7 @@
       <div class="todo-toolbar">
         <select id="filter-site" onchange="reloadTasks()">
           <option value="">Alle Projekte</option>
-          <option value="_global">🌐 Allgemein</option>
+          <option value="_global">Allgemein</option>
         </select>
         <select id="filter-status" onchange="renderTasks()">
           <option value="open">Offen</option>
@@ -220,7 +231,7 @@
           <option value="created">Nach Erstellung</option>
           <option value="important">Wichtige zuerst</option>
         </select>
-        <input type="text" id="filter-search" placeholder="🔍 Suchen…" oninput="renderTasks()" style="width:160px">
+        <input type="text" id="filter-search" placeholder="Suchen…" oninput="renderTasks()" style="width:160px">
         <div class="flex-1"></div>
         <button class="btn btn-ghost btn-sm" onclick="reloadTasks()">↻ Aktualisieren</button>
       </div>
@@ -256,7 +267,7 @@
     <!-- ── PROMPTS TAB ──────────────────────────────────── -->
     <div id="tab-prompts" class="tab-panel">
       <div class="todo-toolbar">
-        <input type="text" id="prompt-search" placeholder="🔍 Prompts suchen…" oninput="renderPrompts()" style="width:200px">
+        <input type="text" id="prompt-search" placeholder="Prompts suchen…" oninput="renderPrompts()" style="width:200px">
         <div class="flex-1"></div>
         <button class="btn btn-primary btn-sm" onclick="openPromptEdit(null)">+ Neuer Prompt</button>
       </div>
@@ -268,7 +279,7 @@
       <div class="todo-toolbar">
         <select id="rank-site" onchange="renderRanking()">
           <option value="">Alle Projekte</option>
-          <option value="_global">🌐 Allgemein</option>
+          <option value="_global">Allgemein</option>
         </select>
         <span style="font-size:12px;color:var(--text3)">Drag &amp; Drop zum Umordnen · Nur offene Aufgaben</span>
         <div class="flex-1"></div>
@@ -320,7 +331,9 @@
     </div>
     <div class="edit-actions">
       <button class="btn btn-ghost" onclick="closeEditModal()">Abbrechen</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteTask(document.getElementById('edit-id').value)">🗑 Löschen</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteTask(document.getElementById('edit-id').value)">
+        <i data-lucide="trash-2" style="width:12px;height:12px"></i> Löschen
+      </button>
       <button class="btn btn-primary" onclick="saveEditTask()">Speichern</button>
     </div>
   </div>
@@ -345,7 +358,9 @@
     </div>
     <div class="edit-actions">
       <button class="btn btn-ghost" onclick="closePromptModal()">Abbrechen</button>
-      <button class="btn btn-danger btn-sm" id="pedit-del-btn" onclick="deletePrompt()" style="display:none">🗑 Löschen</button>
+      <button class="btn btn-danger btn-sm" id="pedit-del-btn" onclick="deletePrompt()" style="display:none">
+        <i data-lucide="trash-2" style="width:12px;height:12px"></i> Löschen
+      </button>
       <button class="btn btn-primary" onclick="savePrompt()">Speichern</button>
     </div>
   </div>
@@ -367,8 +382,8 @@ calYear  = today.getFullYear();
 calMonth = today.getMonth();
 
 const SITE_OPTS = [
-  { value: '',           label: '🌐 Allgemein' },
-  ...SITES.map(s => ({ value: s.id, label: s.icon + ' ' + s.name }))
+  { value: '', label: 'Allgemein' },
+  ...SITES.map(s => ({ value: s.id, label: s.name }))
 ];
 
 // ── Tab switching ─────────────────────────────────────────────────
@@ -434,18 +449,25 @@ function renderTasks() {
   });
 
   if (!tasks.length) {
-    list.innerHTML = `<div class="todo-empty"><span class="emoji">${status === 'done' ? '🎉' : '✅'}</span>${
-      status === 'done' ? 'Noch nichts erledigt.' : 'Keine offenen Aufgaben – alles done!'
-    }</div>`;
+    list.innerHTML = `<div class="todo-empty">
+      <i data-lucide="${status === 'done' ? 'party-popper' : 'check-circle-2'}" style="width:2.5rem;height:2.5rem;display:block;margin:0 auto 1rem;color:var(--text3)"></i>
+      ${status === 'done' ? 'Noch nichts erledigt.' : 'Keine offenen Aufgaben – alles done!'}
+    </div>`;
+    refreshIcons();
     return;
   }
 
   list.innerHTML = tasks.map(t => taskRowHtml(t)).join('');
+  refreshIcons();
 }
 
 function taskRowHtml(t) {
-  const siteLabel = t.site_id ? (SITES.find(s => s.id === t.site_id)?.name || t.site_id) : 'Allgemein';
-  const siteIcon  = t.site_id ? (SITES.find(s => s.id === t.site_id)?.icon || '🌐') : '🌐';
+  const site      = t.site_id ? SITES.find(s => s.id === t.site_id) : null;
+  const siteLabel = site ? site.name : 'Allgemein';
+  const siteIcoHtml = site
+    ? `<i data-lucide="${site.icon}" style="width:11px;height:11px;color:${site.color}"></i>`
+    : `<i data-lucide="globe" style="width:11px;height:11px"></i>`;
+
   const stars = [1,2,3,4,5].map(i =>
     `<span class="prio-star${i <= t.priority ? ' on' : ''}">★</span>`
   ).join('');
@@ -466,14 +488,18 @@ function taskRowHtml(t) {
       <div class="task-title">${esc(t.title)}</div>
       ${t.notes ? `<div class="task-notes">${esc(t.notes)}</div>` : ''}
       <div class="task-meta">
-        <span class="chip-site">${siteIcon} ${esc(siteLabel)}</span>
-        ${t.due_date ? `<span class="${dueCls}">📅 ${dueLabel}</span>` : ''}
+        <span class="chip-site">${siteIcoHtml} ${esc(siteLabel)}</span>
+        ${t.due_date ? `<span class="${dueCls}"><i data-lucide="calendar" style="width:9px;height:9px"></i> ${dueLabel}</span>` : ''}
         <div class="prio-stars" title="Priorität ${t.priority}">${stars}</div>
       </div>
     </div>
     <div class="task-actions">
-      <button class="task-act-btn${t.important ? ' active' : ''}" title="Wichtig" onclick="toggleImportant(${t.id},${t.important ? 0 : 1})">⭐</button>
-      <button class="task-act-btn" title="Bearbeiten" onclick="openEditModal(${t.id})">✏️</button>
+      <button class="task-act-btn${t.important ? ' active' : ''}" title="Wichtig" onclick="toggleImportant(${t.id},${t.important ? 0 : 1})">
+        <i data-lucide="star" style="width:13px;height:13px${t.important ? ';fill:var(--yellow);stroke:var(--yellow)' : ''}"></i>
+      </button>
+      <button class="task-act-btn" title="Bearbeiten" onclick="openEditModal(${t.id})">
+        <i data-lucide="pencil" style="width:13px;height:13px"></i>
+      </button>
     </div>
   </div>`;
 }
@@ -663,7 +689,11 @@ function renderPrompts() {
     !search || p.title.toLowerCase().includes(search) || (p.tags||'').toLowerCase().includes(search) || p.prompt.toLowerCase().includes(search)
   );
   if (!prompts.length) {
-    list.innerHTML = `<div class="todo-empty"><span class="emoji">💬</span>Noch keine Prompts gespeichert.</div>`;
+    list.innerHTML = `<div class="todo-empty">
+      <i data-lucide="message-square" style="width:2.5rem;height:2.5rem;display:block;margin:0 auto 1rem;color:var(--text3)"></i>
+      Noch keine Prompts gespeichert.
+    </div>`;
+    refreshIcons();
     return;
   }
   list.innerHTML = prompts.map(p => {
@@ -675,12 +705,19 @@ function renderPrompts() {
       </div>
       <div class="prompt-text" id="pt-${p.id}">${esc(p.prompt)}</div>
       <div class="prompt-actions">
-        <button class="btn btn-ghost btn-sm" onclick="copyPrompt(${p.id})">📋 Kopieren</button>
-        <button class="btn btn-ghost btn-sm" onclick="openPromptEdit(${p.id})">✏️ Bearbeiten</button>
-        <button class="btn btn-danger btn-sm" onclick="deletePromptById(${p.id})">🗑</button>
+        <button class="btn btn-ghost btn-sm" onclick="copyPrompt(${p.id})">
+          <i data-lucide="copy" style="width:11px;height:11px"></i> Kopieren
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="openPromptEdit(${p.id})">
+          <i data-lucide="pencil" style="width:11px;height:11px"></i> Bearbeiten
+        </button>
+        <button class="btn btn-danger btn-sm" onclick="deletePromptById(${p.id})">
+          <i data-lucide="trash-2" style="width:11px;height:11px"></i>
+        </button>
       </div>
     </div>`;
   }).join('');
+  refreshIcons();
 }
 
 function copyPrompt(id) {
@@ -744,22 +781,26 @@ function renderRanking() {
     .sort((a, b) => (b.priority - a.priority) || (a.sort_order - b.sort_order) || (new Date(a.created_at) - new Date(b.created_at)));
 
   if (!tasks.length) {
-    list.innerHTML = `<div class="todo-empty"><span class="emoji">🏆</span>Keine offenen Aufgaben.</div>`;
+    list.innerHTML = `<div class="todo-empty">
+      <i data-lucide="trophy" style="width:2.5rem;height:2.5rem;display:block;margin:0 auto 1rem;color:var(--text3)"></i>
+      Keine offenen Aufgaben.
+    </div>`;
+    refreshIcons();
     return;
   }
 
   const PRIO_COLORS = { 5:'#f87171',4:'#fbbf24',3:'#a78bfa',2:'#60a5fa',1:'#9ca3af' };
-  const PRIO_LABELS = { 5:'🔴 Kritisch',4:'🟡 Hoch',3:'🟣 Mittel',2:'🔵 Niedrig',1:'⬜ Minimal' };
+  const PRIO_LABELS = { 5:'Kritisch',4:'Hoch',3:'Mittel',2:'Niedrig',1:'Minimal' };
 
   list.innerHTML = tasks.map((t, i) => {
     const site = SITES.find(s => s.id === t.site_id);
-    const dueTxt = t.due_date ? ` · 📅 ${formatDueLabel(t.due_date)}` : '';
+    const dueTxt = t.due_date ? ` · ${formatDueLabel(t.due_date)}` : '';
     return `<div class="rank-row" data-id="${t.id}" data-prio="${t.priority}">
-      <span class="rank-handle" title="Ziehen zum Umordnen">⠿</span>
+      <span class="rank-handle" title="Ziehen zum Umordnen"><i data-lucide="grip-vertical" style="width:14px;height:14px"></i></span>
       <span class="rank-num">#${i+1}</span>
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:700;color:var(--text1)">${esc(t.title)}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:2px">${site ? site.icon + ' ' + site.name : '🌐 Allgemein'}${dueTxt}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${site ? `<i data-lucide="${site.icon}" style="width:11px;height:11px;color:${site.color}"></i> ${site.name}` : 'Allgemein'}${dueTxt}</div>
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:${PRIO_COLORS[t.priority]}22;color:${PRIO_COLORS[t.priority]}">${PRIO_LABELS[t.priority]||t.priority}</span>
@@ -776,6 +817,7 @@ function renderRanking() {
   }).join('');
 
   // Drag & drop reorder
+  refreshIcons();
   enableRankDrag(list, tasks);
 }
 

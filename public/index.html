@@ -89,7 +89,7 @@ async function loadOverview() {
 
     ${data.recent_notifications?.length ? `
       <div class="mt-16">
-        <div class="sidebar-label" style="margin-bottom:12px">Letzte Aktivitäten</div>
+        <div class="sidebar-label" style="margin-bottom:12px">Letzte Aktivitäten</div><!-- refreshIcons below -->
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">
           ${data.recent_notifications.slice(0, 12).map(n => `
             <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--border)">
@@ -104,18 +104,19 @@ async function loadOverview() {
         </div>
       </div>` : ''}
   `;
+  refreshIcons();
 }
 
 function sitCard(s, sd) {
   const chips = [];
-  if (sd.unresolved_errors    > 0) chips.push(`<span class="chip error">⚠ ${sd.unresolved_errors} Fehler</span>`);
-  if (sd.open_tickets         > 0) chips.push(`<span class="chip warn">📋 ${sd.open_tickets} Tickets</span>`);
-  if (sd.unread_notifications > 0) chips.push(`<span class="chip info">🔔 ${sd.unread_notifications} Neu</span>`);
-  if (!chips.length)               chips.push(`<span class="chip ok">✓ Alles OK</span>`);
+  if (sd.unresolved_errors    > 0) chips.push(`<span class="chip error"><i data-lucide="alert-triangle" style="width:9px;height:9px"></i> ${sd.unresolved_errors} Fehler</span>`);
+  if (sd.open_tickets         > 0) chips.push(`<span class="chip warn"><i data-lucide="ticket" style="width:9px;height:9px"></i> ${sd.open_tickets} Tickets</span>`);
+  if (sd.unread_notifications > 0) chips.push(`<span class="chip info"><i data-lucide="bell" style="width:9px;height:9px"></i> ${sd.unread_notifications} Neu</span>`);
+  if (!chips.length)               chips.push(`<span class="chip ok"><i data-lucide="check" style="width:9px;height:9px"></i> Alles OK</span>`);
   return `
     <a class="site-card" href="${siteHref(s.id)}">
       <div class="site-card-top">
-        <div class="site-icon" style="background:${s.color}22;border:1px solid ${s.color}44">${s.icon}</div>
+        <div class="site-icon" style="background:${s.color}22;border:1px solid ${s.color}44">${siteIcon(s, 16)}</div>
         <div>
           <div class="site-name">${s.name}</div>
           <div class="site-url">${s.url.replace('https://','')}</div>

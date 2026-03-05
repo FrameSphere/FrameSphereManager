@@ -89,6 +89,22 @@ body {
   font-weight: 700;
 }
 
+.topbar-icon-btn {
+  position: relative;
+  width: 36px; height: 36px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+  color: var(--text2);
+  text-decoration: none;
+}
+
+.topbar-icon-btn:hover { border-color: var(--accent); color: var(--accent2); }
+.topbar-icon-btn.danger:hover { border-color: var(--red); color: var(--red); }
+
 #notif-btn {
   position: relative;
   width: 36px; height: 36px;
@@ -98,7 +114,6 @@ body {
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
   transition: border-color 0.2s;
-  font-size: 16px;
 }
 
 #notif-btn:hover { border-color: var(--accent); }
@@ -857,4 +872,38 @@ select option { background: var(--surface2); }
   40%      { transform: translateX(8px); }
   60%      { transform: translateX(-6px); }
   80%      { transform: translateX(6px); }
+}
+
+/* ── Lucide Icons ────────────────────────────────────── */
+[data-lucide] {
+  stroke-width: 1.8;
+  stroke: currentColor;
+  fill: none;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+/* Icons inside buttons / nav items inherit color */
+.btn [data-lucide],
+.nav-item [data-lucide],
+.tab-btn [data-lucide],
+.topbar-stat [data-lucide] {
+  opacity: 0.75;
+}
+
+/* .empty state: stack icon + text */
+.empty {
+  flex-direction: column;
+}
+
+/* Task action buttons with icons */
+.task-act-btn [data-lucide] {
+  pointer-events: none;
+}
+
+/* Chip icons */
+.chip [data-lucide] {
+  width: 9px;
+  height: 9px;
+  stroke-width: 2.5;
 }

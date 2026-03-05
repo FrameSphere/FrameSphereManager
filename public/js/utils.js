@@ -1,5 +1,14 @@
 // ── Utils ─────────────────────────────────────────────────────────
 
+// ── Lucide icon helper ───────────────────────────────────────────
+function icon(name, size = 14, style = '') {
+  return `<i data-lucide="${name}" style="width:${size}px;height:${size}px;display:inline-flex;flex-shrink:0;${style}"></i>`;
+}
+
+function refreshIcons() {
+  requestAnimationFrame(() => { if (window.lucide) window.lucide.createIcons(); });
+}
+
 function esc(str) {
   if (!str) return '';
   return String(str)
@@ -19,11 +28,11 @@ function fmtDate(d) {
 }
 
 function emptyState(msg) {
-  return `<div class="empty"><div class="emoji">📭</div>${msg}</div>`;
+  return `<div class="empty">${icon('inbox', 28, 'color:var(--text3);margin-bottom:8px')}<span>${msg}</span></div>`;
 }
 
 function errState() {
-  return `<div class="empty"><div class="emoji">⚡</div>API nicht erreichbar</div>`;
+  return `<div class="empty">${icon('wifi-off', 28, 'color:var(--text3);margin-bottom:8px')}<span>API nicht erreichbar</span></div>`;
 }
 
 function loadingState() {
