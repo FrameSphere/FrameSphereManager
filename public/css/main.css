@@ -617,6 +617,25 @@ select option { background: var(--surface2); }
 .gap-8  { gap: 8px; }
 .gap-12 { gap: 12px; }
 
+/* ── Icon system ─────────────────────────────────────────────── */
+.tab-btn, .site-tabs .tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.nav-item .icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+[data-lucide] {
+  flex-shrink: 0;
+  stroke: currentColor;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }

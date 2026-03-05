@@ -202,6 +202,7 @@ async function loadNotifPanel() {
       <div class="notif-time">${fmtDate(n.created_at)}</div>
     </div>
   `).join('');
+  refreshIcons();
 }
 
 async function markOneRead(id, el) {
@@ -218,14 +219,6 @@ async function markAllRead() {
 
 // ── Full layout init (called once auth is confirmed) ──────────────
 function initLayout(activeSiteId = null) {
-  // Inject Lucide CDN once
-  if (!document.getElementById('lucide-cdn')) {
-    const s = document.createElement('script');
-    s.id  = 'lucide-cdn';
-    s.src = 'https://unpkg.com/lucide@latest/dist/umd/lucide.min.js';
-    s.onload = () => lucide.createIcons();
-    document.head.appendChild(s);
-  }
   injectTopbar(activeSiteId);
   const layoutEl = document.getElementById('layout');
   if (layoutEl) injectSidebar(activeSiteId);
