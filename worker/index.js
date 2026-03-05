@@ -766,7 +766,7 @@ async function handleRequest(request, env) {
     const end = now.toISOString();
     const query = `{viewer{accounts(filter:{accountTag:"${accountId}"}){workersInvocationsAdaptive(limit:1 filter:{scriptName:"${workerName}" datetime_geq:"${start}" datetime_leq:"${end}"}){sum{requests errors subrequests}quantiles{cpuTimeP50 cpuTimeP99}}}}}`;
     try {
-      const r = await fetch('https://api.cloudflare.com/graphql', {
+      const r = await fetch('https://api.cloudflare.com/client/v4/graphql', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfToken}` },
         body: JSON.stringify({ query }),
