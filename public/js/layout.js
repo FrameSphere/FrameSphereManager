@@ -121,13 +121,17 @@ function injectSidebar(activeSiteId = null) {
   el.innerHTML = `
     <div class="sidebar-section">
       <div class="sidebar-label">Übersicht</div>
-      <a class="nav-item${!activeSiteId && !window.location.pathname.includes('todo') ? ' active' : ''}" href="${pathPrefix()}index.html">
+      <a class="nav-item${!activeSiteId && !window.location.pathname.includes('todo') && !window.location.pathname.includes('infrastructure') ? ' active' : ''}" href="${pathPrefix()}index.html">
         <span class="icon"><i data-lucide="layout-dashboard" style="width:14px;height:14px"></i></span>
         Dashboard
       </a>
       <a class="nav-item${window.location.pathname.includes('todo') ? ' active' : ''}" href="${pathPrefix()}todo.html">
         <span class="icon"><i data-lucide="check-square-2" style="width:14px;height:14px"></i></span>
         To Do
+      </a>
+      <a class="nav-item${window.location.pathname.includes('infrastructure') ? ' active' : ''}" href="${pathPrefix()}infrastructure.html">
+        <span class="icon"><i data-lucide="network" style="width:14px;height:14px"></i></span>
+        Infrastruktur
       </a>
     </div>
     <div class="sidebar-section">

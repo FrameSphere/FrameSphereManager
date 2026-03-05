@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Infrastruktur – WebControl HQ</title>
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    #infra-body {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      min-height: 0;
+    }
+    #graph-wrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    #infra-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    /* Node detail sidebar */
+    #node-detail {
+      width: 290px;
+      flex-shrink: 0;
+      background: var(--bg2);
+      border-left: 1px solid var(--border);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #node-detail.open { display: flex; }
+    #node-detail-scroll { flex: 1; overflow-y: auto; padding: 16px 18px; }
+
+    /* Stats bar */
+    .infra-stats {
+      display: flex;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .infra-stat {
+      flex: 1;
+      padding: 11px 18px;
+      border-right: 1px solid var(--border);
+    }
+    .infra-stat:last-child { border-right: none; }
+    .infra-stat-label { font-size: 9px; font-family: 'Space Mono', monospace; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text3); margin-bottom: 3px; }
+    .infra-stat-val { font-size: 20px; font-weight: 800; letter-spacing: -0.03em; }
+
+    /* CF Modal */
+    #cf-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(8,10,15,0.85);
+      z-index: 500;
+      align-items: center;
+      justify-content: center;
+    }
+    #cf-modal.open { display: flex; }
+
+    /* Detail content styles */
+    .detail-metric { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+    .detail-metric-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+    .detail-metric-label { font-size: 8px; color: var(--text3); font-family: 'Space Mono', monospace; text-transform: uppercase; margin-bottom: 4px; }
+    .detail-metric-val { font-size: 18px; font-weight: 800; }
+    .detail-section-title { font-size: 9px; font-family: 'Space Mono', monospace; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text3); margin: 14px 0 8px; }
+
+    /* Animations */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinning { animation: spin 1s linear infinite; }
+    @keyframes statusPulse {
+      0%,100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .pulse-dot { animation: statusPulse 1.5s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+<div id="layout">
+  <div id="main">
+
+    <div class="page-header" style="border-left:3px solid #3b82f6;padding-left:25px">
+      <div class="flex items-center gap-12">
+        <i data-lucide="network" style="width:22px;height:22px;color:#3b82f6"></i>
+        <div>
+          <div class="page-title">Infrastruktur</div>
+          <div class="page-sub">Echtzeit-Monitoring · Cloudflare Pages, Workers & D1 · Datenflüsse</div>
+        </div>
+        <div class="flex-1"></div>
+        <button class="btn btn-ghost btn-sm" id="refresh-btn" onclick="runChecks()">
+          <i data-lucide="refresh-cw" id="refresh-icon" style="width:12px;height:12px"></i>
+          Aktualisieren
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="openCFSettings()" id="cf-btn">
+          <i data-lucide="key" style="width:12px;height:12px"></i>
+          CF API Token
+        </button>
+      </div>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="infra-stats">
+      <div class="infra-stat">
+        <div class="infra-stat-label">Sites Online</div>
+        <div class="infra-stat-val green" id="stat-up">–</div>
+      </div>
+      <div class="infra-stat">
+        <div class="infra-stat-label">Sites Offline</div>
+        <div class="infra-stat-val red" id="stat-down">–</div>
+      </div>
+      <div class="infra-stat">
+        <div class="infra-stat-label">API Worker</div>
+        <div class="infra-stat-val" id="stat-worker" style="color:var(--text3)">–</div>
+      </div>
+      <div class="infra-stat">
+        <div class="infra-stat-label">Ø Latenz</div>
+        <div class="infra-stat-val blue" id="stat-latency">–</div>
+      </div>
+      <div class="infra-stat">
+        <div class="infra-stat-label">Geprüft um</div>
+        <div class="infra-stat-val" id="stat-time" style="font-size:13px;color:var(--text2)">–</div>
+      </div>
+    </div>
+
+    <!-- Main: SVG Graph + Detail Panel -->
+    <div id="infra-body">
+      <div id="graph-wrap">
+        <svg id="infra-svg" viewBox="0 0 1100 540" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <!-- Background dot grid -->
+            <pattern id="dots" width="32" height="32" patternUnits="userSpaceOnUse">
+              <circle cx="16" cy="16" r="0.8" fill="rgba(35,46,66,0.5)"/>
+            </pattern>
+            <!-- Glow filter -->
+            <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation="5" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+            <filter id="glow-sm" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur stdDeviation="2.5" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+            <!-- Arrow markers -->
+            <marker id="arr-blue" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
+              <path d="M0,0 L0,5 L7,2.5z" fill="rgba(59,130,246,0.55)"/>
+            </marker>
+            <marker id="arr-green" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
+              <path d="M0,0 L0,5 L7,2.5z" fill="rgba(16,185,129,0.6)"/>
+            </marker>
+            <marker id="arr-cyan" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
+              <path d="M0,0 L0,5 L7,2.5z" fill="rgba(6,182,212,0.6)"/>
+            </marker>
+          </defs>
+
+          <!-- Background -->
+          <rect width="1100" height="540" fill="url(#dots)"/>
+
+          <!-- Layer: connections (drawn behind nodes) -->
+          <g id="g-connections"></g>
+
+          <!-- Layer: animated data flow particles -->
+          <g id="g-particles"></g>
+
+          <!-- Layer: nodes -->
+          <g id="g-nodes"></g>
+
+          <!-- Legend (bottom left) -->
+          <g transform="translate(22, 508)" font-family="Space Mono, monospace" font-size="9" fill="#4a5568">
+            <circle cx="5" cy="5" r="4" fill="#22c55e"/>
+            <text x="14" y="9">Online</text>
+            <circle cx="68" cy="5" r="4" fill="#ef4444"/>
+            <text x="77" y="9">Offline</text>
+            <circle cx="131" cy="5" r="4" fill="#f59e0b"/>
+            <text x="140" y="9">Prüfe…</text>
+            <line x1="200" y1="5" x2="228" y2="5" stroke="rgba(59,130,246,0.5)" stroke-width="1.5" stroke-dasharray="4,3"/>
+            <text x="233" y="9">API-Flow</text>
+            <line x1="298" y1="5" x2="326" y2="5" stroke="rgba(16,185,129,0.55)" stroke-width="1.5" stroke-dasharray="4,3"/>
+            <text x="331" y="9">DB-Zugriff</text>
+            <line x1="400" y1="5" x2="428" y2="5" stroke="rgba(6,182,212,0.55)" stroke-width="1.5" stroke-dasharray="4,3"/>
+            <text x="433" y="9">Ratelimit-DB</text>
+          </g>
+        </svg>
+      </div>
+
+      <!-- Node detail panel -->
+      <div id="node-detail">
+        <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+          <span style="font-size:11px;font-family:'Space Mono',monospace;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text3)">Details</span>
+          <button class="btn btn-ghost btn-sm" onclick="closeDetail()" style="padding:2px 6px">
+            <i data-lucide="x" style="width:11px;height:11px"></i>
+          </button>
+        </div>
+        <div id="node-detail-scroll"></div>
+      </div>
+    </div><!-- /#infra-body -->
+
+  </div><!-- /#main -->
+</div><!-- /#layout -->
+
+<!-- Cloudflare API Token Modal -->
+<div id="cf-modal">
+  <div class="login-box" style="max-width:420px">
+    <div class="login-logo">
+      <div class="login-logo-dot" style="background:#f6821f;box-shadow:0 0 12px #f6821f"></div>
+      <div class="login-title" style="color:#f6821f">CLOUDFLARE API</div>
+    </div>
+    <div class="login-sub">API Token für Workers-Metriken (Analytics:Read)</div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label>API TOKEN</label>
+      <div style="position:relative">
+        <input id="cf-token-input" type="password" placeholder="Dein Cloudflare API Token…" style="width:100%">
+      </div>
+    </div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:10px;font-family:'Space Mono',monospace;color:var(--text3);line-height:1.7;margin-bottom:16px">
+      Account ID: <span style="color:var(--accent2)">75ab77c2ccd4045de59e99835480bc53</span><br>
+      Worker: <span style="color:var(--text2)">webcontrol-hq-api</span><br>
+      Berechtigungen: Account → Workers Scripts:Read, Analytics:Read<br>
+      <span style="color:var(--text3)">Token gilt nur für diese Sitzung (sessionStorage)</span>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button class="btn btn-primary" style="flex:1;justify-content:center" onclick="saveCFToken()">
+        <i data-lucide="check" style="width:11px;height:11px"></i>
+        Speichern & Laden
+      </button>
+      <button class="btn btn-ghost" onclick="closeCFModal()">Abbrechen</button>
+    </div>
+    <button class="btn btn-danger btn-sm" style="width:100%;justify-content:center" onclick="clearCFToken()">
+      <i data-lucide="trash-2" style="width:11px;height:11px"></i>
+      Token löschen
+    </button>
+    <div class="login-hint" style="margin-top:14px">
+      <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" style="color:var(--accent2);text-decoration:none">
+        → Token erstellen auf dash.cloudflare.com
+      </a>
+    </div>
+  </div>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  Infrastructure Map – WebControl HQ
+// ═══════════════════════════════════════════════════════════════
+
+const CF_ACCOUNT_ID  = '75ab77c2ccd4045de59e99835480bc53';
+const CF_WORKER_NAME = 'webcontrol-hq-api';
+const CF_GQL         = 'https://api.cloudflare.com/graphql';
+
+// ── Node Layout ─────────────────────────────────────────────────
+// Center: Worker at (550, 268)
+// 10 Sites in a ring, radius 195, starting at -90° clockwise
+const CX = 550, CY = 268, R = 195;
+
+const INFRA_SITES = SITES.map((s, i) => {
+  const a = (i * 36 - 90) * (Math.PI / 180);
+  return {
+    ...s,
+    type: 'site',
+    x: Math.round(CX + R * Math.cos(a)),
+    y: Math.round(CY + R * Math.sin(a)),
+    subtitle: s.url.replace('https://',''),
+  };
+});
+
+const WORKER = {
+  id: 'worker-api', name: 'webcontrol-hq-api',
+  type: 'worker', color: '#f59e0b',
+  x: CX, y: CY,
+  url: 'https://webcontrol-hq-api.karol-paschek.workers.dev',
+  subtitle: 'Cloudflare Worker · Edge API',
+  icon: 'cpu',
+};
+
+const DATABASES = [
+  { id: 'db-main', name: 'webcontrol-hq', type: 'database', color: '#10b981',
+    x: 430, y: 490, subtitle: 'D1 · Haupt-Datenbank', icon: 'database' },
+  { id: 'db-rl',   name: 'ratelimit-db',  type: 'database', color: '#06b6d4',
+    x: 670, y: 490, subtitle: 'D1 · Ratelimit-Datenbank', icon: 'database' },
+];
+
+const ALL_NODES = [...INFRA_SITES, WORKER, ...DATABASES];
+
+// ── State ────────────────────────────────────────────────────────
+const nodeStatus = {};
+ALL_NODES.forEach(n => { nodeStatus[n.id] = { state: 'checking', latency: null }; });
+
+// ── SVG Helpers ──────────────────────────────────────────────────
+const NS = 'http://www.w3.org/2000/svg';
+const XLINKNS = 'http://www.w3.org/1999/xlink';
+
+function sel(tag, a = {}) {
+  const el = document.createElementNS(NS, tag);
+  Object.entries(a).forEach(([k, v]) => el.setAttribute(k, String(v)));
+  return el;
+}
+
+function stateColor(s) {
+  return s === 'up' ? '#22c55e' : s === 'down' ? '#ef4444' : '#f59e0b';
+}
+
+function nodeW(n) { return n.type === 'worker' ? 150 : n.type === 'database' ? 124 : 112; }
+function nodeH(n) { return n.type === 'worker' ? 54 : 48; }
+
+// ── Build Graph ──────────────────────────────────────────────────
+function buildGraph() {
+  const gConn = document.getElementById('g-connections');
+  const gNode = document.getElementById('g-nodes');
+  gConn.innerHTML = '';
+  gNode.innerHTML = '';
+
+  // — Connections: Sites → Worker
+  INFRA_SITES.forEach(s => drawConn(gConn, s.x, s.y, WORKER.x, WORKER.y,
+    'rgba(59,130,246,0.38)', 'arr-blue', `conn-${s.id}`));
+
+  // — Connection: Worker → DB-main
+  drawConn(gConn, WORKER.x, WORKER.y, DATABASES[0].x, DATABASES[0].y,
+    'rgba(16,185,129,0.5)', 'arr-green', 'conn-worker-db0');
+
+  // — Connection: Worker → DB-ratelimit
+  drawConn(gConn, WORKER.x, WORKER.y, DATABASES[1].x, DATABASES[1].y,
+    'rgba(6,182,212,0.5)', 'arr-cyan', 'conn-worker-db1');
+
+  // — ratelimit site also directly noted (same worker but specific)
+  // Already covered by the site → worker connection for 'ratelimit' id
+
+  // — Render all nodes
+  ALL_NODES.forEach(n => renderNode(gNode, n));
+}
+
+function drawConn(parent, x1, y1, x2, y2, stroke, marker, id) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const mx = x1 + dx * 0.5 - dy * 0.08;
+  const my = y1 + dy * 0.5 + dx * 0.08;
+  const p = sel('path', {
+    d: `M${x1},${y1} Q${mx},${my} ${x2},${y2}`,
+    stroke, fill: 'none',
+    'stroke-width': 1.3,
+    'stroke-dasharray': '5,4',
+    opacity: 0.8,
+    'marker-end': `url(#${marker})`,
+    id,
+  });
+  parent.appendChild(p);
+  return p;
+}
+
+function renderNode(parent, n) {
+  const w = nodeW(n), h = nodeH(n);
+  const g = sel('g', {
+    id: `node-${n.id}`,
+    transform: `translate(${n.x - w/2},${n.y - h/2})`,
+    style: 'cursor:pointer',
+  });
+  g.addEventListener('click', () => selectNode(n.id));
+
+  // Glow halo
+  const halo = sel('rect', { x: -2, y: -2, width: w+4, height: h+4, rx: 12,
+    fill: 'none', stroke: n.color, 'stroke-width': 6, opacity: 0.06, filter: 'url(#glow)' });
+  g.appendChild(halo);
+
+  // Card bg
+  const card = sel('rect', { x: 0, y: 0, width: w, height: h, rx: 10,
+    fill: '#161c28', stroke: '#232e42', 'stroke-width': 1, id: `card-${n.id}` });
+  g.appendChild(card);
+
+  // Color left bar
+  g.appendChild(sel('rect', { x: 0, y: 8, width: 3, height: h-16, rx: 1.5, fill: n.color }));
+
+  // Name
+  const nameEl = sel('text', {
+    x: 13, y: n.type === 'worker' ? 21 : 18,
+    'font-size': n.type === 'worker' ? 12 : 10,
+    'font-weight': 700,
+    fill: '#e8edf5',
+    'font-family': 'Syne, sans-serif',
+  });
+  nameEl.textContent = n.name;
+  g.appendChild(nameEl);
+
+  // Subtitle
+  const sub = (n.subtitle || '').length > 22 ? n.subtitle.slice(0,22)+'…' : (n.subtitle || '');
+  if (sub) {
+    const subEl = sel('text', {
+      x: 13, y: n.type === 'worker' ? 35 : 30,
+      'font-size': 7.5,
+      fill: '#4a5568',
+      'font-family': 'Space Mono, monospace',
+    });
+    subEl.textContent = sub;
+    g.appendChild(subEl);
+  }
+
+  // Status dot (top-right)
+  const dot = sel('circle', { cx: w-10, cy: 9, r: 4.5, fill: '#f59e0b', id: `dot-${n.id}` });
+  g.appendChild(dot);
+
+  // Latency text (bottom-right)
+  const lat = sel('text', {
+    x: w-8, y: h-7,
+    'font-size': 7.5, fill: '#4a5568',
+    'font-family': 'Space Mono, monospace',
+    'text-anchor': 'end',
+    id: `lat-${n.id}`,
+  });
+  lat.textContent = '–';
+  g.appendChild(lat);
+
+  parent.appendChild(g);
+}
+
+// ── Update Node Visuals ──────────────────────────────────────────
+function updateVisual(id) {
+  const s = nodeStatus[id] || {};
+  const dot = document.getElementById(`dot-${id}`);
+  const lat = document.getElementById(`lat-${id}`);
+  const card = document.getElementById(`card-${id}`);
+  if (dot) dot.setAttribute('fill', stateColor(s.state));
+  if (lat) lat.textContent = s.latency ? `${s.latency}ms` : (s.state === 'down' ? 'DOWN' : '–');
+  if (card) card.setAttribute('stroke', s.state === 'down' ? 'rgba(239,68,68,0.35)' : '#232e42');
+}
+
+// ── Uptime Check ─────────────────────────────────────────────────
+async function ping(url) {
+  const t0 = performance.now();
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 9000);
+    await fetch(url, { method: 'HEAD', mode: 'no-cors', cache: 'no-store', signal: ctrl.signal });
+    clearTimeout(tid);
+    return { state: 'up', latency: Math.round(performance.now() - t0) };
+  } catch(e) {
+    if (e.name === 'AbortError') return { state: 'down', latency: null };
+    // no-cors often throws TypeError on opaque success (Firefox) → treat as up
+    return { state: 'up', latency: Math.round(performance.now() - t0) };
+  }
+}
+
+let checksRunning = false;
+async function runChecks() {
+  if (checksRunning) return;
+  checksRunning = true;
+
+  const icon = document.getElementById('refresh-icon');
+  if (icon) icon.classList.add('spinning');
+
+  // Reset to 'checking'
+  ALL_NODES.forEach(n => { nodeStatus[n.id] = { state: 'checking', latency: null }; updateVisual(n.id); });
+
+  // Ping all sites in parallel
+  const sitePromises = INFRA_SITES.map(async s => {
+    const r = await ping(s.url);
+    nodeStatus[s.id] = r;
+    updateVisual(s.id);
+    return r;
+  });
+
+  // Ping worker via existing API (gives real status + auth)
+  const workerPromise = (async () => {
+    const t0 = performance.now();
+    const data = await api('/api/stats');
+    const latency = Math.round(performance.now() - t0);
+    const r = { state: data ? 'up' : 'down', latency: data ? latency : null };
+    nodeStatus[WORKER.id] = r;
+    updateVisual(WORKER.id);
+
+    // DBs accessible via worker → show up if worker is up
+    DATABASES.forEach(db => {
+      nodeStatus[db.id] = { state: data ? 'up' : 'unknown', latency: null };
+      updateVisual(db.id);
+    });
+    return { data, r };
+  })();
+
+  await Promise.all([...sitePromises, workerPromise]);
+
+  // Summary stats
+  const upCount   = INFRA_SITES.filter(s => nodeStatus[s.id].state === 'up').length;
+  const downCount = INFRA_SITES.filter(s => nodeStatus[s.id].state === 'down').length;
+  const lats      = INFRA_SITES.filter(s => nodeStatus[s.id].latency).map(s => nodeStatus[s.id].latency);
+  const avgLat    = lats.length ? Math.round(lats.reduce((a,b)=>a+b,0)/lats.length) : null;
+
+  const el = id => document.getElementById(id);
+  if (el('stat-up'))      el('stat-up').textContent      = upCount;
+  if (el('stat-down'))    el('stat-down').textContent    = downCount;
+  if (el('stat-latency')) el('stat-latency').textContent = avgLat ? `${avgLat}ms` : '–';
+  if (el('stat-time'))    el('stat-time').textContent    = new Date().toLocaleTimeString('de-DE');
+
+  const ws = nodeStatus[WORKER.id];
+  if (el('stat-worker')) {
+    el('stat-worker').textContent  = ws.state === 'up' ? '✓ Online' : '✗ Offline';
+    el('stat-worker').style.color = ws.state === 'up' ? 'var(--green)' : 'var(--red)';
+  }
+
+  // Kick off particle animation
+  spawnParticles();
+
+  // Load CF analytics if token set
+  const cfTok = sessionStorage.getItem('cf_api_token');
+  if (cfTok) loadCFAnalytics(cfTok, null);
+
+  if (icon) icon.classList.remove('spinning');
+  checksRunning = false;
+  refreshIcons();
+}
+
+// ── Particle Animation ────────────────────────────────────────────
+let _partTimer = null;
+function spawnParticles() {
+  if (_partTimer) clearInterval(_partTimer);
+
+  function spawn() {
+    const pg = document.getElementById('g-particles');
+    if (!pg) return;
+    pg.innerHTML = '';
+
+    // Site → Worker particles (only for 'up' sites, random subset)
+    INFRA_SITES.forEach(s => {
+      if (nodeStatus[s.id]?.state !== 'up') return;
+      if (Math.random() > 0.45) return;
+      const circle = sel('circle', { r: 2.8, fill: '#3b82f6', opacity: 0.75 });
+      const anim   = sel('animateMotion', { dur: `${1.2 + Math.random()*0.8}s`, fill: 'freeze' });
+      const mpath  = sel('mpath');
+      mpath.setAttributeNS(XLINKNS, 'href', `#conn-${s.id}`);
+      anim.appendChild(mpath);
+      circle.appendChild(anim);
+      pg.appendChild(circle);
+    });
+
+    // Worker → DB particles
+    if (nodeStatus[WORKER.id]?.state === 'up') {
+      ['conn-worker-db0','conn-worker-db1'].forEach((cid, i) => {
+        if (Math.random() > 0.55) return;
+        const c = sel('circle', { r: 2.8, fill: i === 0 ? '#10b981' : '#06b6d4', opacity: 0.75 });
+        const a = sel('animateMotion', { dur: `${1.0 + Math.random()*0.6}s`, fill: 'freeze' });
+        const m = sel('mpath');
+        m.setAttributeNS(XLINKNS, 'href', `#${cid}`);
+        a.appendChild(m);
+        c.appendChild(a);
+        pg.appendChild(c);
+      });
+    }
+  }
+
+  spawn();
+  _partTimer = setInterval(spawn, 2200);
+}
+
+// ── Node Detail Panel ─────────────────────────────────────────────
+let _activeNode = null;
+
+function selectNode(id) {
+  _activeNode = id;
+  const panel  = document.getElementById('node-detail');
+  const scroll = document.getElementById('node-detail-scroll');
+  panel.classList.add('open');
+
+  const node = ALL_NODES.find(n => n.id === id);
+  if (!node) return;
+
+  const s    = nodeStatus[id] || {};
+  const sc   = stateColor(s.state);
+  const stateLabel = { up: 'Online', down: 'Offline', checking: 'Prüfe…', unknown: 'Unbekannt' }[s.state] || s.state;
+
+  const latColor = !s.latency ? 'var(--text3)'
+    : s.latency < 400 ? 'var(--green)' : s.latency < 1000 ? 'var(--yellow)' : 'var(--red)';
+
+  const links = [];
+  if (node.url) links.push(`
+    <a href="${esc(node.url)}" target="_blank" class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;margin-bottom:6px">
+      <i data-lucide="external-link" style="width:11px;height:11px"></i>
+      Website öffnen
+    </a>`);
+  if (node.tabs) links.push(`
+    <a href="sites/${esc(node.id)}.html" class="btn btn-primary btn-sm" style="width:100%;justify-content:center">
+      <i data-lucide="settings-2" style="width:11px;height:11px"></i>
+      Im HQ verwalten
+    </a>`);
+
+  const typeLabels = { site: 'Pages Site', worker: 'CF Worker', database: 'D1 Database' };
+
+  scroll.innerHTML = `
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <div style="width:36px;height:36px;border-radius:9px;background:${node.color}1a;border:1px solid ${node.color}44;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i data-lucide="${node.icon || 'globe'}" style="width:16px;height:16px;color:${node.color}"></i>
+      </div>
+      <div style="min-width:0">
+        <div style="font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(node.name)}</div>
+        <div style="font-size:9px;color:var(--text3);font-family:'Space Mono',monospace">${typeLabels[node.type] || node.type}</div>
+      </div>
+    </div>
+
+    <!-- Status card -->
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:7px;margin-bottom:10px">
+        <div style="width:7px;height:7px;border-radius:50%;background:${sc};box-shadow:0 0 6px ${sc}"></div>
+        <div style="font-size:12px;font-weight:800;color:${sc}">${stateLabel}</div>
+        ${s.state === 'checking' ? `<div style="font-size:9px;color:var(--text3);font-family:'Space Mono',monospace;margin-left:auto">laufend…</div>` : ''}
+      </div>
+      <div class="detail-metric" style="margin-bottom:0">
+        <div class="detail-metric-card">
+          <div class="detail-metric-label">Latenz</div>
+          <div class="detail-metric-val" style="color:${latColor}">${s.latency ? s.latency+'ms' : '–'}</div>
+        </div>
+        <div class="detail-metric-card">
+          <div class="detail-metric-label">Typ</div>
+          <div class="detail-metric-val" style="font-size:11px;color:var(--text2);font-family:'Space Mono',monospace">${typeLabels[node.type] || '–'}</div>
+        </div>
+      </div>
+    </div>
+
+    ${node.url ? `<div style="font-size:9px;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:10px;word-break:break-all;line-height:1.5">${esc(node.url)}</div>` : ''}
+
+    <!-- CF Analytics block (only for worker) -->
+    ${node.type === 'worker' ? `
+      <div class="detail-section-title">Cloudflare Analytics (24h)</div>
+      <div id="cf-detail-box" style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px;margin-bottom:12px">
+        <div id="cf-detail-content" style="font-size:11px;color:var(--text3);font-family:'Space Mono',monospace">
+          ${sessionStorage.getItem('cf_api_token') ? '<span style="color:var(--yellow)">Lade…</span>' : 'CF API Token erforderlich → Button oben rechts'}
+        </div>
+      </div>` : ''}
+
+    <!-- DB info -->
+    ${node.type === 'database' ? `
+      <div class="detail-section-title">Datenbank-Info</div>
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px;font-size:10px;font-family:'Space Mono',monospace;color:var(--text2);line-height:1.8;margin-bottom:12px">
+        ${node.id === 'db-main' ? `ID: e22c8e57-4550-4566-9937-cd7d51560b70<br>Binding: DB<br>Zugriff: über Worker-API` : `ID: 33fba40f-abcc-43b1-b931-04baca75462b<br>Binding: RLDB<br>Zugriff: über Worker-API`}
+      </div>` : ''}
+
+    <!-- Connections info -->
+    <div class="detail-section-title">Datenflüsse</div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:12px;font-size:10px;font-family:'Space Mono',monospace;color:var(--text2);line-height:1.9">
+      ${node.type === 'site' ? `→ webcontrol-hq-api (API-Calls)<br><span style="color:var(--text3)">Support · Errors · Notifications · Daten</span>` : ''}
+      ${node.type === 'worker' ? `← 10 Pages-Sites (eingehend)<br>→ webcontrol-hq D1 (lesen/schreiben)<br>→ ratelimit-db D1 (ratelimiting)` : ''}
+      ${node.type === 'database' ? (node.id === 'db-main' ? `← webcontrol-hq-api Worker<br><span style="color:var(--text3)">Tickets · Errors · Notifs · Changelog</span>` : `← webcontrol-hq-api Worker<br><span style="color:var(--text3)">Rate-Limit-Tracking · API-Keys</span>`) : ''}
+    </div>
+
+    <!-- Action buttons -->
+    ${links.join('')}
+  `;
+
+  refreshIcons();
+
+  // Load CF data if worker node
+  if (node.type === 'worker') {
+    const tok = sessionStorage.getItem('cf_api_token');
+    if (tok) loadCFAnalytics(tok, 'cf-detail-content');
+  }
+}
+
+function closeDetail() {
+  document.getElementById('node-detail').classList.remove('open');
+  _activeNode = null;
+}
+
+// ── Cloudflare GraphQL Analytics ─────────────────────────────────
+async function loadCFAnalytics(token, targetId) {
+  const now   = new Date();
+  const start = new Date(now - 24*60*60*1000).toISOString();
+  const end   = now.toISOString();
+
+  const query = `{viewer{accounts(filter:{accountTag:"${CF_ACCOUNT_ID}"}){workersInvocationsAdaptive(limit:1 filter:{scriptName:"${CF_WORKER_NAME}" datetime_geq:"${start}" datetime_leq:"${end}"}){sum{requests errors subrequests}quantiles{cpuTimeP50 cpuTimeP99}}}}}`;
+
+  try {
+    const r = await fetch(CF_GQL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ query }),
+    });
+
+    const data = await r.json();
+    if (data.errors) throw new Error(data.errors[0]?.message || 'GraphQL Fehler');
+
+    const inv = data?.data?.viewer?.accounts?.[0]?.workersInvocationsAdaptive?.[0];
+    if (!inv) throw new Error('Keine Daten verfügbar');
+
+    const errRate = inv.sum.requests > 0
+      ? ((inv.sum.errors / inv.sum.requests) * 100).toFixed(2) : '0.00';
+    const errColor = parseFloat(errRate) > 5 ? 'var(--red)' : parseFloat(errRate) > 1 ? 'var(--yellow)' : 'var(--green)';
+
+    const html = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="detail-metric-card">
+          <div class="detail-metric-label">Requests</div>
+          <div class="detail-metric-val" style="color:var(--accent2)">${inv.sum.requests.toLocaleString('de-DE')}</div>
+        </div>
+        <div class="detail-metric-card">
+          <div class="detail-metric-label">Fehlerrate</div>
+          <div class="detail-metric-val" style="color:${errColor}">${errRate}%</div>
+        </div>
+        <div class="detail-metric-card">
+          <div class="detail-metric-label">CPU P50</div>
+          <div class="detail-metric-val" style="font-size:14px;color:var(--text)">${inv.quantiles.cpuTimeP50}µs</div>
+        </div>
+        <div class="detail-metric-card">
+          <div class="detail-metric-label">CPU P99</div>
+          <div class="detail-metric-val" style="font-size:14px;color:${inv.quantiles.cpuTimeP99 > 50000 ? 'var(--yellow)' : 'var(--text)'}">${inv.quantiles.cpuTimeP99}µs</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:9px;font-family:'Space Mono',monospace;color:var(--text3)">
+        ${inv.sum.subrequests.toLocaleString('de-DE')} Subrequests · Letzten 24h
+      </div>`;
+
+    const box = document.getElementById(targetId || 'cf-detail-content');
+    if (box) box.innerHTML = html;
+    refreshIcons();
+
+    // Update CF token button to show it's active
+    const cfBtn = document.getElementById('cf-btn');
+    if (cfBtn) cfBtn.style.color = 'var(--green)';
+
+  } catch(e) {
+    const box = document.getElementById(targetId || 'cf-detail-content');
+    if (box) box.innerHTML = `<span style="color:var(--red)">Fehler: ${esc(e.message)}</span>`;
+  }
+}
+
+// ── CF Token Modal ────────────────────────────────────────────────
+function openCFSettings() {
+  const tok = sessionStorage.getItem('cf_api_token');
+  document.getElementById('cf-token-input').value = tok ? '••••••••••••' : '';
+  document.getElementById('cf-modal').classList.add('open');
+  refreshIcons();
+}
+function closeCFModal() {
+  document.getElementById('cf-modal').classList.remove('open');
+}
+function saveCFToken() {
+  const val = document.getElementById('cf-token-input').value.trim();
+  if (val && !val.startsWith('•')) sessionStorage.setItem('cf_api_token', val);
+  closeCFModal();
+  if (_activeNode === WORKER.id) selectNode(WORKER.id);
+  else loadCFAnalytics(sessionStorage.getItem('cf_api_token'), null);
+}
+function clearCFToken() {
+  sessionStorage.removeItem('cf_api_token');
+  closeCFModal();
+  const cfBtn = document.getElementById('cf-btn');
+  if (cfBtn) cfBtn.style.color = '';
+}
+
+// ── Boot ─────────────────────────────────────────────────────────
+injectLoginScreen();
+checkAuth(() => {
+  initLayout(null);
+  buildGraph();
+  runChecks();
+  // Auto-refresh every 5 minutes
+  setInterval(runChecks, 5 * 60 * 1000);
+});
+window.initAfterLogin = () => {
+  initLayout(null);
+  buildGraph();
+  runChecks();
+  setInterval(runChecks, 5 * 60 * 1000);
+};
+</script>
+</body>
+</html>
