@@ -161,11 +161,17 @@
     .prompts-wrap { flex:1; overflow-y:auto; padding:16px 28px; display:flex; flex-direction:column; gap:8px; }
     .prompt-card {
       background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px;
-      transition:border-color .15s;
+      transition:border-color .15s, opacity .15s;
     }
-    .prompt-card:hover { border-color:rgba(255,255,255,.18); }
-    .prompt-card-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
-    .prompt-card-title { font-size:13px; font-weight:700; flex:1; }
+    .prompt-card.used-card { border-color:rgba(52,211,153,.3); background:rgba(52,211,153,.04); opacity:.72; }
+    .prompt-card:hover { border-color:rgba(255,255,255,.18); opacity:1; }
+    .prompt-card-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+    .prompt-card-title { font-size:13px; font-weight:700; flex:1; min-width:0; }
+    .prompt-card-title.used-title { text-decoration:line-through; color:var(--text3); }
+    .prompt-used-badge {
+      font-size:9px; font-weight:800; padding:2px 8px; border-radius:4px; white-space:nowrap;
+      background:rgba(52,211,153,.15); color:#34d399; border:1px solid rgba(52,211,153,.3); letter-spacing:.05em;
+    }
     .prompt-tags { display:flex; gap:4px; flex-wrap:wrap; }
     .prompt-tag { font-size:10px; padding:2px 7px; border-radius:4px; background:rgba(99,102,241,.15); color:#a78bfa; font-weight:700; }
     .prompt-text {
@@ -174,7 +180,11 @@
       white-space:pre-wrap; word-break:break-word; max-height:120px; overflow-y:auto;
       cursor:text;
     }
-    .prompt-actions { display:flex; gap:6px; margin-top:10px; }
+    .prompt-task-link {
+      margin-top:7px; font-size:10px; color:var(--text3); font-family:'Space Mono',monospace;
+      display:flex; align-items:center; gap:5px;
+    }
+    .prompt-actions { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
 
     /* ── Priority ranking panel ── */
     .rank-panel { padding:16px 28px; border-top:1px solid var(--border); flex-shrink:0; }
@@ -522,6 +532,11 @@ async function toggleDone(id, val) {
   if (t) t.done = !!val;
   renderTasks();
   renderCalendar(false);
+  // Sync linked prompt's used status in local state (worker handles DB)
+  if (t?.prompt_id) {
+    const p = allPrompts.find(p => p.id === t.prompt_id);
+    if (p) { p.used = !!val; renderPrompts(); }
+  }
 }
 
 async function toggleImportant(id, val) {
@@ -698,15 +713,22 @@ function renderPrompts() {
   }
   list.innerHTML = prompts.map(p => {
     const tags = (p.tags || '').split(',').map(t => t.trim()).filter(Boolean);
-    return `<div class="prompt-card">
+    const used = !!p.used;
+    return `<div class="prompt-card${used ? ' used-card' : ''}">
       <div class="prompt-card-head">
-        <div class="prompt-card-title">${esc(p.title)}</div>
+        <div class="prompt-card-title${used ? ' used-title' : ''}">${esc(p.title)}</div>
         <div class="prompt-tags">${tags.map(t => `<span class="prompt-tag">${esc(t)}</span>`).join('')}</div>
+        ${used ? '<span class="prompt-used-badge">✓ Umgesetzt</span>' : ''}
       </div>
       <div class="prompt-text" id="pt-${p.id}">${esc(p.prompt)}</div>
+      ${p.task_id ? `<div class="prompt-task-link"><i data-lucide="link" style="width:10px;height:10px"></i> Verknüpfte Aufgabe #${p.task_id}</div>` : ''}
       <div class="prompt-actions">
         <button class="btn btn-ghost btn-sm" onclick="copyPrompt(${p.id})">
           <i data-lucide="copy" style="width:11px;height:11px"></i> Kopieren
+        </button>
+        <button class="btn ${used ? 'btn-ghost' : 'btn-primary'} btn-sm" onclick="togglePromptUsed(${p.id},${used ? 0 : 1})">
+          <i data-lucide="${used ? 'rotate-ccw' : 'check-circle-2'}" style="width:11px;height:11px"></i>
+          ${used ? 'Wieder offen' : 'Als umgesetzt markieren'}
         </button>
         <button class="btn btn-ghost btn-sm" onclick="openPromptEdit(${p.id})">
           <i data-lucide="pencil" style="width:11px;height:11px"></i> Bearbeiten
@@ -718,6 +740,15 @@ function renderPrompts() {
     </div>`;
   }).join('');
   refreshIcons();
+}
+
+async function togglePromptUsed(id, val) {
+  await api(`/api/prompts/${id}`, { method: 'PATCH', body: { used: !!val } });
+  const p = allPrompts.find(p => p.id === id);
+  if (p) p.used = val ? 1 : 0;
+  renderPrompts();
+  // Refresh tasks so the linked task reflects the change immediately
+  await reloadTasks();
 }
 
 function copyPrompt(id) {
@@ -755,6 +786,7 @@ async function savePrompt() {
   }
   closePromptModal();
   await reloadPrompts();
+  await reloadTasks(); // sync: new prompt creates a linked task
 }
 
 async function deletePrompt() {

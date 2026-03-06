@@ -367,6 +367,13 @@ async function handleRequest(request, env) {
     if (body.sort_order!== undefined) { sets.push('sort_order=?'); params.push(body.sort_order); }
     if (!sets.length) return err('Nothing to update');
     await db.prepare(`UPDATE todo_tasks SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
+    // Sync: if done changed, update linked prompt's used status
+    if (body.done !== undefined) {
+      const task = await db.prepare('SELECT prompt_id FROM todo_tasks WHERE id=?').bind(segments[2]).first().catch(() => null);
+      if (task?.prompt_id) {
+        await db.prepare('UPDATE todo_prompts SET used=? WHERE id=?').bind(body.done ? 1 : 0, task.prompt_id).run();
+      }
+    }
     return json({ success: true });
   }
 
@@ -378,16 +385,28 @@ async function handleRequest(request, env) {
 
   // ── PROMPTS ────────────────────────────────────────────────────
 
-  // GET /api/prompts
-  if (request.method === 'GET' && path === '/api/prompts') {
-    const db = env.DB;
+  // ── Migrate prompts + tasks tables for new columns ──────────────
+  async function ensurePromptColumns(db) {
     await db.prepare(`CREATE TABLE IF NOT EXISTS todo_prompts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
       tags TEXT DEFAULT '',
       prompt TEXT NOT NULL,
+      used INTEGER DEFAULT 0,
+      task_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
+    // Migrate existing tables
+    for (const col of ['used INTEGER DEFAULT 0', 'task_id INTEGER']) {
+      await db.prepare(`ALTER TABLE todo_prompts ADD COLUMN ${col}`).run().catch(() => {});
+    }
+    await db.prepare(`ALTER TABLE todo_tasks ADD COLUMN prompt_id INTEGER`).run().catch(() => {});
+  }
+
+  // GET /api/prompts
+  if (request.method === 'GET' && path === '/api/prompts') {
+    const db = env.DB;
+    await ensurePromptColumns(db);
     const result = await db.prepare('SELECT * FROM todo_prompts ORDER BY created_at DESC').all();
     return json(result.results);
   }
@@ -395,36 +414,54 @@ async function handleRequest(request, env) {
   // POST /api/prompts
   if (request.method === 'POST' && path === '/api/prompts') {
     const db = env.DB;
-    await db.prepare(`CREATE TABLE IF NOT EXISTS todo_prompts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      tags TEXT DEFAULT '',
-      prompt TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`).run();
+    await ensurePromptColumns(db);
     const body = await request.json().catch(() => ({}));
     if (!body.title || !body.prompt) return err('Titel und Prompt erforderlich');
-    const r = await db.prepare('INSERT INTO todo_prompts (title, tags, prompt) VALUES (?,?,?)')
+    // 1) Create prompt
+    const r = await db.prepare('INSERT INTO todo_prompts (title, tags, prompt, used) VALUES (?,?,?,0)')
       .bind(body.title, body.tags || '', body.prompt).run();
-    return json({ success: true, id: r.meta.last_row_id });
+    const promptId = r.meta.last_row_id;
+    // 2) Auto-create linked todo task (title = prompt title, notes = prompt text truncated)
+    const taskR = await db.prepare(
+      'INSERT INTO todo_tasks (title, notes, priority, prompt_id) VALUES (?,?,3,?)'
+    ).bind(body.title, body.prompt.slice(0, 500), promptId).run();
+    const taskId = taskR.meta.last_row_id;
+    // 3) Link task back to prompt
+    await db.prepare('UPDATE todo_prompts SET task_id=? WHERE id=?').bind(taskId, promptId).run();
+    return json({ success: true, id: promptId, task_id: taskId });
   }
 
   // PATCH /api/prompts/:id
   if (request.method === 'PATCH' && segments[1] === 'prompts' && segments[2]) {
     const db = env.DB;
+    await ensurePromptColumns(db);
     const body = await request.json().catch(() => ({}));
     const sets = []; const params = [];
     if (body.title  !== undefined) { sets.push('title=?');  params.push(body.title); }
     if (body.tags   !== undefined) { sets.push('tags=?');   params.push(body.tags); }
     if (body.prompt !== undefined) { sets.push('prompt=?'); params.push(body.prompt); }
+    if (body.used   !== undefined) { sets.push('used=?');   params.push(body.used ? 1 : 0); }
     if (!sets.length) return err('Nothing to update');
     await db.prepare(`UPDATE todo_prompts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
+    // Sync: if used changed, update linked task's done status
+    if (body.used !== undefined) {
+      const prompt = await db.prepare('SELECT task_id FROM todo_prompts WHERE id=?').bind(segments[2]).first();
+      if (prompt?.task_id) {
+        await db.prepare('UPDATE todo_tasks SET done=? WHERE id=?').bind(body.used ? 1 : 0, prompt.task_id).run();
+      }
+    }
     return json({ success: true });
   }
 
   // DELETE /api/prompts/:id
   if (request.method === 'DELETE' && segments[1] === 'prompts' && segments[2]) {
-    await env.DB.prepare('DELETE FROM todo_prompts WHERE id=?').bind(segments[2]).run();
+    const db = env.DB;
+    // Also delete the linked task
+    const prompt = await db.prepare('SELECT task_id FROM todo_prompts WHERE id=?').bind(segments[2]).first().catch(() => null);
+    if (prompt?.task_id) {
+      await db.prepare('DELETE FROM todo_tasks WHERE id=? AND prompt_id IS NOT NULL').bind(prompt.task_id).run();
+    }
+    await db.prepare('DELETE FROM todo_prompts WHERE id=?').bind(segments[2]).run();
     return json({ success: true });
   }
 
