@@ -672,23 +672,76 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
+  // ── Ensure suggestions table has site_id + ip columns ──────────────
+  async function ensureSuggestionsTable(db) {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS suggestions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      site_id TEXT NOT NULL DEFAULT 'spinselector',
+      suggestion TEXT NOT NULL,
+      category TEXT DEFAULT '',
+      status TEXT DEFAULT 'open',
+      note TEXT,
+      upvotes INTEGER DEFAULT 0,
+      ip_hash TEXT,
+      read INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    // Migrate older tables
+    await db.prepare('ALTER TABLE suggestions ADD COLUMN site_id TEXT NOT NULL DEFAULT \'spinselector\'').run().catch(() => {});
+    await db.prepare('ALTER TABLE suggestions ADD COLUMN ip_hash TEXT').run().catch(() => {});
+    await db.prepare('ALTER TABLE suggestions ADD COLUMN read INTEGER DEFAULT 0').run().catch(() => {});
+  }
+
+  // ── POST /api/suggestions ─ public, with IP cooldown ─────────────────
+  if (request.method === 'POST' && path === '/api/suggestions') {
+    await ensureSuggestionsTable(db);
+    const body = await request.json().catch(() => ({}));
+    const { site_id, suggestion, category } = body;
+    if (!suggestion || suggestion.trim().length < 5) return err('Vorschlag zu kurz (min. 5 Zeichen)');
+    if (suggestion.length > 500) return err('Vorschlag zu lang (max. 500 Zeichen)');
+    const siteId = (site_id || 'spinselector').slice(0, 30);
+    // IP-based rate limiting: max 3 suggestions per IP per hour
+    const clientIp = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown';
+    const ipHash = Array.from(new Uint8Array(
+      await crypto.subtle.digest('SHA-256', new TextEncoder().encode(clientIp + ':' + env.DASHBOARD_PASSWORD))
+    )).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+    const recentCount = await db.prepare(
+      `SELECT COUNT(*) as cnt FROM suggestions WHERE ip_hash=? AND created_at > datetime('now','-1 hour')`
+    ).bind(ipHash).first();
+    if ((recentCount?.cnt || 0) >= 3) return json({ error: 'Bitte warte eine Stunde bevor du weitere Vorschläge einreichst.' }, 429);
+    await db.prepare('INSERT INTO suggestions (site_id, suggestion, category, ip_hash) VALUES (?,?,?,?)')
+      .bind(siteId, suggestion.trim().slice(0, 500), (category || '').slice(0, 50), ipHash).run();
+    // Notification
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind(siteId, 'info', '💡 Neuer Vorschlag', suggestion.trim().slice(0, 100)).run();
+    return json({ success: true });
+  }
+
   // ── GET /api/suggestions ──────────────────────────────────────────
   if (request.method === 'GET' && path === '/api/suggestions') {
+    await ensureSuggestionsTable(db);
     const status = url.searchParams.get('status');
+    const siteId = url.searchParams.get('site_id');
     let q = 'SELECT * FROM suggestions WHERE 1=1';
     const params = [];
     if (status) { q += ' AND status=?'; params.push(status); }
-    q += ' ORDER BY upvotes DESC, created_at DESC';
+    if (siteId) { q += ' AND site_id=?'; params.push(siteId); }
+    q += ' ORDER BY read ASC, created_at DESC';
     const result = await db.prepare(q).bind(...params).all();
     return json(result.results);
   }
 
   // ── PATCH /api/suggestions/:id ────────────────────────────────────
   if (request.method === 'PATCH' && segments[1] === 'suggestions' && segments[2]) {
+    await ensureSuggestionsTable(db);
     const body = await request.json();
-    const { status, note } = body;
-    await db.prepare('UPDATE suggestions SET status=?, note=? WHERE id=?')
-      .bind(status, note || null, segments[2]).run();
+    const { status, note, read } = body;
+    const sets = []; const params = [];
+    if (status !== undefined) { sets.push('status=?'); params.push(status); }
+    if (note   !== undefined) { sets.push('note=?');   params.push(note); }
+    if (read   !== undefined) { sets.push('read=?');   params.push(read ? 1 : 0); }
+    if (!sets.length) return err('Nothing to update');
+    await db.prepare(`UPDATE suggestions SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
     return json({ success: true });
   }
 

@@ -441,37 +441,67 @@ async function updateWord(id, status, siteId) {
 
 // ── VORSCHLÄGE ────────────────────────────────────────────────────
 async function renderSuggestions(siteId, panel) {
-  const suggs = await api('/api/suggestions');
+  const suggs = await api(`/api/suggestions?site_id=${siteId}`);
   if (!suggs) { panel.innerHTML = errState(); return; }
+  const unread = suggs.filter(s => !s.read).length;
+  // Silently mark all as read
+  suggs.filter(s => !s.read).forEach(s => {
+    api(`/api/suggestions/${s.id}`, { method: 'PATCH', body: { read: true } });
+  });
   panel.innerHTML = `
     <div class="actions-bar">
-      <div style="font-size:13px;font-weight:700">Vorschläge (${suggs.length})</div>
+      <div style="font-size:13px;font-weight:700">
+        💡 Vorschläge (${suggs.length})
+        ${unread > 0 ? `<span class="nav-badge" style="margin-left:8px">${unread} neu</span>` : ''}
+      </div>
       <div class="flex-1"></div>
+      <select id="sugg-filter" onchange="filterSuggList()" style="padding:4px 10px;font-size:11px;width:auto">
+        <option value="">Alle (${suggs.length})</option>
+        <option value="open">Offen (${suggs.filter(s=>s.status==='open').length})</option>
+        <option value="done">Done (${suggs.filter(s=>s.status==='done').length})</option>
+        <option value="rejected">Abgelehnt (${suggs.filter(s=>s.status==='rejected').length})</option>
+      </select>
       <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','vorschläge')">↻ Aktualisieren</button>
     </div>
-    ${suggs.length ? suggTable(suggs, siteId) : emptyState('Keine Vorschläge')}
+    ${suggs.length ? suggTable(suggs, siteId) : emptyState('Noch keine Vorschläge – der Button auf der Seite wartet auf Input!')}
   `;
 }
 
+function filterSuggList() {
+  const val = document.getElementById('sugg-filter')?.value;
+  document.querySelectorAll('.sugg-row').forEach(el => {
+    el.style.display = (!val || el.dataset.status === val) ? '' : 'none';
+  });
+}
+
 function suggTable(suggs, siteId) {
-  return `<table class="data-table">
-    <thead><tr><th>Vorschlag</th><th>Kategorie</th><th>Votes</th><th>Status</th><th>Datum</th><th>Aktionen</th></tr></thead>
-    <tbody>${suggs.map(s => `
-      <tr>
-        <td style="font-weight:600;max-width:200px">${esc(s.suggestion)}</td>
-        <td class="mono" style="color:var(--text3)">${esc(s.category || '–')}</td>
-        <td style="color:var(--accent2);font-weight:700;font-family:'Space Mono',monospace">↑${s.upvotes}</td>
-        <td><span class="badge ${s.status}">${s.status}</span></td>
-        <td class="mono" style="color:var(--text3)">${fmtDate(s.created_at)}</td>
-        <td>
-          <div class="flex gap-8">
-            <button class="btn btn-ghost btn-sm" onclick="updateSugg(${s.id},'done','${siteId}')">✓ Done</button>
-            <button class="btn btn-danger btn-sm" onclick="updateSugg(${s.id},'rejected','${siteId}')">✕</button>
+  return `<div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+    ${suggs.map(s => `
+      <div class="sugg-row" data-status="${s.status}" style="
+        background:var(--surface);
+        border:1px solid ${!s.read && s.status==='open' ? 'rgba(96,165,250,0.35)' : 'var(--border)'};
+        border-radius:10px;padding:14px 16px;
+        ${!s.read && s.status==='open' ? 'box-shadow:0 0 0 1px rgba(96,165,250,0.1);' : ''}
+      ">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+              ${!s.read ? '<span class="badge open" style="font-size:9px">NEU</span>' : ''}
+              ${s.category ? `<span class="mono" style="font-size:10px;color:var(--text3);background:rgba(255,255,255,.06);padding:2px 7px;border-radius:4px">${esc(s.category)}</span>` : ''}
+              <span class="badge ${s.status}" style="font-size:9px">${s.status}</span>
+              <span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">${fmtDate(s.created_at)}</span>
+            </div>
+            <div style="font-size:13px;font-weight:600;line-height:1.5;word-break:break-word">${esc(s.suggestion)}</div>
           </div>
-        </td>
-      </tr>
-    `).join('')}</tbody>
-  </table>`;
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            ${s.status !== 'done' ? `<button class="btn btn-ghost btn-sm" onclick="updateSugg(${s.id},'done','${siteId}')">✓ Umgesetzt</button>` : ''}
+            ${s.status !== 'rejected' ? `<button class="btn btn-danger btn-sm" onclick="updateSugg(${s.id},'rejected','${siteId}')">✕</button>` : ''}
+            ${s.status === 'done' || s.status === 'rejected' ? `<button class="btn btn-ghost btn-sm" onclick="updateSugg(${s.id},'open','${siteId}')">↺</button>` : ''}
+          </div>
+        </div>
+      </div>
+    `).join('')}
+  </div>`;
 }
 
 async function updateSugg(id, status, siteId) {
@@ -1091,6 +1121,22 @@ function _startLivePolling(siteId) {
       if (notifPanel && notifPanel.classList.contains('active')) {
         notifPanel.dataset.reload = '1';
         loadTabContent(siteId, 'notifications');
+      }
+    }
+
+    // Suggestions: update nav badge count
+    const suggPanel = document.getElementById('tab-vorschläge');
+    const newSuggs = await api(`/api/suggestions?site_id=${siteId}`);
+    if (newSuggs) {
+      const unreadSugg = newSuggs.filter(s => !s.read).length;
+      const suggBadge = document.getElementById('nav-badge-vorschläge');
+      if (suggBadge) {
+        suggBadge.textContent = unreadSugg;
+        suggBadge.style.display = unreadSugg > 0 ? '' : 'none';
+      }
+      if (suggPanel && suggPanel.classList.contains('active')) {
+        suggPanel.dataset.reload = '1';
+        loadTabContent(siteId, 'vorschläge');
       }
     }
   }, 45 * 1000);
