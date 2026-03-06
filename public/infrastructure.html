@@ -140,22 +140,33 @@
               <feGaussianBlur stdDeviation="5" result="b"/>
               <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
             </filter>
+            <!-- Site → Worker: thin dashed blue -->
             <marker id="arr-blue" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
               <path d="M0,0 L0,5 L7,2.5z" fill="rgba(59,130,246,0.55)"/>
             </marker>
-            <marker id="arr-green" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
-              <path d="M0,0 L0,5 L7,2.5z" fill="rgba(16,185,129,0.6)"/>
+            <!-- Worker → webcontrol-hq DB: solid green primary -->
+            <marker id="arr-green-primary" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3z" fill="rgba(16,185,129,0.9)"/>
             </marker>
-            <marker id="arr-cyan" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
-              <path d="M0,0 L0,5 L7,2.5z" fill="rgba(6,182,212,0.6)"/>
+            <!-- ratelimit-api → ratelimit-db: solid cyan primary -->
+            <marker id="arr-cyan-primary" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3z" fill="rgba(6,182,212,0.9)"/>
+            </marker>
+            <!-- Worker → ratelimit-db: faint cyan secondary (stats read) -->
+            <marker id="arr-cyan-faint" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
+              <path d="M0,0 L0,5 L7,2.5z" fill="rgba(6,182,212,0.45)"/>
             </marker>
           </defs>
 
           <rect width="1100" height="540" fill="url(#dots)"/>
           <g id="g-connections"></g>
+          <!-- Layer: animated data flow particles -->
           <g id="g-particles"></g>
+          <!-- Layer: connection labels -->
+          <g id="g-conn-labels"></g>
           <g id="g-nodes"></g>
 
+          <!-- Legend -->
           <g transform="translate(22, 508)" font-family="Space Mono, monospace" font-size="9" fill="#4a5568">
             <circle cx="5" cy="5" r="4" fill="#22c55e"/>
             <text x="14" y="9">Online</text>
@@ -163,12 +174,18 @@
             <text x="77" y="9">Offline</text>
             <circle cx="131" cy="5" r="4" fill="#f59e0b"/>
             <text x="140" y="9">Prüfe…</text>
-            <line x1="200" y1="5" x2="228" y2="5" stroke="rgba(59,130,246,0.5)" stroke-width="1.5" stroke-dasharray="4,3"/>
-            <text x="233" y="9">API-Flow</text>
-            <line x1="298" y1="5" x2="326" y2="5" stroke="rgba(16,185,129,0.55)" stroke-width="1.5" stroke-dasharray="4,3"/>
-            <text x="331" y="9">DB-Zugriff</text>
-            <line x1="400" y1="5" x2="428" y2="5" stroke="rgba(6,182,212,0.55)" stroke-width="1.5" stroke-dasharray="4,3"/>
-            <text x="433" y="9">Ratelimit-DB</text>
+            <!-- thin dashed = API calls -->
+            <line x1="200" y1="5" x2="228" y2="5" stroke="rgba(59,130,246,0.5)" stroke-width="1.3" stroke-dasharray="4,3"/>
+            <text x="233" y="9">API-Calls</text>
+            <!-- thick solid green = DB primary write -->
+            <line x1="305" y1="5" x2="333" y2="5" stroke="rgba(16,185,129,0.9)" stroke-width="2.2"/>
+            <text x="338" y="9">DB primär</text>
+            <!-- thick solid cyan = RL-DB primary -->
+            <line x1="413" y1="5" x2="441" y2="5" stroke="rgba(6,182,212,0.9)" stroke-width="2.5"/>
+            <text x="446" y="9">RL-DB primär</text>
+            <!-- sparse dashed cyan = stats read -->
+            <line x1="542" y1="5" x2="570" y2="5" stroke="rgba(6,182,212,0.4)" stroke-width="1.1" stroke-dasharray="2,5"/>
+            <text x="575" y="9">Stats lesen</text>
           </g>
         </svg>
       </div>
@@ -237,7 +254,8 @@
 const CF_ACCOUNT_ID  = '75ab77c2ccd4045de59e99835480bc53';
 const CF_WORKER_NAME = 'webcontrol-hq-api';
 
-const CX = 550, CY = 268, R = 195;
+// ── Layout: ring of 10 sites around center Worker ───────────────
+const CX = 560, CY = 268, R = 195;
 
 const INFRA_SITES = SITES.map((s, i) => {
   const a = (i * 36 - 90) * (Math.PI / 180);
@@ -250,6 +268,10 @@ const INFRA_SITES = SITES.map((s, i) => {
   };
 });
 
+// SITES[8] = ratelimit (id:'ratelimit') – confirmed from SITES array order
+// framesphere(0) frametrain(1) wordify(2) flaggues(3) spinselector(4)
+// brawlmystery(5) traitora(6) fileflyr(7) ratelimit(8) framespell(9)
+
 const WORKER = {
   id: 'worker-api', name: 'webcontrol-hq-api',
   type: 'worker', color: '#f59e0b',
@@ -259,11 +281,21 @@ const WORKER = {
   icon: 'cpu',
 };
 
+// webcontrol-hq DB: bottom-center below Worker (all 10 sites write here via Worker)
+// ratelimit-db:     near ratelimit-api node (upper-left of ring, index 8 = ~315° = top-left)
+//   ratelimit is at index 8 → angle = 8*36-90 = 198° → x≈356, y≈330 (lower-left area)
+//   place ratelimit-db close to it
 const DATABASES = [
-  { id: 'db-main', name: 'webcontrol-hq', type: 'database', color: '#10b981',
-    x: 430, y: 490, subtitle: 'D1 · Haupt-Datenbank', icon: 'database' },
-  { id: 'db-rl',   name: 'ratelimit-db',  type: 'database', color: '#06b6d4',
-    x: 670, y: 490, subtitle: 'D1 · Ratelimit-Datenbank', icon: 'database' },
+  {
+    id: 'db-main', name: 'webcontrol-hq', type: 'database', color: '#10b981',
+    x: 560, y: 492, subtitle: 'D1 · Haupt-Datenbank', icon: 'database',
+  },
+  {
+    id: 'db-rl', name: 'ratelimit-db', type: 'database', color: '#06b6d4',
+    // ratelimit node is index 8 → angle 198° → approx x=356, y=330
+    // place DB offset from it toward bottom-left
+    x: 220, y: 430, subtitle: 'D1 · Ratelimit-Datenbank', icon: 'database',
+  },
 ];
 
 const ALL_NODES = [...INFRA_SITES, WORKER, ...DATABASES];
@@ -284,41 +316,102 @@ function stateColor(s) {
   return s === 'up' ? '#22c55e' : s === 'down' ? '#ef4444' : '#f59e0b';
 }
 
-function nodeW(n) { return n.type === 'worker' ? 150 : n.type === 'database' ? 124 : 112; }
+function nodeW(n) { return n.type === 'worker' ? 150 : n.type === 'database' ? 130 : 112; }
 function nodeH(n) { return n.type === 'worker' ? 54 : 48; }
 
+// ── drawConn: quadratic bezier with options ─────────────────────
+function drawConn(parent, x1, y1, x2, y2, stroke, marker, id, opts = {}) {
+  const sw   = opts.strokeWidth !== undefined ? opts.strokeWidth : 1.3;
+  const dash = opts.dashArray   !== undefined ? opts.dashArray   : '5,4';
+  const op   = opts.opacity     !== undefined ? opts.opacity     : 0.8;
+  const curve = opts.curve      !== undefined ? opts.curve       : 0.08;
+  const dx = x2 - x1, dy = y2 - y1;
+  const mx = x1 + dx * 0.5 - dy * curve;
+  const my = y1 + dy * 0.5 + dx * curve;
+  const attrs = {
+    d: `M${x1},${y1} Q${mx},${my} ${x2},${y2}`,
+    stroke, fill: 'none',
+    'stroke-width': sw,
+    opacity: op,
+    'marker-end': `url(#${marker})`,
+    id,
+  };
+  if (dash) attrs['stroke-dasharray'] = dash;
+  const p = sel('path', attrs);
+  parent.appendChild(p);
+  return p;
+}
+
+// ── buildGraph ──────────────────────────────────────────────────
 function buildGraph() {
   const gConn = document.getElementById('g-connections');
   const gNode = document.getElementById('g-nodes');
   gConn.innerHTML = '';
   gNode.innerHTML = '';
 
-  INFRA_SITES.forEach(s => drawConn(gConn, s.x, s.y, WORKER.x, WORKER.y,
-    'rgba(59,130,246,0.38)', 'arr-blue', `conn-${s.id}`));
+  const rlSite = INFRA_SITES[8]; // ratelimit-api
 
-  drawConn(gConn, WORKER.x, WORKER.y, DATABASES[0].x, DATABASES[0].y,
-    'rgba(16,185,129,0.5)', 'arr-green', 'conn-worker-db0');
-  drawConn(gConn, WORKER.x, WORKER.y, DATABASES[1].x, DATABASES[1].y,
-    'rgba(6,182,212,0.5)', 'arr-cyan', 'conn-worker-db1');
+  // ── TIER 1: All 10 sites → Worker (thin dashed blue, API calls) ──
+  INFRA_SITES.forEach(s => drawConn(
+    gConn, s.x, s.y, WORKER.x, WORKER.y,
+    'rgba(59,130,246,0.35)', 'arr-blue', `conn-${s.id}`,
+    { strokeWidth: 1.2, dashArray: '5,4', opacity: 0.72, curve: 0.08 }
+  ));
+
+  // ── TIER 2: Worker → webcontrol-hq DB (thick solid green – PRIMARY write path) ──
+  // All site data (errors, support, analytics, notifs, changelog, blog, words) flows here
+  drawConn(
+    gConn, WORKER.x, WORKER.y, DATABASES[0].x, DATABASES[0].y,
+    'rgba(16,185,129,0.85)', 'arr-green-primary', 'conn-worker-db0',
+    { strokeWidth: 2.4, dashArray: '', opacity: 0.92, curve: 0.05 }
+  );
+
+  // ── TIER 3: ratelimit-api → ratelimit-db (thick solid cyan – PRIMARY write path) ──
+  // ratelimit-api owns this DB; writes rate-limit events, IP blocks, endpoint logs directly
+  drawConn(
+    gConn, rlSite.x, rlSite.y, DATABASES[1].x, DATABASES[1].y,
+    'rgba(6,182,212,0.92)', 'arr-cyan-primary', 'conn-rl-db',
+    { strokeWidth: 2.5, dashArray: '', opacity: 1.0, curve: 0.06 }
+  );
+
+  // ── TIER 4: Worker → ratelimit-db (thin sparse dashed cyan – SECONDARY read only) ──
+  // Worker only reads aggregated stats from this DB via GET /api/ratelimit-stats
+  drawConn(
+    gConn, WORKER.x, WORKER.y, DATABASES[1].x, DATABASES[1].y,
+    'rgba(6,182,212,0.38)', 'arr-cyan-faint', 'conn-worker-db1',
+    { strokeWidth: 1.0, dashArray: '2,6', opacity: 0.5, curve: -0.05 }
+  );
 
   ALL_NODES.forEach(n => renderNode(gNode, n));
-}
 
-function drawConn(parent, x1, y1, x2, y2, stroke, marker, id) {
-  const dx = x2 - x1, dy = y2 - y1;
-  const mx = x1 + dx * 0.5 - dy * 0.08;
-  const my = y1 + dy * 0.5 + dx * 0.08;
-  const p = sel('path', {
-    d: `M${x1},${y1} Q${mx},${my} ${x2},${y2}`,
-    stroke, fill: 'none',
-    'stroke-width': 1.3,
-    'stroke-dasharray': '5,4',
-    opacity: 0.8,
-    'marker-end': `url(#${marker})`,
-    id,
-  });
-  parent.appendChild(p);
-  return p;
+  // ── Connection labels ─────────────────────────────────────────
+  const glbl = document.getElementById('g-conn-labels');
+  if (!glbl) return;
+  glbl.innerHTML = '';
+
+  // "primär" label on ratelimit-api → ratelimit-db
+  const lx1 = Math.round((rlSite.x + DATABASES[1].x) / 2) + 8;
+  const ly1 = Math.round((rlSite.y + DATABASES[1].y) / 2) - 6;
+  const t1 = sel('text', { x: lx1, y: ly1, 'font-size': 8, 'font-family': 'Space Mono, monospace',
+    fill: '#06b6d4', 'font-weight': 700, 'text-anchor': 'middle', opacity: 0.9 });
+  t1.textContent = 'primär';
+  glbl.appendChild(t1);
+
+  // "alle Daten" label on worker → webcontrol-hq DB
+  const lx2 = Math.round((WORKER.x + DATABASES[0].x) / 2) + 20;
+  const ly2 = Math.round((WORKER.y + DATABASES[0].y) / 2);
+  const t2 = sel('text', { x: lx2, y: ly2, 'font-size': 8, 'font-family': 'Space Mono, monospace',
+    fill: '#10b981', 'font-weight': 700, 'text-anchor': 'middle', opacity: 0.82 });
+  t2.textContent = 'alle Daten';
+  glbl.appendChild(t2);
+
+  // "Stats ↓" label on worker → ratelimit-db
+  const lx3 = Math.round((WORKER.x * 0.4 + DATABASES[1].x * 0.6));
+  const ly3 = Math.round((WORKER.y * 0.4 + DATABASES[1].y * 0.6)) - 8;
+  const t3 = sel('text', { x: lx3, y: ly3, 'font-size': 7.5, 'font-family': 'Space Mono, monospace',
+    fill: '#06b6d4', opacity: 0.5, 'text-anchor': 'middle' });
+  t3.textContent = 'Stats ↓';
+  glbl.appendChild(t3);
 }
 
 function renderNode(parent, n) {
@@ -457,6 +550,7 @@ async function runChecks() {
   refreshIcons();
 }
 
+// ── Particle animations – frequency encodes connection importance ──
 let _partTimer = null;
 function spawnParticles() {
   if (_partTimer) clearInterval(_partTimer);
@@ -466,29 +560,45 @@ function spawnParticles() {
     if (!pg) return;
     pg.innerHTML = '';
 
+    // Site → Worker: blue, moderate frequency
     INFRA_SITES.forEach(s => {
       if (nodeStatus[s.id]?.state !== 'up') return;
-      if (Math.random() > 0.45) return;
-      const circle = sel('circle', { r: 2.8, fill: '#3b82f6', opacity: 0.75 });
-      const anim   = sel('animateMotion', { dur: `${1.2 + Math.random()*0.8}s`, fill: 'freeze' });
-      const mpath  = sel('mpath');
-      mpath.setAttributeNS(XLINKNS, 'href', `#conn-${s.id}`);
-      anim.appendChild(mpath);
-      circle.appendChild(anim);
-      pg.appendChild(circle);
+      if (Math.random() > 0.42) return;
+      const c = sel('circle', { r: 2.5, fill: '#3b82f6', opacity: 0.72 });
+      const a = sel('animateMotion', { dur: `${1.2 + Math.random()*0.9}s`, fill: 'freeze' });
+      const m = sel('mpath');
+      m.setAttributeNS(XLINKNS, 'href', `#conn-${s.id}`);
+      a.appendChild(m); c.appendChild(a); pg.appendChild(c);
     });
 
     if (nodeStatus[WORKER.id]?.state === 'up') {
-      ['conn-worker-db0','conn-worker-db1'].forEach((cid, i) => {
-        if (Math.random() > 0.55) return;
-        const c = sel('circle', { r: 2.8, fill: i === 0 ? '#10b981' : '#06b6d4', opacity: 0.75 });
-        const a = sel('animateMotion', { dur: `${1.0 + Math.random()*0.6}s`, fill: 'freeze' });
+      // Worker → webcontrol-hq DB: green, HIGH frequency (primary, all data)
+      if (Math.random() > 0.18) {
+        const c = sel('circle', { r: 3.2, fill: '#10b981', opacity: 0.88 });
+        const a = sel('animateMotion', { dur: `${0.8 + Math.random()*0.45}s`, fill: 'freeze' });
         const m = sel('mpath');
-        m.setAttributeNS(XLINKNS, 'href', `#${cid}`);
-        a.appendChild(m);
-        c.appendChild(a);
-        pg.appendChild(c);
-      });
+        m.setAttributeNS(XLINKNS, 'href', '#conn-worker-db0');
+        a.appendChild(m); c.appendChild(a); pg.appendChild(c);
+      }
+      // Worker → ratelimit-db: cyan faint, RARE (stats read only)
+      if (Math.random() > 0.85) {
+        const c = sel('circle', { r: 1.8, fill: '#06b6d4', opacity: 0.4 });
+        const a = sel('animateMotion', { dur: `${1.6 + Math.random()*0.7}s`, fill: 'freeze' });
+        const m = sel('mpath');
+        m.setAttributeNS(XLINKNS, 'href', '#conn-worker-db1');
+        a.appendChild(m); c.appendChild(a); pg.appendChild(c);
+      }
+    }
+
+    // ratelimit-api → ratelimit-db: cyan bright, HIGH frequency (primary write)
+    if (nodeStatus['ratelimit']?.state === 'up') {
+      if (Math.random() > 0.28) {
+        const c = sel('circle', { r: 3.0, fill: '#06b6d4', opacity: 0.92 });
+        const a = sel('animateMotion', { dur: `${0.65 + Math.random()*0.4}s`, fill: 'freeze' });
+        const m = sel('mpath');
+        m.setAttributeNS(XLINKNS, 'href', '#conn-rl-db');
+        a.appendChild(m); c.appendChild(a); pg.appendChild(c);
+      }
     }
   }
 
@@ -526,6 +636,35 @@ function selectNode(id) {
     </a>`);
 
   const typeLabels = { site: 'Pages Site', worker: 'CF Worker', database: 'D1 Database' };
+
+  // Build dataflow description per node type
+  let dataflowHtml = '';
+  if (node.type === 'site' && node.id !== 'ratelimit') {
+    dataflowHtml = `
+      → webcontrol-hq-api Worker<br>
+      <span style="color:var(--text3)">Errors · Support · Analytics · Notifs</span><br>
+      <span style="color:#4a5568">Alle Daten landen in webcontrol-hq D1</span>`;
+  } else if (node.id === 'ratelimit') {
+    dataflowHtml = `
+      → webcontrol-hq-api Worker<br>
+      <span style="color:var(--text3)">Errors · Notifs → webcontrol-hq D1</span><br>
+      <span style="color:#06b6d4">↔ ratelimit-db D1 (primär)</span><br>
+      <span style="color:var(--text3)">Schreibt Rate-Limit-Events direkt</span>`;
+  } else if (node.type === 'worker') {
+    dataflowHtml = `
+      ← 10 Sites (API-Anfragen)<br>
+      → webcontrol-hq D1 <span style="color:#10b981">(primär · alle Daten)</span><br>
+      → ratelimit-db <span style="color:#4a5568">(nur Stats lesen)</span>`;
+  } else if (node.id === 'db-main') {
+    dataflowHtml = `
+      ← webcontrol-hq-api Worker <span style="color:#10b981">(primär)</span><br>
+      <span style="color:var(--text3)">Errors · Support · Analytics<br>Notifs · Changelog · Blog · Wörter</span>`;
+  } else if (node.id === 'db-rl') {
+    dataflowHtml = `
+      ← ratelimit-api <span style="color:#06b6d4">(primär · direkt)</span><br>
+      <span style="color:var(--text3)">IP-Logs · Block-Events · Endpoints</span><br>
+      ← webcontrol-hq-api <span style="color:#4a5568">(Stats lesen)</span>`;
+  }
 
   scroll.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
@@ -568,14 +707,14 @@ function selectNode(id) {
     ${node.type === 'database' ? `
       <div class="detail-section-title">Datenbank-Info</div>
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:12px;font-size:10px;font-family:'Space Mono',monospace;color:var(--text2);line-height:1.8;margin-bottom:12px">
-        ${node.id === 'db-main' ? 'ID: e22c8e57-4550-4566-9937-cd7d51560b70<br>Binding: DB<br>Zugriff: über Worker-API' : 'ID: 33fba40f-abcc-43b1-b931-04baca75462b<br>Binding: RLDB<br>Zugriff: über Worker-API'}
+        ${node.id === 'db-main'
+          ? 'ID: e22c8e57-4550-4566-9937-cd7d51560b70<br>Binding: DB<br>Zugriff: alle Sites via Worker'
+          : 'ID: 33fba40f-abcc-43b1-b931-04baca75462b<br>Binding: RLDB<br>Primär: ratelimit-api direkt'}
       </div>` : ''}
 
     <div class="detail-section-title">Datenflüsse</div>
     <div style="background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:12px;font-size:10px;font-family:'Space Mono',monospace;color:var(--text2);line-height:1.9">
-      ${node.type === 'site' ? '→ webcontrol-hq-api (API-Calls)<br><span style="color:var(--text3)">Support · Errors · Notifications · Daten</span>' : ''}
-      ${node.type === 'worker' ? '← 10 Pages-Sites (eingehend)<br>→ webcontrol-hq D1 (lesen/schreiben)<br>→ ratelimit-db D1 (ratelimiting)' : ''}
-      ${node.type === 'database' ? (node.id === 'db-main' ? '← webcontrol-hq-api Worker<br><span style="color:var(--text3)">Tickets · Errors · Notifs · Changelog</span>' : '← webcontrol-hq-api Worker<br><span style="color:var(--text3)">Rate-Limit-Tracking · API-Keys</span>') : ''}
+      ${dataflowHtml}
     </div>
 
     ${links.join('')}
@@ -594,7 +733,7 @@ function closeDetail() {
   _activeNode = null;
 }
 
-// ── Cloudflare Analytics via Worker Proxy (kein CORS) ────────────
+// ── Cloudflare Analytics via Worker Proxy ────────────────────────
 async function loadCFAnalytics(token, targetId) {
   const boxId = targetId || 'cf-detail-content';
   const box = document.getElementById(boxId);
@@ -675,13 +814,13 @@ checkAuth(() => {
   initLayout(null);
   buildGraph();
   runChecks();
-  setInterval(runChecks, 5 * 60 * 1000);
+  setInterval(runChecks, 60 * 1000);
 });
 window.initAfterLogin = () => {
   initLayout(null);
   buildGraph();
   runChecks();
-  setInterval(runChecks, 5 * 60 * 1000);
+  setInterval(runChecks, 60 * 1000);
 };
 </script>
 </body>

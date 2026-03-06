@@ -1042,6 +1042,7 @@ function initSitePage(siteId, firstTab) {
     loadTabContent(siteId, firstTab);
     loadTabContent(siteId, 'errors');
     loadTabContent(siteId, 'notifications');
+    _startLivePolling(siteId);
   });
 
   window.initAfterLogin = () => {
@@ -1049,5 +1050,48 @@ function initSitePage(siteId, firstTab) {
     loadTabContent(siteId, firstTab);
     loadTabContent(siteId, 'errors');
     loadTabContent(siteId, 'notifications');
+    _startLivePolling(siteId);
   };
+}
+
+// ── Live Polling: errors & notifications refresh silently ─────────
+// Runs every 45s. If the tab is currently active, a full reload runs
+// (user sees fresh data). If not, we do a background fetch and update
+// the nav badge count without disrupting what the user is reading.
+function _startLivePolling(siteId) {
+  setInterval(async () => {
+    // Always reload errors + notifications data
+    const errPanel  = document.getElementById('tab-errors');
+    const notifPanel = document.getElementById('tab-notifications');
+
+    // Errors: reload silently in background, update badge
+    const errors = await api(`/api/errors?site_id=${siteId}`);
+    if (errors) {
+      const unresolved = errors.filter(e => !e.resolved).length;
+      // Update sidebar badge
+      const badge = document.getElementById('nav-badge-errors');
+      if (badge) {
+        badge.textContent = unresolved;
+        badge.style.display = unresolved > 0 ? '' : 'none';
+      }
+      // If errors tab is active, re-render it
+      if (errPanel && errPanel.classList.contains('active')) {
+        errPanel.dataset.reload = '1';
+        loadTabContent(siteId, 'errors');
+      }
+    }
+
+    // Notifications: reload silently, update topbar badge
+    const notifs = await api(`/api/notifications?site_id=${siteId}`);
+    if (notifs) {
+      const unread = notifs.filter(n => !n.read).length;
+      // Update topbar global counter
+      loadTopbarStats();
+      // If notifications tab is active, re-render it
+      if (notifPanel && notifPanel.classList.contains('active')) {
+        notifPanel.dataset.reload = '1';
+        loadTabContent(siteId, 'notifications');
+      }
+    }
+  }, 45 * 1000);
 }

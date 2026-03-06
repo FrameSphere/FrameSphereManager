@@ -967,12 +967,12 @@ injectLoginScreen();
 checkAuth(() => {
   initLayout(null);
   loadAll();
-  setInterval(loadAll, 5 * 60 * 1000);
+  setInterval(loadAll, 60 * 1000);
 });
 window.initAfterLogin = () => {
   initLayout(null);
   loadAll();
-  setInterval(loadAll, 5 * 60 * 1000);
+  setInterval(loadAll, 60 * 1000);
 };
 
 // Tab click sync
