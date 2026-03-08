@@ -1024,7 +1024,184 @@ function enableRankDrag(container, tasks) {
 }
 
 // ── Close modals on backdrop click ───────────────────────────────
-PLACEHOLDER_FOR_DETAIL_FUNCTIONS
+['edit-overlay','prompt-overlay','detail-overlay'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
+});
+
+// ── Task Detail Modal ─────────────────────────────────────────────
+function openDetailModal(id) {
+  const t = allTasks.find(t => t.id === id);
+  if (!t) return;
+  detailTaskId = id;
+
+  document.getElementById('dtl-title').textContent = t.title;
+
+  const site = t.site_id ? SITES.find(s => s.id === t.site_id) : null;
+  const siteLabel = site ? site.name : 'Allgemein';
+  const diff = t.due_date ? daysDiff(t.due_date) : null;
+  let dueCls = 'chip-due';
+  if (diff !== null) {
+    if (diff < 0) dueCls += ' overdue';
+    else if (diff === 0) dueCls += ' today';
+  }
+  const PRIO_LABELS = { 5:'Kritisch',4:'Hoch',3:'Mittel',2:'Niedrig',1:'Minimal' };
+  document.getElementById('dtl-meta').innerHTML = `
+    <span class="chip-site">${site
+      ? `<i data-lucide="${site.icon}" style="width:11px;height:11px;color:${site.color}"></i>`
+      : '<i data-lucide="globe" style="width:11px;height:11px"></i>'} ${esc(siteLabel)}</span>
+    ${t.due_date ? `<span class="${dueCls}"><i data-lucide="calendar" style="width:9px;height:9px"></i> ${formatDueLabel(t.due_date)}</span>` : ''}
+    <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;background:rgba(255,255,255,.07);color:var(--text2)">Prio: ${PRIO_LABELS[t.priority]||t.priority}</span>
+    ${t.important ? '<span style="font-size:12px">⭐</span>' : ''}
+    ${t.done ? '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;background:rgba(52,211,153,.15);color:#34d399">✓ Erledigt</span>' : ''}
+  `;
+
+  const notesWrap = document.getElementById('dtl-notes-wrap');
+  if (t.notes) {
+    notesWrap.style.display = '';
+    document.getElementById('dtl-notes').textContent = t.notes;
+  } else {
+    notesWrap.style.display = 'none';
+  }
+
+  document.getElementById('dtl-step-input').value = '';
+  renderDetailSteps(t);
+  renderDetailPrompts(id);
+
+  document.getElementById('detail-overlay').classList.add('open');
+  refreshIcons();
+}
+
+function closeDetailModal() {
+  document.getElementById('detail-overlay').classList.remove('open');
+  detailTaskId = null;
+}
+
+function openEditFromDetail() {
+  if (!detailTaskId) return;
+  closeDetailModal();
+  openEditModal(detailTaskId);
+}
+
+function renderDetailSteps(taskOrId) {
+  const t = typeof taskOrId === 'object' ? taskOrId : allTasks.find(t => t.id === taskOrId);
+  if (!t) return;
+  let steps = [];
+  try { steps = JSON.parse(t.steps || '[]'); } catch(e) { steps = []; }
+
+  const done = steps.filter(s => s.done).length;
+  document.getElementById('dtl-steps-progress').textContent =
+    steps.length ? `${done}/${steps.length} erledigt` : '';
+
+  const list = document.getElementById('dtl-steps-list');
+  if (!steps.length) {
+    list.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:4px 0">Noch keine Schritte. Füge den ersten Schritt hinzu.</div>`;
+    return;
+  }
+  list.innerHTML = steps.map((s, i) => `
+    <div class="step-item">
+      <div class="step-check${s.done ? ' done' : ''}" onclick="toggleStep(${t.id},${i})"></div>
+      <span class="step-text${s.done ? ' done' : ''}">${esc(s.text)}</span>
+      <button class="task-act-btn" style="opacity:.6;flex-shrink:0" onclick="deleteStep(${t.id},${i})" title="Löschen">
+        <i data-lucide="x" style="width:11px;height:11px"></i>
+      </button>
+    </div>
+  `).join('');
+  refreshIcons();
+}
+
+async function addDetailStep() {
+  const input = document.getElementById('dtl-step-input');
+  const text = input.value.trim();
+  if (!text || !detailTaskId) return;
+  const t = allTasks.find(t => t.id === detailTaskId);
+  if (!t) return;
+  let steps = [];
+  try { steps = JSON.parse(t.steps || '[]'); } catch(e) {}
+  steps.push({ text, done: false });
+  await api(`/api/todos/${detailTaskId}`, { method:'PATCH', body:{ steps: JSON.stringify(steps) } });
+  t.steps = JSON.stringify(steps);
+  input.value = '';
+  renderDetailSteps(t);
+}
+
+async function toggleStep(taskId, stepIndex) {
+  const t = allTasks.find(t => t.id === taskId);
+  if (!t) return;
+  let steps = [];
+  try { steps = JSON.parse(t.steps || '[]'); } catch(e) {}
+  if (!steps[stepIndex]) return;
+  steps[stepIndex].done = !steps[stepIndex].done;
+  await api(`/api/todos/${taskId}`, { method:'PATCH', body:{ steps: JSON.stringify(steps) } });
+  t.steps = JSON.stringify(steps);
+  renderDetailSteps(t);
+}
+
+async function deleteStep(taskId, stepIndex) {
+  const t = allTasks.find(t => t.id === taskId);
+  if (!t) return;
+  let steps = [];
+  try { steps = JSON.parse(t.steps || '[]'); } catch(e) {}
+  steps.splice(stepIndex, 1);
+  await api(`/api/todos/${taskId}`, { method:'PATCH', body:{ steps: JSON.stringify(steps) } });
+  t.steps = JSON.stringify(steps);
+  renderDetailSteps(t);
+}
+
+function renderDetailPrompts(taskId) {
+  const linked = allPrompts.filter(p => String(p.task_id) === String(taskId));
+  const list = document.getElementById('dtl-prompts-list');
+  if (!linked.length) {
+    list.innerHTML = `<div style="font-size:12px;color:var(--text3);padding:4px 0">Noch keine Prompts verknüpft. Klicke auf "Prompt hinzufügen".</div>`;
+    return;
+  }
+  list.innerHTML = linked.map(p => {
+    const tags = (p.tags || '').split(',').map(t => t.trim()).filter(Boolean);
+    return `<div class="dtl-prompt-card">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+        <span style="font-size:12px;font-weight:700;flex:1;min-width:0">${esc(p.title)}</span>
+        ${tags.map(t => `<span class="prompt-tag">${esc(t)}</span>`).join('')}
+        ${p.used ? '<span class="prompt-used-badge">✓ Umgesetzt</span>' : ''}
+      </div>
+      <div class="prompt-text" style="max-height:90px">${esc(p.prompt)}</div>
+      <div style="display:flex;gap:5px;margin-top:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="copyPrompt(${p.id})">
+          <i data-lucide="copy" style="width:10px;height:10px"></i> Kopieren
+        </button>
+        <button class="btn ${p.used ? 'btn-ghost' : 'btn-primary'} btn-sm" onclick="togglePromptUsedDetail(${p.id},${p.used?0:1},${taskId})">
+          <i data-lucide="${p.used ? 'rotate-ccw' : 'check-circle-2'}" style="width:10px;height:10px"></i>
+          ${p.used ? 'Wieder offen' : 'Umgesetzt'}
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="openPromptEdit(${p.id})">
+          <i data-lucide="pencil" style="width:10px;height:10px"></i> Bearbeiten
+        </button>
+        <button class="btn btn-danger btn-sm" onclick="deletePromptFromDetail(${p.id},${taskId})">
+          <i data-lucide="trash-2" style="width:10px;height:10px"></i>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+  refreshIcons();
+}
+
+async function togglePromptUsedDetail(promptId, val, taskId) {
+  await togglePromptUsed(promptId, val);
+  renderDetailPrompts(taskId);
+}
+
+async function deletePromptFromDetail(promptId, taskId) {
+  await deletePromptById(promptId);
+  renderDetailPrompts(taskId);
+}
+
+function openAddPromptForDetail() {
+  if (!detailTaskId) return;
+  openPromptEdit(null);
+  document.getElementById('pedit-task-id').value = detailTaskId;
+  // No auto-todo needed — task already exists
+  const todoWrap = document.getElementById('pedit-todo-wrap');
+  todoWrap.style.display = 'none';
+}
 
 // ── Boot ──────────────────────────────────────────────────────────
 injectLoginScreen();
