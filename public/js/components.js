@@ -204,117 +204,6 @@ async function updateTicket(id, field, value, siteId) {
   reloadPanel(siteId, 'support');
 }
 
-// ── CHANGELOG ─────────────────────────────────────────────────────
-async function renderChangelog(siteId, panel) {
-  const entries = await api(`/api/changelog?site_id=${siteId}`);
-  if (!entries) { panel.innerHTML = errState(); return; }
-
-  const pubCount = entries.filter(e => e.published).length;
-
-  panel.innerHTML = `
-    <div class="form-card">
-      <div class="form-card-title">📋 Neuer Eintrag</div>
-      <div class="form-row">
-        <div class="form-group"><label>Version</label>
-          <input id="cl-ver" placeholder="v1.2.0"></div>
-        <div class="form-group"><label>Typ</label>
-          <select id="cl-type">
-            <option value="feature">✨ Feature</option>
-            <option value="fix">🐛 Fix</option>
-            <option value="improvement">⚡ Improvement</option>
-            <option value="security">🔒 Security</option>
-            <option value="breaking">💥 Breaking</option>
-          </select></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Titel</label>
-          <input id="cl-title" placeholder="Was wurde geändert?"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Beschreibung</label>
-          <textarea id="cl-desc" placeholder="Details zum Release…" style="min-height:80px"></textarea></div>
-      </div>
-      <div class="flex gap-8" style="align-items:center">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text2)">
-          <input type="checkbox" id="cl-pub"> Direkt auf Website veröffentlichen
-        </label>
-        <button class="btn btn-primary" onclick="submitChangelog('${siteId}')">Erstellen</button>
-      </div>
-    </div>
-
-    <div class="actions-bar" style="margin-top:16px">
-      <div style="font-size:13px;font-weight:700">
-        Einträge (${entries.length})
-        <span style="color:var(--text3);font-weight:400;margin-left:8px">${pubCount} veröffentlicht</span>
-      </div>
-      <div class="flex-1"></div>
-      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','changelog')">&#8635; Aktualisieren</button>
-    </div>
-
-    <div style="margin-top:8px">
-      ${entries.length ? changelogList(entries, siteId) : emptyState('Keine Einträge – erstelle den ersten Changelog-Eintrag!')}
-    </div>
-  `;
-}
-
-function changelogList(entries, siteId) {
-  const typeIcon = { feature: '✨', fix: '🐛', improvement: '⚡', breaking: '💥', security: '🔒' };
-  return `<div style="display:flex;flex-direction:column;gap:8px">
-    ${entries.map(e => `
-      <div style="background:var(--surface);border:1px solid ${e.published ? 'rgba(52,211,153,0.25)' : 'var(--border)'};border-radius:10px;padding:14px 16px;display:flex;align-items:flex-start;gap:12px">
-        <span style="font-size:20px;flex-shrink:0;margin-top:1px">${typeIcon[e.type] || '📋'}</span>
-        <div style="flex:1;min-width:0">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
-            <span class="mono" style="color:var(--accent2);font-weight:700">${esc(e.version)}</span>
-            <span style="font-weight:700;font-size:13px">${esc(e.title)}</span>
-            <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px;background:${
-              e.published ? 'rgba(52,211,153,0.15)' : 'rgba(156,163,175,0.12)'
-            };color:${e.published ? '#34d399' : '#9ca3af'};border:1px solid ${
-              e.published ? 'rgba(52,211,153,0.3)' : 'rgba(156,163,175,0.2)'
-            }">
-              ${e.published ? '🌐 Live auf Website' : '📝 Draft'}
-            </span>
-          </div>
-          ${e.description ? `<div style="font-size:12px;color:var(--text2);line-height:1.5">${esc(e.description)}</div>` : ''}
-          <div class="mono" style="color:var(--text3);font-size:10px;margin-top:4px">${fmtDate(e.created_at)}</div>
-        </div>
-        <div style="display:flex;gap:6px;flex-shrink:0">
-          <button class="btn btn-ghost btn-sm" style="font-size:11px"
-            onclick="toggleChangelogPublish(${e.id},${e.published ? 0 : 1},'${siteId}')">
-            ${e.published ? '⬇ Depublish' : '🌐 Veröffentlichen'}
-          </button>
-          <button class="btn btn-danger btn-sm" onclick="deleteChangelog(${e.id},'${siteId}')">✕</button>
-        </div>
-      </div>
-    `).join('')}
-  </div>`;
-}
-
-async function toggleChangelogPublish(id, publish, siteId) {
-  await api(`/api/changelog/${id}`, { method: 'PATCH', body: { published: !!publish } });
-  reloadPanel(siteId, 'changelog');
-}
-
-async function submitChangelog(siteId) {
-  const data = {
-    site_id:     siteId,
-    version:     document.getElementById('cl-ver')?.value?.trim(),
-    title:       document.getElementById('cl-title')?.value?.trim(),
-    description: document.getElementById('cl-desc')?.value?.trim(),
-    type:        document.getElementById('cl-type')?.value,
-    published:   document.getElementById('cl-pub')?.checked,
-  };
-  if (!data.version || !data.title) { alert('Version und Titel sind erforderlich'); return; }
-  await api('/api/changelog', { method: 'POST', body: data });
-  reloadPanel(siteId, 'changelog');
-}
-
-async function deleteChangelog(id, siteId) {
-  if (!confirm('Eintrag löschen?')) return;
-  await api(`/api/changelog/${id}`, { method: 'DELETE' });
-  reloadPanel(siteId, 'changelog');
-}
-
 // ── BLOG ──────────────────────────────────────────────────────────
 async function renderBlog(siteId, panel) {
   const posts = await api(`/api/blog?site_id=${siteId}`);
@@ -1140,4 +1029,140 @@ function _startLivePolling(siteId) {
       }
     }
   }, 45 * 1000);
+}
+
+// ── CHANGELOG (Öffentlich auf /changelog, verwaltet im HQ) ───────────────
+async function renderChangelog(siteId, panel) {
+  const entries = await api(`/api/changelog?site_id=${siteId}`);
+  if (!entries) { panel.innerHTML = errState(); return; }
+
+  const typeColors = {
+    feature:     { bg: 'rgba(99,102,241,.15)',  color: '#818cf8' },
+    converter:   { bg: 'rgba(34,197,94,.15)',   color: '#4ade80' },
+    improvement: { bg: 'rgba(245,158,11,.15)',  color: '#fbbf24' },
+    bugfix:      { bg: 'rgba(239,68,68,.15)',   color: '#f87171' },
+    content:     { bg: 'rgba(139,92,246,.15)',  color: '#c084fc' },
+  };
+  const typeOpts = [
+    { value: 'feature',     label: '🚀 New Feature' },
+    { value: 'converter',   label: '🔄 New Converter' },
+    { value: 'improvement', label: '⚡ Improvement' },
+    { value: 'bugfix',      label: '🐛 Bugfix' },
+    { value: 'content',     label: '📝 Content' },
+  ];
+
+  panel.innerHTML = `
+    <div class="form-card" style="margin-bottom:20px">
+      <div class="form-card-title">📋 Neuen Eintrag erstellen</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Titel</label>
+          <input id="cl-title" placeholder="z.B. PNG zu JPG Converter verbessert">
+        </div>
+        <div class="form-group" style="max-width:200px">
+          <label>Typ</label>
+          <select id="cl-type">
+            ${typeOpts.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group form-full">
+          <label>Beschreibung (HTML erlaubt)</label>
+          <textarea id="cl-desc" rows="5" placeholder="&lt;p&gt;Was wurde gemacht...&lt;/p&gt;
+&lt;ul&gt;&lt;li&gt;Punkt 1&lt;/li&gt;&lt;/ul&gt;"
+            style="font-family:'Space Mono',monospace;font-size:12px"></textarea>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="cl-publish" style="width:16px;height:16px">
+          Sofort veröffentlichen
+        </label>
+        <button class="btn btn-primary" onclick="submitChangelog('${siteId}')">Eintrag erstellen</button>
+      </div>
+    </div>
+
+    <div class="actions-bar" style="margin-bottom:8px">
+      <div style="font-size:13px;font-weight:700">Einträge (${entries.length})
+        <span style="color:var(--text3);font-weight:400;font-size:11px;margin-left:8px">${entries.filter(e=>e.published).length} live</span>
+      </div>
+      <div class="flex-1"></div>
+      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','changelog')">↻ Aktualisieren</button>
+    </div>
+
+    ${entries.length ? `
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${entries.map(e => {
+          const tc = typeColors[e.type] || typeColors.feature;
+          const descPreview = (e.description || '').replace(/<[^>]+>/g, '').slice(0, 100);
+          return `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+            <div style="display:flex;align-items:flex-start;gap:12px">
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+                  <span style="font-size:11px;padding:2px 8px;border-radius:5px;background:${tc.bg};color:${tc.color};font-weight:700">${e.type || 'feature'}</span>
+                  ${e.published
+                    ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(52,211,153,.15);color:#34d399;font-weight:700">✓ Live</span>'
+                    : '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.07);color:var(--text3)">Entwurf</span>'}
+                  <span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">${fmtDate(e.created_at)}</span>
+                </div>
+                <div style="font-weight:700;font-size:13px;margin-bottom:4px">${esc(e.title)}</div>
+                ${descPreview ? `<div style="font-size:12px;color:var(--text2);line-height:1.4">${esc(descPreview)}${e.description?.length > 100 ? '…' : ''}</div>` : ''}
+              </div>
+              <div style="display:flex;gap:6px;flex-shrink:0;flex-direction:column;align-items:flex-end">
+                <button class="btn btn-ghost btn-sm"
+                  onclick="toggleChangelogPublish(${e.id}, ${e.published ? 0 : 1}, '${siteId}')">
+                  ${e.published ? '↙ Entwurf' : '🌐 Veröff.'}
+                </button>
+                <button class="btn btn-danger btn-sm"
+                  onclick="deleteChangelog(${e.id}, '${siteId}')">× Löschen</button>
+              </div>
+            </div>
+          </div>`;}).join('')}
+      </div>` : emptyState('Noch keine Einträge – erstelle den ersten Changelog-Post!')}
+  `;
+}
+
+async function submitChangelog(siteId) {
+  const title   = document.getElementById('cl-title')?.value?.trim();
+  const type    = document.getElementById('cl-type')?.value;
+  const desc    = document.getElementById('cl-desc')?.value?.trim();
+  const publish = document.getElementById('cl-publish')?.checked ? 1 : 0;
+  if (!title) { alert('Titel ist erforderlich'); return; }
+  await api('/api/changelog', {
+    method: 'POST',
+    body: { site_id: siteId, version: new Date().toISOString().slice(0,10), title, description: desc, type, published: publish }
+  });
+  if (publish) {
+    await api('/api/notifications', {
+      method: 'POST',
+      body: { site_id: siteId, type: 'info', title: `📋 Changelog: ${title}`, message: 'Neuer Eintrag veröffentlicht auf /changelog' }
+    });
+  }
+  document.getElementById('cl-title').value = '';
+  document.getElementById('cl-desc').value = '';
+  document.getElementById('cl-publish').checked = false;
+  reloadPanel(siteId, 'changelog');
+}
+
+async function toggleChangelogPublish(id, newVal, siteId) {
+  await api(`/api/changelog/${id}`, { method: 'PATCH', body: { published: newVal } });
+  if (newVal) {
+    const entries = await api(`/api/changelog?site_id=${siteId}`);
+    const entry = entries?.find(e => e.id === id);
+    if (entry) {
+      await api('/api/notifications', {
+        method: 'POST',
+        body: { site_id: siteId, type: 'info', title: `📋 Changelog live: ${entry.title}`, message: 'Veröffentlicht auf /changelog' }
+      });
+    }
+  }
+  reloadPanel(siteId, 'changelog');
+}
+
+async function deleteChangelog(id, siteId) {
+  if (!confirm('Eintrag wirklich löschen?')) return;
+  await api(`/api/changelog/${id}`, { method: 'DELETE' });
+  reloadPanel(siteId, 'changelog');
 }

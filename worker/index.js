@@ -47,6 +47,44 @@ function err(msg, status = 400) {
   return json({ error: msg }, status);
 }
 
+// ── Auto-create suggestions table (top-level, used by public + auth routes) ──
+async function ensureSuggestionsTable(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS suggestions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id TEXT NOT NULL DEFAULT 'spinselector',
+    suggestion TEXT NOT NULL,
+    category TEXT DEFAULT '',
+    status TEXT DEFAULT 'open',
+    note TEXT,
+    upvotes INTEGER DEFAULT 0,
+    ip_hash TEXT,
+    read INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`).run();
+  for (const col of [
+    "site_id TEXT NOT NULL DEFAULT 'spinselector'",
+    'ip_hash TEXT',
+    'read INTEGER DEFAULT 0',
+  ]) {
+    await db.prepare(`ALTER TABLE suggestions ADD COLUMN ${col}`).run().catch(() => {});
+  }
+}
+
+// ── Auto-create changelog_entries table ────────────────────────────
+async function ensureChangelogTable(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS changelog_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id TEXT NOT NULL,
+    version TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
+    type TEXT DEFAULT 'feature',
+    published INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`).run();
+  await db.prepare("ALTER TABLE changelog_entries ADD COLUMN type TEXT DEFAULT 'feature'").run().catch(() => {});
+}
+
 // ── Auto-create error_logs table if missing ───────────────────────
 async function ensureErrorTable(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS error_logs (
@@ -107,7 +145,7 @@ async function handleRequest(request, env) {
 
   // ── Public endpoints (no auth) ───────────────────────────
 
-  // POST /api/errors ── Wordify error tracking (public, no auth needed)
+  // POST /api/errors ── error tracking (public, no auth needed)
   if (request.method === 'POST' && path === '/api/errors') {
     const db = env.DB;
     await ensureErrorTable(db);
@@ -130,6 +168,31 @@ async function handleRequest(request, env) {
     ).run();
     await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
       .bind(site_id, 'error', `🚨 ${error_type}`, String(message).slice(0, 120)).run();
+    return json({ success: true });
+  }
+
+  // POST /api/suggestions ── Public: anonymous suggestions with IP cooldown
+  if (request.method === 'POST' && path === '/api/suggestions') {
+    const db = env.DB;
+    await ensureSuggestionsTable(db);
+    const body = await request.json().catch(() => ({}));
+    const { site_id, suggestion, category } = body;
+    if (!suggestion || suggestion.trim().length < 5) return err('Vorschlag zu kurz (min. 5 Zeichen)');
+    if (suggestion.length > 500) return err('Vorschlag zu lang (max. 500 Zeichen)');
+    const siteId = (site_id || 'spinselector').slice(0, 30);
+    // IP-based rate limiting: max 3 suggestions per IP per hour
+    const clientIp = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown';
+    const ipHash = Array.from(new Uint8Array(
+      await crypto.subtle.digest('SHA-256', new TextEncoder().encode(clientIp + ':hq-salt-2025'))
+    )).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+    const recentCount = await db.prepare(
+      `SELECT COUNT(*) as cnt FROM suggestions WHERE ip_hash=? AND created_at > datetime('now','-1 hour')`
+    ).bind(ipHash).first();
+    if ((recentCount?.cnt || 0) >= 3) return json({ error: 'Bitte warte eine Stunde bevor du weitere Vorschläge einreichst.' }, 429);
+    await db.prepare('INSERT INTO suggestions (site_id, suggestion, category, ip_hash) VALUES (?,?,?,?)')
+      .bind(siteId, suggestion.trim().slice(0, 500), (category || '').slice(0, 50), ipHash).run();
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind(siteId, 'info', '💡 Neuer Vorschlag', suggestion.trim().slice(0, 100)).run();
     return json({ success: true });
   }
 
@@ -173,6 +236,27 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
+  // GET /api/changelog/published ── Public: published changelog entries
+  if (request.method === 'GET' && path === '/api/changelog/published') {
+    const db = env.DB;
+    await ensureChangelogTable(db);
+    const siteId = url.searchParams.get('site_id') || 'frametrain';
+    const result = await db.prepare(
+      'SELECT * FROM changelog_entries WHERE site_id=? AND published=1 ORDER BY created_at DESC'
+    ).bind(siteId).all();
+    return json(result.results);
+  }
+
+  // GET /api/blog/published ── Public: published blog posts
+  if (request.method === 'GET' && path === '/api/blog/published') {
+    const db = env.DB;
+    const siteId = url.searchParams.get('site_id') || 'frametrain';
+    const result = await db.prepare(
+      'SELECT * FROM blog_posts WHERE site_id=? AND status=\'published\' ORDER BY created_at DESC'
+    ).bind(siteId).all();
+    return json(result.results);
+  }
+
   // POST /api/support/submit ── Public: any site submits support tickets
   if (request.method === 'POST' && path === '/api/support/submit') {
     const db = env.DB;
@@ -200,12 +284,12 @@ async function handleRequest(request, env) {
     const token = url.searchParams.get('token');
     if (!token) return err('Token required', 401);
     const ticket = await db.prepare('SELECT id, subject, status, created_at, updated_at FROM support_tickets WHERE id=? AND user_token=?').bind(ticketId, token).first();
-    if (!ticket) return err('Ticket not found', 404);
-    const messages = await db.prepare('SELECT id, sender, message, created_at FROM support_messages WHERE ticket_id=? ORDER BY created_at ASC').bind(ticketId).all();
+    if (!ticket) return err('Ticket nicht gefunden oder Token ungültig', 404);
+    const messages = await db.prepare('SELECT sender, message, created_at FROM support_messages WHERE ticket_id=? ORDER BY created_at ASC').bind(ticketId).all();
     return json({ ticket, messages: messages.results });
   }
 
-  // POST /api/support/:id/reply ── Public: user sends follow-up message
+  // POST /api/support/:id/reply ── Public: user replies to ticket
   if (request.method === 'POST' && segments[1] === 'support' && segments[2] && segments[3] === 'reply') {
     const db = env.DB;
     const ticketId = segments[2];
@@ -213,41 +297,14 @@ async function handleRequest(request, env) {
     const { token, message } = body;
     if (!token || !message) return err('Token und Nachricht erforderlich');
     const ticket = await db.prepare('SELECT id, site_id FROM support_tickets WHERE id=? AND user_token=?').bind(ticketId, token).first();
-    if (!ticket) return err('Ticket not found', 404);
+    if (!ticket) return err('Ticket nicht gefunden oder Token ungültig', 404);
     await db.prepare('INSERT INTO support_messages (ticket_id, sender, message) VALUES (?,?,?)').bind(ticketId, 'user', message).run();
-    await db.prepare("UPDATE support_tickets SET status='in_progress', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(ticketId).run();
-    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
-      .bind(ticket.site_id || 'frametrain', 'info', `💬 Antwort auf Ticket #${ticketId}`, message.slice(0, 80)).run();
+    await db.prepare("UPDATE support_tickets SET status='open', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(ticketId).run();
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)').bind(ticket.site_id, 'info', '💬 Neue Antwort', message.slice(0, 80)).run();
     return json({ success: true });
   }
 
-  // GET /api/changelog/published ── Public: published changelog entries
-  if (request.method === 'GET' && path === '/api/changelog/published') {
-    const db = env.DB;
-    const siteId = url.searchParams.get('site_id') || 'frametrain';
-    const result = await db.prepare(
-      'SELECT * FROM changelog_entries WHERE site_id=? AND published=1 ORDER BY created_at DESC'
-    ).bind(siteId).all();
-    return json(result.results);
-  }
-
-  // GET /api/blog/published ── Public: published blog posts
-  if (request.method === 'GET' && path === '/api/blog/published') {
-    const db = env.DB;
-    const siteId = url.searchParams.get('site_id') || 'frametrain';
-    const result = await db.prepare(
-      "SELECT * FROM blog_posts WHERE site_id=? AND status='published' ORDER BY created_at DESC"
-    ).bind(siteId).all();
-    return json(result.results);
-  }
-
-  // ── Auth guard (all other /api routes) ────────────────────
-  {
-    const authed2 = await verifyAuth(request, env);
-    if (!authed2) return json({ error: 'Nicht authentifiziert' }, 401);
-  }
-
-  // ── RATELIMIT API STATS (reads RLDB = ratelimit D1 directly) ──────────
+  // GET /api/ratelimit-stats ── RateLimit DB stats (from RLDB binding)
   if (request.method === 'GET' && path === '/api/ratelimit-stats') {
     const rl = env.RLDB;
     if (!rl) return err('RLDB binding nicht konfiguriert', 503);
@@ -287,7 +344,6 @@ async function handleRequest(request, env) {
         GROUP BY day ORDER BY day ASC`).bind(timeAgo).all(),
     ]);
 
-    // Also get total all-time
     const allTime = await rl.prepare(
       'SELECT COUNT(*) as total, SUM(CASE WHEN blocked=1 THEN 1 ELSE 0 END) as blocked FROM request_logs'
     ).first();
@@ -367,7 +423,6 @@ async function handleRequest(request, env) {
     if (body.sort_order!== undefined) { sets.push('sort_order=?'); params.push(body.sort_order); }
     if (!sets.length) return err('Nothing to update');
     await db.prepare(`UPDATE todo_tasks SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
-    // Sync: if done changed, update linked prompt's used status
     if (body.done !== undefined) {
       const task = await db.prepare('SELECT prompt_id FROM todo_tasks WHERE id=?').bind(segments[2]).first().catch(() => null);
       if (task?.prompt_id) {
@@ -383,9 +438,8 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // ── PROMPTS ────────────────────────────────────────────────────
+  // ── PROMPTS ──────────────────────────────────────────────────────
 
-  // ── Migrate prompts + tasks tables for new columns ──────────────
   async function ensurePromptColumns(db) {
     await db.prepare(`CREATE TABLE IF NOT EXISTS todo_prompts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -396,7 +450,6 @@ async function handleRequest(request, env) {
       task_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
-    // Migrate existing tables
     for (const col of ['used INTEGER DEFAULT 0', 'task_id INTEGER']) {
       await db.prepare(`ALTER TABLE todo_prompts ADD COLUMN ${col}`).run().catch(() => {});
     }
@@ -417,16 +470,13 @@ async function handleRequest(request, env) {
     await ensurePromptColumns(db);
     const body = await request.json().catch(() => ({}));
     if (!body.title || !body.prompt) return err('Titel und Prompt erforderlich');
-    // 1) Create prompt
     const r = await db.prepare('INSERT INTO todo_prompts (title, tags, prompt, used) VALUES (?,?,?,0)')
       .bind(body.title, body.tags || '', body.prompt).run();
     const promptId = r.meta.last_row_id;
-    // 2) Auto-create linked todo task (title = prompt title, notes = prompt text truncated)
     const taskR = await db.prepare(
       'INSERT INTO todo_tasks (title, notes, priority, prompt_id) VALUES (?,?,3,?)'
     ).bind(body.title, body.prompt.slice(0, 500), promptId).run();
     const taskId = taskR.meta.last_row_id;
-    // 3) Link task back to prompt
     await db.prepare('UPDATE todo_prompts SET task_id=? WHERE id=?').bind(taskId, promptId).run();
     return json({ success: true, id: promptId, task_id: taskId });
   }
@@ -443,7 +493,6 @@ async function handleRequest(request, env) {
     if (body.used   !== undefined) { sets.push('used=?');   params.push(body.used ? 1 : 0); }
     if (!sets.length) return err('Nothing to update');
     await db.prepare(`UPDATE todo_prompts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
-    // Sync: if used changed, update linked task's done status
     if (body.used !== undefined) {
       const prompt = await db.prepare('SELECT task_id FROM todo_prompts WHERE id=?').bind(segments[2]).first();
       if (prompt?.task_id) {
@@ -456,7 +505,6 @@ async function handleRequest(request, env) {
   // DELETE /api/prompts/:id
   if (request.method === 'DELETE' && segments[1] === 'prompts' && segments[2]) {
     const db = env.DB;
-    // Also delete the linked task
     const prompt = await db.prepare('SELECT task_id FROM todo_prompts WHERE id=?').bind(segments[2]).first().catch(() => null);
     if (prompt?.task_id) {
       await db.prepare('DELETE FROM todo_tasks WHERE id=? AND prompt_id IS NOT NULL').bind(prompt.task_id).run();
@@ -594,6 +642,7 @@ async function handleRequest(request, env) {
 
   // ── GET /api/changelog ────────────────────────────────────────────
   if (request.method === 'GET' && path === '/api/changelog') {
+    await ensureChangelogTable(db);
     const siteId = url.searchParams.get('site_id');
     let q = 'SELECT * FROM changelog_entries WHERE 1=1';
     const params = [];
@@ -605,17 +654,20 @@ async function handleRequest(request, env) {
 
   // ── POST /api/changelog ───────────────────────────────────────────
   if (request.method === 'POST' && path === '/api/changelog') {
+    await ensureChangelogTable(db);
     const body = await request.json();
     const { site_id, version, title, description, type, published } = body;
-    if (!site_id || !version || !title) return err('Missing fields');
+    if (!site_id || !title) return err('Missing fields');
+    const ver = version || new Date().toISOString().slice(0, 10);
     await db.prepare(
       'INSERT INTO changelog_entries (site_id, version, title, description, type, published) VALUES (?,?,?,?,?,?)'
-    ).bind(site_id, version, title, description || null, type || 'feature', published ? 1 : 0).run();
+    ).bind(site_id, ver, title, description || null, type || 'feature', published ? 1 : 0).run();
     return json({ success: true });
   }
 
   // ── PATCH /api/changelog/:id (toggle published) ──────────────────
   if (request.method === 'PATCH' && segments[1] === 'changelog' && segments[2]) {
+    await ensureChangelogTable(db);
     const body = await request.json().catch(() => ({}));
     if (body.published !== undefined) {
       await db.prepare('UPDATE changelog_entries SET published=? WHERE id=?').bind(body.published ? 1 : 0, segments[2]).run();
@@ -672,51 +724,6 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // ── Ensure suggestions table has site_id + ip columns ──────────────
-  async function ensureSuggestionsTable(db) {
-    await db.prepare(`CREATE TABLE IF NOT EXISTS suggestions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      site_id TEXT NOT NULL DEFAULT 'spinselector',
-      suggestion TEXT NOT NULL,
-      category TEXT DEFAULT '',
-      status TEXT DEFAULT 'open',
-      note TEXT,
-      upvotes INTEGER DEFAULT 0,
-      ip_hash TEXT,
-      read INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`).run();
-    // Migrate older tables
-    await db.prepare('ALTER TABLE suggestions ADD COLUMN site_id TEXT NOT NULL DEFAULT \'spinselector\'').run().catch(() => {});
-    await db.prepare('ALTER TABLE suggestions ADD COLUMN ip_hash TEXT').run().catch(() => {});
-    await db.prepare('ALTER TABLE suggestions ADD COLUMN read INTEGER DEFAULT 0').run().catch(() => {});
-  }
-
-  // ── POST /api/suggestions ─ public, with IP cooldown ─────────────────
-  if (request.method === 'POST' && path === '/api/suggestions') {
-    await ensureSuggestionsTable(db);
-    const body = await request.json().catch(() => ({}));
-    const { site_id, suggestion, category } = body;
-    if (!suggestion || suggestion.trim().length < 5) return err('Vorschlag zu kurz (min. 5 Zeichen)');
-    if (suggestion.length > 500) return err('Vorschlag zu lang (max. 500 Zeichen)');
-    const siteId = (site_id || 'spinselector').slice(0, 30);
-    // IP-based rate limiting: max 3 suggestions per IP per hour
-    const clientIp = request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown';
-    const ipHash = Array.from(new Uint8Array(
-      await crypto.subtle.digest('SHA-256', new TextEncoder().encode(clientIp + ':' + env.DASHBOARD_PASSWORD))
-    )).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
-    const recentCount = await db.prepare(
-      `SELECT COUNT(*) as cnt FROM suggestions WHERE ip_hash=? AND created_at > datetime('now','-1 hour')`
-    ).bind(ipHash).first();
-    if ((recentCount?.cnt || 0) >= 3) return json({ error: 'Bitte warte eine Stunde bevor du weitere Vorschläge einreichst.' }, 429);
-    await db.prepare('INSERT INTO suggestions (site_id, suggestion, category, ip_hash) VALUES (?,?,?,?)')
-      .bind(siteId, suggestion.trim().slice(0, 500), (category || '').slice(0, 50), ipHash).run();
-    // Notification
-    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
-      .bind(siteId, 'info', '💡 Neuer Vorschlag', suggestion.trim().slice(0, 100)).run();
-    return json({ success: true });
-  }
-
   // ── GET /api/suggestions ──────────────────────────────────────────
   if (request.method === 'GET' && path === '/api/suggestions') {
     await ensureSuggestionsTable(db);
@@ -745,7 +752,7 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // ── GET /api/errors (authenticated dashboard read) ────────────────
+  // ── GET /api/errors ───────────────────────────────────────────────
   if (request.method === 'GET' && path === '/api/errors') {
     await ensureErrorTable(db);
     const siteId = url.searchParams.get('site_id');
@@ -827,7 +834,7 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // ── GET /api/contact ── dashboard messages list (filterable by site_id) ──
+  // ── GET /api/contact ──────────────────────────────────────────────
   if (request.method === 'GET' && path === '/api/contact') {
     await ensureTables(db);
     const siteId = url.searchParams.get('site_id');
@@ -839,13 +846,13 @@ async function handleRequest(request, env) {
     return json(result.results);
   }
 
-  // ── PATCH /api/contact/:id/read ────────────────────────────
+  // ── PATCH /api/contact/:id/read ──────────────────────────────────
   if (request.method === 'PATCH' && segments[1] === 'contact' && segments[3] === 'read') {
     await db.prepare('UPDATE contact_messages SET read=1 WHERE id=?').bind(segments[2]).run();
     return json({ success: true });
   }
 
-  // ── GET /api/cf-analytics ── Cloudflare GraphQL Proxy (CORS-frei) ──────
+  // ── GET /api/cf-analytics ── Cloudflare GraphQL Proxy ──────────
   if (request.method === 'GET' && path === '/api/cf-analytics') {
     const cfToken = request.headers.get('CF-Token');
     if (!cfToken) return err('CF-Token Header fehlt', 400);
