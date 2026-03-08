@@ -453,9 +453,10 @@ async function handleRequest(request, env) {
       prompt TEXT NOT NULL,
       used INTEGER DEFAULT 0,
       task_id INTEGER,
+      archived INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
-    for (const col of ['used INTEGER DEFAULT 0', 'task_id INTEGER']) {
+    for (const col of ['used INTEGER DEFAULT 0', 'task_id INTEGER', 'archived INTEGER DEFAULT 0']) {
       await db.prepare(`ALTER TABLE todo_prompts ADD COLUMN ${col}`).run().catch(() => {});
     }
     await db.prepare(`ALTER TABLE todo_tasks ADD COLUMN prompt_id INTEGER`).run().catch(() => {});
@@ -500,7 +501,9 @@ async function handleRequest(request, env) {
     if (body.title  !== undefined) { sets.push('title=?');  params.push(body.title); }
     if (body.tags   !== undefined) { sets.push('tags=?');   params.push(body.tags); }
     if (body.prompt !== undefined) { sets.push('prompt=?'); params.push(body.prompt); }
-    if (body.used   !== undefined) { sets.push('used=?');   params.push(body.used ? 1 : 0); }
+    if (body.used     !== undefined) { sets.push('used=?');     params.push(body.used ? 1 : 0); }
+    if (body.archived  !== undefined) { sets.push('archived=?');  params.push(body.archived ? 1 : 0); }
+    if (body.task_id   !== undefined) { sets.push('task_id=?');   params.push(body.task_id !== null ? body.task_id : null); }
     if (!sets.length) return err('Nothing to update');
     await db.prepare(`UPDATE todo_prompts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
     if (body.used !== undefined) {
