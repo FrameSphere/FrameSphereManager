@@ -893,6 +893,84 @@ async function handleRequest(request, env) {
     return json({ tickets: tickets.results, errors: errors.results, words: words.results, notifs: notifs.results });
   }
 
+  // ── BLOG API ─────────────────────────────────────────────────────
+  async function ensureBlogTable(db) {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS blog_posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      site_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      tags TEXT DEFAULT '',
+      excerpt TEXT DEFAULT '',
+      content TEXT DEFAULT '',
+      status TEXT DEFAULT 'draft',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    for (const col of ['tags TEXT DEFAULT \'\'', 'excerpt TEXT DEFAULT \'\'', 'content TEXT DEFAULT \'\'']) {
+      await db.prepare(`ALTER TABLE blog_posts ADD COLUMN ${col}`).run().catch(() => {});
+    }
+  }
+
+  // GET /api/blog/published – public
+  if (request.method === 'GET' && path === '/api/blog/published') {
+    await ensureBlogTable(db);
+    const siteId = url.searchParams.get('site_id') || '';
+    const result = await db.prepare(
+      "SELECT * FROM blog_posts WHERE site_id=? AND status='published' ORDER BY created_at DESC"
+    ).bind(siteId).all();
+    return json(result.results);
+  }
+
+  // GET /api/blog – authenticated
+  if (request.method === 'GET' && path === '/api/blog') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    await ensureBlogTable(db);
+    const siteId = url.searchParams.get('site_id') || '';
+    const result = await db.prepare(
+      'SELECT * FROM blog_posts WHERE site_id=? ORDER BY created_at DESC'
+    ).bind(siteId).all();
+    return json(result.results);
+  }
+
+  // POST /api/blog – authenticated
+  if (request.method === 'POST' && path === '/api/blog') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    await ensureBlogTable(db);
+    const body = await request.json().catch(() => ({}));
+    const { site_id, title, tags, excerpt, content, status } = body;
+    if (!site_id || !title) return err('site_id und title erforderlich');
+    const r = await db.prepare(
+      'INSERT INTO blog_posts (site_id, title, tags, excerpt, content, status) VALUES (?,?,?,?,?,?)'
+    ).bind(site_id, title, tags || '', excerpt || '', content || '', status || 'draft').run();
+    if (status === 'published') {
+      await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+        .bind(site_id, 'info', `📝 Blog: ${title}`, 'Neuer Artikel veröffentlicht auf /blog').run();
+    }
+    return json({ success: true, id: r.meta.last_row_id });
+  }
+
+  // PATCH /api/blog/:id – authenticated
+  if (request.method === 'PATCH' && segments[1] === 'blog' && segments[2] && !segments[3]) {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    await ensureBlogTable(db);
+    const body = await request.json().catch(() => ({}));
+    const sets = []; const params = [];
+    if (body.title   !== undefined) { sets.push('title=?');   params.push(body.title); }
+    if (body.tags    !== undefined) { sets.push('tags=?');    params.push(body.tags); }
+    if (body.excerpt !== undefined) { sets.push('excerpt=?'); params.push(body.excerpt); }
+    if (body.content !== undefined) { sets.push('content=?'); params.push(body.content); }
+    if (body.status  !== undefined) { sets.push('status=?');  params.push(body.status); }
+    if (!sets.length) return err('Nothing to update');
+    await db.prepare(`UPDATE blog_posts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
+    return json({ success: true });
+  }
+
+  // DELETE /api/blog/:id – authenticated
+  if (request.method === 'DELETE' && segments[1] === 'blog' && segments[2] && !segments[3]) {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    await db.prepare('DELETE FROM blog_posts WHERE id=?').bind(segments[2]).run();
+    return json({ success: true });
+  }
+
   return err('Not found', 404);
 }
 

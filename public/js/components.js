@@ -1166,3 +1166,130 @@ async function deleteChangelog(id, siteId) {
   await api(`/api/changelog/${id}`, { method: 'DELETE' });
   reloadPanel(siteId, 'changelog');
 }
+
+// ── BLOG (verwaltet im HQ, angezeigt auf /blog) ───────────────────
+async function renderBlog(siteId, panel) {
+  const posts = await api(`/api/blog?site_id=${siteId}`);
+  if (!posts) { panel.innerHTML = errState(); return; }
+
+  const pubCount = posts.filter(p => p.status === 'published').length;
+
+  panel.innerHTML = `
+    <div class="form-card" style="margin-bottom:20px">
+      <div class="form-card-title">📝 Neuen Blogpost erstellen</div>
+      <div class="form-row">
+        <div class="form-group form-full">
+          <label>Titel</label>
+          <input id="bl-title" placeholder="z.B. Die Wissenschaft hinter Persönlichkeitstests">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="max-width:220px">
+          <label>Tags (komma-getrennt)</label>
+          <input id="bl-tags" placeholder="Psychologie, IRT, Traits">
+        </div>
+        <div class="form-group" style="max-width:160px">
+          <label>Status</label>
+          <select id="bl-status">
+            <option value="draft">📝 Entwurf</option>
+            <option value="published">🌐 Veröffentlichen</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group form-full">
+          <label>Auszug (kurze Vorschau)</label>
+          <input id="bl-excerpt" placeholder="Worum geht es in diesem Artikel?">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group form-full">
+          <label>Inhalt (HTML erlaubt)</label>
+          <textarea id="bl-content" rows="8"
+            placeholder="&lt;p&gt;Einleitung...&lt;/p&gt;\n&lt;h2&gt;Abschnitt&lt;/h2&gt;\n&lt;p&gt;Text...&lt;/p&gt;"
+            style="font-family:'Space Mono',monospace;font-size:12px"></textarea>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="submitBlog('${siteId}')">Post erstellen</button>
+    </div>
+
+    <div class="actions-bar" style="margin-bottom:8px">
+      <div style="font-size:13px;font-weight:700">Posts (${posts.length})
+        <span style="color:var(--text3);font-weight:400;font-size:11px;margin-left:8px">${pubCount} veröffentlicht</span>
+      </div>
+      <div class="flex-1"></div>
+      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','blog')">↻ Aktualisieren</button>
+    </div>
+
+    ${posts.length ? `
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${posts.map(p => `
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+            <div style="display:flex;align-items:flex-start;gap:12px">
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+                  ${p.status === 'published'
+                    ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(52,211,153,.15);color:#34d399;font-weight:700">✓ Live</span>'
+                    : '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.07);color:var(--text3)">Entwurf</span>'}
+                  ${p.tags ? p.tags.split(',').map(t => `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">${esc(t.trim())}</span>`).join('') : ''}
+                  <span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">${fmtDate(p.created_at)}</span>
+                </div>
+                <div style="font-weight:700;font-size:13px;margin-bottom:4px">${esc(p.title)}</div>
+                ${p.excerpt ? `<div style="font-size:12px;color:var(--text2);line-height:1.4">${esc(p.excerpt.slice(0,120))}${p.excerpt.length > 120 ? '…' : ''}</div>` : ''}
+              </div>
+              <div style="display:flex;gap:6px;flex-shrink:0;flex-direction:column;align-items:flex-end">
+                <button class="btn btn-ghost btn-sm"
+                  onclick="toggleBlogPublish(${p.id}, '${p.status === 'published' ? 'draft' : 'published'}', '${siteId}')">
+                  ${p.status === 'published' ? '↙ Entwurf' : '🌐 Veröff.'}
+                </button>
+                <button class="btn btn-danger btn-sm"
+                  onclick="deleteBlogPost(${p.id}, '${siteId}')">× Löschen</button>
+              </div>
+            </div>
+          </div>`).join('')}
+      </div>` : emptyState('Noch keine Posts – erstelle den ersten Blogartikel!')}
+  `;
+}
+
+async function submitBlog(siteId) {
+  const title   = document.getElementById('bl-title')?.value?.trim();
+  const tags    = document.getElementById('bl-tags')?.value?.trim();
+  const status  = document.getElementById('bl-status')?.value;
+  const excerpt = document.getElementById('bl-excerpt')?.value?.trim();
+  const content = document.getElementById('bl-content')?.value?.trim();
+  if (!title) { alert('Titel ist erforderlich'); return; }
+  await api('/api/blog', {
+    method: 'POST',
+    body: { site_id: siteId, title, tags: tags || '', excerpt: excerpt || '', content: content || '', status }
+  });
+  if (status === 'published') {
+    await api('/api/notifications', {
+      method: 'POST',
+      body: { site_id: siteId, type: 'info', title: `📝 Blog: ${title}`, message: 'Neuer Artikel veröffentlicht auf /blog' }
+    });
+  }
+  ['bl-title','bl-tags','bl-excerpt','bl-content'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('bl-status').value = 'draft';
+  reloadPanel(siteId, 'blog');
+}
+
+async function toggleBlogPublish(id, newStatus, siteId) {
+  await api(`/api/blog/${id}`, { method: 'PATCH', body: { status: newStatus } });
+  if (newStatus === 'published') {
+    const posts = await api(`/api/blog?site_id=${siteId}`);
+    const post = posts?.find(p => p.id === id);
+    if (post) {
+      await api('/api/notifications', {
+        method: 'POST',
+        body: { site_id: siteId, type: 'info', title: `📝 Blog live: ${post.title}`, message: 'Veröffentlicht auf /blog' }
+      });
+    }
+  }
+  reloadPanel(siteId, 'blog');
+}
+
+async function deleteBlogPost(id, siteId) {
+  if (!confirm('Blogpost wirklich löschen?')) return;
+  await api(`/api/blog/${id}`, { method: 'DELETE' });
+  reloadPanel(siteId, 'blog');
+}
