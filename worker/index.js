@@ -374,8 +374,10 @@ async function handleRequest(request, env) {
       important INTEGER DEFAULT 0,
       done INTEGER DEFAULT 0,
       sort_order INTEGER DEFAULT 0,
+      steps TEXT DEFAULT '[]',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
+    await db.prepare(`ALTER TABLE todo_tasks ADD COLUMN steps TEXT DEFAULT '[]'`).run().catch(() => {});
     const siteId = url.searchParams.get('site_id');
     let q = 'SELECT * FROM todo_tasks WHERE 1=1';
     const params = [];
@@ -398,8 +400,10 @@ async function handleRequest(request, env) {
       important INTEGER DEFAULT 0,
       done INTEGER DEFAULT 0,
       sort_order INTEGER DEFAULT 0,
+      steps TEXT DEFAULT '[]',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
+    await db.prepare(`ALTER TABLE todo_tasks ADD COLUMN steps TEXT DEFAULT '[]'`).run().catch(() => {});
     const body = await request.json().catch(() => ({}));
     const { site_id, title, notes, priority, due_date, important } = body;
     if (!title) return err('Titel erforderlich');
@@ -421,6 +425,7 @@ async function handleRequest(request, env) {
     if (body.important !== undefined) { sets.push('important=?');  params.push(body.important ? 1 : 0); }
     if (body.done      !== undefined) { sets.push('done=?');       params.push(body.done ? 1 : 0); }
     if (body.sort_order!== undefined) { sets.push('sort_order=?'); params.push(body.sort_order); }
+    if (body.steps     !== undefined) { sets.push('steps=?');      params.push(typeof body.steps === 'string' ? body.steps : JSON.stringify(body.steps)); }
     if (!sets.length) return err('Nothing to update');
     await db.prepare(`UPDATE todo_tasks SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
     if (body.done !== undefined) {
@@ -470,14 +475,19 @@ async function handleRequest(request, env) {
     await ensurePromptColumns(db);
     const body = await request.json().catch(() => ({}));
     if (!body.title || !body.prompt) return err('Titel und Prompt erforderlich');
-    const r = await db.prepare('INSERT INTO todo_prompts (title, tags, prompt, used) VALUES (?,?,?,0)')
-      .bind(body.title, body.tags || '', body.prompt).run();
+    const existingTaskId = body.task_id ? parseInt(body.task_id) : null;
+    const createTask = body.create_task !== false && !existingTaskId; // skip if task_id given or create_task=false
+    const r = await db.prepare('INSERT INTO todo_prompts (title, tags, prompt, used, task_id) VALUES (?,?,?,0,?)')
+      .bind(body.title, body.tags || '', body.prompt, existingTaskId).run();
     const promptId = r.meta.last_row_id;
-    const taskR = await db.prepare(
-      'INSERT INTO todo_tasks (title, notes, priority, prompt_id) VALUES (?,?,3,?)'
-    ).bind(body.title, body.prompt.slice(0, 500), promptId).run();
-    const taskId = taskR.meta.last_row_id;
-    await db.prepare('UPDATE todo_prompts SET task_id=? WHERE id=?').bind(taskId, promptId).run();
+    let taskId = existingTaskId;
+    if (createTask) {
+      const taskR = await db.prepare(
+        'INSERT INTO todo_tasks (title, notes, priority, prompt_id) VALUES (?,?,3,?)'
+      ).bind(body.title, body.prompt.slice(0, 500), promptId).run();
+      taskId = taskR.meta.last_row_id;
+      await db.prepare('UPDATE todo_prompts SET task_id=? WHERE id=?').bind(taskId, promptId).run();
+    }
     return json({ success: true, id: promptId, task_id: taskId });
   }
 

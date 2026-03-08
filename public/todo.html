@@ -129,6 +129,17 @@
     .edit-box input:focus, .edit-box textarea:focus, .edit-box select:focus { border-color:var(--accent2); }
     .edit-box textarea { min-height:80px; resize:vertical; }
     .edit-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:4px; }
+    .prompt-edit-box {
+      background:var(--surface); border:1px solid var(--border); border-radius:16px;
+      padding:28px; width:min(860px,97vw); max-height:93vh; overflow-y:auto;
+      display:flex; flex-direction:column; gap:14px;
+    }
+    .prompt-edit-box label { font-size:10px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--text3); display:block; margin-bottom:4px; }
+    .prompt-edit-box input, .prompt-edit-box textarea, .prompt-edit-box select {
+      width:100%; box-sizing:border-box; background:var(--bg); border:1px solid var(--border);
+      border-radius:8px; color:var(--text1); font-family:inherit; font-size:13px; padding:9px 12px; outline:none;
+    }
+    .prompt-edit-box input:focus, .prompt-edit-box textarea:focus { border-color:var(--accent2); }
 
     /* ── Calendar ── */
     .cal-wrap { flex:1; overflow-y:auto; padding:20px 28px; }
@@ -159,6 +170,40 @@
 
     /* ── Prompts ── */
     .prompts-wrap { flex:1; overflow-y:auto; padding:16px 28px; display:flex; flex-direction:column; gap:8px; }
+
+    /* ── Task Detail Modal ── */
+    .detail-box {
+      background:var(--surface); border:1px solid var(--border); border-radius:16px;
+      padding:24px; width:min(700px,96vw); max-height:88vh; overflow-y:auto;
+      display:flex; flex-direction:column; gap:0;
+    }
+    .dtl-section-lbl {
+      font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+      color:var(--text3); margin-bottom:8px; margin-top:4px; display:flex;
+      align-items:center; justify-content:space-between;
+    }
+    .dtl-divider { border:none; border-top:1px solid var(--border); margin:16px 0; }
+    .step-item {
+      display:flex; align-items:flex-start; gap:8px; padding:8px 10px;
+      background:var(--bg); border:1px solid var(--border); border-radius:8px;
+      transition:border-color .15s;
+    }
+    .step-item:hover { border-color:rgba(255,255,255,.15); }
+    .step-check {
+      flex-shrink:0; width:16px; height:16px; border-radius:4px;
+      border:2px solid var(--border); cursor:pointer; margin-top:1px;
+      display:flex; align-items:center; justify-content:center;
+      transition:background .12s,border-color .12s; background:var(--bg);
+    }
+    .step-check.done { background:var(--green); border-color:var(--green); }
+    .step-check.done::after { content:'✓'; font-size:9px; color:#fff; font-weight:800; }
+    .step-text { flex:1; font-size:12px; color:var(--text1); line-height:1.5; word-break:break-word; }
+    .step-text.done { text-decoration:line-through; color:var(--text3); }
+    .dtl-prompt-card {
+      background:var(--bg); border:1px solid var(--border); border-radius:8px;
+      padding:10px 12px; transition:border-color .15s;
+    }
+    .dtl-prompt-card:hover { border-color:rgba(255,255,255,.15); }
     .prompt-card {
       background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px;
       transition:border-color .15s, opacity .15s;
@@ -351,9 +396,10 @@
 
 <!-- ── Edit Prompt Modal ── -->
 <div class="edit-overlay" id="prompt-overlay">
-  <div class="edit-box">
-    <div style="font-size:14px;font-weight:800;margin-bottom:4px" id="prompt-modal-title">Neuer Prompt</div>
+  <div class="prompt-edit-box">
+    <div style="font-size:14px;font-weight:800;margin-bottom:2px" id="prompt-modal-title">Neuer Prompt</div>
     <input type="hidden" id="pedit-id">
+    <input type="hidden" id="pedit-task-id">
     <div>
       <label>Titel *</label>
       <input type="text" id="pedit-title" placeholder="z.B. Feature-Idee umsetzen">
@@ -364,7 +410,14 @@
     </div>
     <div>
       <label>Prompt *</label>
-      <textarea id="pedit-prompt" rows="8" placeholder="Prompt-Text hier…" style="font-family:'Space Mono',monospace;font-size:12px"></textarea>
+      <textarea id="pedit-prompt" rows="20" placeholder="Prompt-Text hier…" style="font-family:'Space Mono',monospace;font-size:12px;min-height:360px"></textarea>
+    </div>
+    <div id="pedit-todo-wrap" style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.15);border-radius:8px">
+      <input type="checkbox" id="pedit-create-todo" style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent2);flex-shrink:0">
+      <label for="pedit-create-todo" style="font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;text-transform:none;letter-spacing:0;margin:0">
+        <i data-lucide="check-square-2" style="width:13px;height:13px;vertical-align:-2px;margin-right:4px"></i>
+        Automatisch eine Todo-Aufgabe für diesen Prompt erstellen
+      </label>
     </div>
     <div class="edit-actions">
       <button class="btn btn-ghost" onclick="closePromptModal()">Abbrechen</button>
@@ -376,20 +429,85 @@
   </div>
 </div>
 
+<!-- ── Task Detail Modal ── -->
+<div class="edit-overlay" id="detail-overlay">
+  <div class="detail-box">
+    <!-- Header -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px">
+      <div style="flex:1;min-width:0">
+        <div id="dtl-title" style="font-size:17px;font-weight:800;color:var(--text1);line-height:1.3"></div>
+        <div id="dtl-meta" style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px"></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn btn-ghost btn-sm" onclick="openEditFromDetail()">
+          <i data-lucide="pencil" style="width:12px;height:12px"></i> Bearbeiten
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="closeDetailModal()" style="padding:4px 9px">✕</button>
+      </div>
+    </div>
+
+    <!-- Notes -->
+    <div id="dtl-notes-wrap" style="display:none">
+      <hr class="dtl-divider" style="margin-top:0">
+      <div class="dtl-section-lbl">Notizen</div>
+      <div id="dtl-notes" style="font-size:12px;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;line-height:1.7;white-space:pre-wrap;margin-bottom:4px"></div>
+    </div>
+
+    <!-- Steps -->
+    <hr class="dtl-divider">
+    <div class="dtl-section-lbl">
+      <span>📋 Step-by-Step Plan</span>
+      <span id="dtl-steps-progress" style="font-size:10px;color:var(--text3);font-weight:600"></span>
+    </div>
+    <div id="dtl-steps-list" style="display:flex;flex-direction:column;gap:5px;margin-bottom:10px"></div>
+    <div style="display:flex;gap:7px;margin-bottom:4px">
+      <input type="text" id="dtl-step-input" placeholder="Neuen Schritt hinzufügen…"
+        style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text1);font-family:inherit;font-size:12px;padding:8px 11px;outline:none"
+        onkeydown="if(event.key==='Enter')addDetailStep()">
+      <button class="btn btn-primary btn-sm" onclick="addDetailStep()">+ Schritt</button>
+    </div>
+
+    <!-- Linked Prompts -->
+    <hr class="dtl-divider">
+    <div class="dtl-section-lbl">
+      <span>🧠 Verknüpfte Prompts</span>
+      <button class="btn btn-ghost btn-sm" onclick="openAddPromptForDetail()" style="font-size:10px;padding:3px 10px">
+        <i data-lucide="plus" style="width:10px;height:10px"></i> Prompt hinzufügen
+      </button>
+    </div>
+    <div id="dtl-prompts-list" style="display:flex;flex-direction:column;gap:6px"></div>
+  </div>
+</div>
+
 <script src="js/utils.js"></script>
 <script src="js/api.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/layout.js"></script>
 <script>
 // ── State ─────────────────────────────────────────────────────────
-let allTasks   = [];
-let allPrompts = [];
-let newPrio    = 3;
-let editPrio   = 3;
+// ── localDateStr: timezone-safe YYYY-MM-DD from a local Date ──────
+// Using .toISOString() returns UTC time, which can drift to the previous
+// or next calendar day for UTC± timezones. This always uses local components.
+function localDateStr(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// ── daysDiff: timezone-safe day difference ─────────────────────────
+// Returns how many calendar days dateStr is from today (negative = past).
+// Uses midnight local time for both sides to avoid any UTC drift.
+function daysDiff(dateStr) {
+  const todayMidnight  = new Date(localDateStr(new Date()) + 'T00:00:00');
+  const targetMidnight = new Date(dateStr + 'T00:00:00');
+  return Math.round((targetMidnight - todayMidnight) / 86400000);
+}
+
+let allTasks     = [];
+let allPrompts   = [];
+let newPrio      = 3;
+let editPrio     = 3;
+let detailTaskId = null;
 let calYear, calMonth;
-const today    = new Date();
-calYear  = today.getFullYear();
-calMonth = today.getMonth();
+{ const _now = new Date(); calYear = _now.getFullYear(); calMonth = _now.getMonth(); }
 
 const SITE_OPTS = [
   { value: '', label: 'Allgemein' },
@@ -485,15 +603,14 @@ function taskRowHtml(t) {
   let dueCls = 'chip-due';
   let dueLabel = '';
   if (t.due_date) {
-    const due = new Date(t.due_date + 'T23:59:59');
-    const diff = Math.ceil((due - today) / 86400000);
+    const diff = daysDiff(t.due_date);  // timezone-safe
     dueLabel = formatDueLabel(t.due_date);
-    if (diff < 0)      dueCls += ' overdue';
-    else if (diff <= 1) dueCls += ' today';
+    if (diff < 0)        dueCls += ' overdue';
+    else if (diff === 0) dueCls += ' today';
   }
 
-  return `<div class="task-row${t.done ? ' done-row' : ''}${t.important && !t.done ? ' important-row' : ''}" data-id="${t.id}">
-    <div class="task-check${t.done ? ' checked' : ''}" onclick="toggleDone(${t.id},${t.done ? 0 : 1})"></div>
+  return `<div class="task-row${t.done ? ' done-row' : ''}${t.important && !t.done ? ' important-row' : ''}" data-id="${t.id}" onclick="openDetailModal(${t.id})" style="cursor:pointer">
+    <div class="task-check${t.done ? ' checked' : ''}" onclick="event.stopPropagation();toggleDone(${t.id},${t.done ? 0 : 1})"></div>
     <div class="task-body">
       <div class="task-title">${esc(t.title)}</div>
       ${t.notes ? `<div class="task-notes">${esc(t.notes)}</div>` : ''}
@@ -504,10 +621,10 @@ function taskRowHtml(t) {
       </div>
     </div>
     <div class="task-actions">
-      <button class="task-act-btn${t.important ? ' active' : ''}" title="Wichtig" onclick="toggleImportant(${t.id},${t.important ? 0 : 1})">
+      <button class="task-act-btn${t.important ? ' active' : ''}" title="Wichtig" onclick="event.stopPropagation();toggleImportant(${t.id},${t.important ? 0 : 1})">
         <i data-lucide="star" style="width:13px;height:13px${t.important ? ';fill:var(--yellow);stroke:var(--yellow)' : ''}"></i>
       </button>
-      <button class="task-act-btn" title="Bearbeiten" onclick="openEditModal(${t.id})">
+      <button class="task-act-btn" title="Bearbeiten" onclick="event.stopPropagation();openEditModal(${t.id})">
         <i data-lucide="pencil" style="width:13px;height:13px"></i>
       </button>
     </div>
@@ -515,8 +632,8 @@ function taskRowHtml(t) {
 }
 
 function formatDueLabel(dateStr) {
+  const diff = daysDiff(dateStr);       // timezone-safe: midnight-to-midnight
   const d = new Date(dateStr + 'T00:00:00');
-  const diff = Math.ceil((d - new Date(today.toDateString())) / 86400000);
   if (diff === 0) return 'Heute';
   if (diff === 1) return 'Morgen';
   if (diff === -1) return 'Gestern';
@@ -642,7 +759,7 @@ function renderCalendar(doFetch = true) {
     }
   });
 
-  const todayStr = today.toISOString().slice(0,10);
+  const todayStr = localDateStr(new Date()); // timezone-safe: always fresh local date
   let startDow = firstDay.getDay(); // 0=Sun
   startDow = (startDow === 0) ? 6 : startDow - 1; // Mon-first
 
@@ -672,7 +789,7 @@ function renderCalendar(doFetch = true) {
     <div class="cal-grid">
       ${['Mo','Di','Mi','Do','Fr','Sa','So'].map(d => `<div class="cal-head">${d}</div>`).join('')}
       ${days.map(({ date, cur }) => {
-        const ds = date.toISOString().slice(0,10);
+        const ds = localDateStr(date); // timezone-safe: local date
         const isToday = ds === todayStr;
         const tasks = (tasksByDate[ds] || []).sort((a,b) => b.priority - a.priority);
         return `<div class="cal-day${!cur ? ' other-month' : ''}${isToday ? ' today' : ''}">
@@ -688,7 +805,7 @@ function renderCalendar(doFetch = true) {
 }
 
 function calNav(dir) { calMonth += dir; if (calMonth > 11) { calMonth = 0; calYear++; } if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendar(false); }
-function calGoToday() { calYear = today.getFullYear(); calMonth = today.getMonth(); renderCalendar(false); }
+function calGoToday() { const _n = new Date(); calYear = _n.getFullYear(); calMonth = _n.getMonth(); renderCalendar(false); }
 
 // ── Prompts ───────────────────────────────────────────────────────
 async function reloadPrompts() {
@@ -763,30 +880,45 @@ function copyPrompt(id) {
 function openPromptEdit(id) {
   const p = id ? allPrompts.find(p => p.id === id) : null;
   document.getElementById('pedit-id').value      = p ? p.id : '';
+  document.getElementById('pedit-task-id').value = '';  // reset linked task
   document.getElementById('pedit-title').value   = p ? p.title : '';
   document.getElementById('pedit-tags').value    = p ? (p.tags || '') : '';
   document.getElementById('pedit-prompt').value  = p ? p.prompt : '';
   document.getElementById('prompt-modal-title').textContent = p ? 'Prompt bearbeiten' : 'Neuer Prompt';
   document.getElementById('pedit-del-btn').style.display = p ? '' : 'none';
+  // Checkbox only relevant for new prompts
+  const todoWrap = document.getElementById('pedit-todo-wrap');
+  todoWrap.style.display = p ? 'none' : 'flex';
+  if (!p) document.getElementById('pedit-create-todo').checked = true;
   document.getElementById('prompt-overlay').classList.add('open');
 }
 
-function closePromptModal() { document.getElementById('prompt-overlay').classList.remove('open'); }
+function closePromptModal() {
+  document.getElementById('prompt-overlay').classList.remove('open');
+  document.getElementById('pedit-task-id').value = '';
+  document.getElementById('pedit-todo-wrap').style.display = 'flex';
+}
 
 async function savePrompt() {
-  const id    = document.getElementById('pedit-id').value;
-  const title = document.getElementById('pedit-title').value.trim();
-  const tags  = document.getElementById('pedit-tags').value.trim();
-  const prompt= document.getElementById('pedit-prompt').value.trim();
+  const id     = document.getElementById('pedit-id').value;
+  const title  = document.getElementById('pedit-title').value.trim();
+  const tags   = document.getElementById('pedit-tags').value.trim();
+  const prompt = document.getElementById('pedit-prompt').value.trim();
+  const taskId = document.getElementById('pedit-task-id').value;
   if (!title || !prompt) return;
   if (id) {
     await api(`/api/prompts/${id}`, { method:'PATCH', body:{ title, tags, prompt } });
   } else {
-    await api('/api/prompts', { method:'POST', body:{ title, tags, prompt } });
+    const createTodo = document.getElementById('pedit-create-todo').checked;
+    const body = { title, tags, prompt, create_task: createTodo };
+    if (taskId) body.task_id = parseInt(taskId);
+    await api('/api/prompts', { method:'POST', body });
   }
   closePromptModal();
   await reloadPrompts();
-  await reloadTasks(); // sync: new prompt creates a linked task
+  await reloadTasks();
+  // Refresh linked prompts in open detail modal
+  if (detailTaskId) renderDetailPrompts(detailTaskId);
 }
 
 async function deletePrompt() {
@@ -892,8 +1024,7 @@ function enableRankDrag(container, tasks) {
 }
 
 // ── Close modals on backdrop click ───────────────────────────────
-document.getElementById('edit-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeEditModal(); });
-document.getElementById('prompt-overlay').addEventListener('click', e => { if (e.target === e.currentTarget) closePromptModal(); });
+PLACEHOLDER_FOR_DETAIL_FUNCTIONS
 
 // ── Boot ──────────────────────────────────────────────────────────
 injectLoginScreen();
