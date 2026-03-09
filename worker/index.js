@@ -984,6 +984,77 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
+  // ── VAULT ─────────────────────────────────────────────────────────────
+  // All secret values are AES-GCM encrypted client-side before storage.
+  // The worker only handles opaque blobs – it cannot decrypt anything.
+
+  async function ensureVaultTable(db) {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS vault_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      label TEXT NOT NULL,
+      site_id TEXT DEFAULT '',
+      category TEXT DEFAULT 'other',
+      username TEXT DEFAULT '',
+      encrypted_value TEXT NOT NULL,
+      notes TEXT DEFAULT '',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    for (const col of ['username TEXT DEFAULT \'\'', 'notes TEXT DEFAULT \'\'']) {
+      await db.prepare(`ALTER TABLE vault_entries ADD COLUMN ${col}`).run().catch(() => {});
+    }
+  }
+
+  // GET /api/vault
+  if (request.method === 'GET' && path === '/api/vault') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureVaultTable(db);
+    const res = await db.prepare('SELECT * FROM vault_entries ORDER BY site_id ASC, label ASC').all();
+    return json(res.results);
+  }
+
+  // POST /api/vault
+  if (request.method === 'POST' && path === '/api/vault') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureVaultTable(db);
+    const body = await request.json().catch(() => ({}));
+    if (!body.label || !body.encrypted_value) return err('label und encrypted_value erforderlich');
+    const r = await db.prepare(
+      'INSERT INTO vault_entries (label, site_id, category, username, encrypted_value, notes) VALUES (?,?,?,?,?,?)'
+    ).bind(
+      body.label, body.site_id || '', body.category || 'other',
+      body.username || '', body.encrypted_value, body.notes || ''
+    ).run();
+    return json({ success: true, id: r.meta.last_row_id });
+  }
+
+  // PATCH /api/vault/:id
+  if (request.method === 'PATCH' && segments[1] === 'vault' && segments[2] && !segments[3]) {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    const body = await request.json().catch(() => ({}));
+    const sets = ['updated_at=CURRENT_TIMESTAMP']; const params = [];
+    if (body.label           !== undefined) { sets.push('label=?');           params.push(body.label); }
+    if (body.site_id         !== undefined) { sets.push('site_id=?');         params.push(body.site_id); }
+    if (body.category        !== undefined) { sets.push('category=?');        params.push(body.category); }
+    if (body.username        !== undefined) { sets.push('username=?');        params.push(body.username); }
+    if (body.encrypted_value !== undefined) { sets.push('encrypted_value=?'); params.push(body.encrypted_value); }
+    if (body.notes           !== undefined) { sets.push('notes=?');           params.push(body.notes); }
+    if (params.length === 0) return err('Nothing to update');
+    await db.prepare(`UPDATE vault_entries SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
+    return json({ success: true });
+  }
+
+  // DELETE /api/vault/:id
+  if (request.method === 'DELETE' && segments[1] === 'vault' && segments[2] && !segments[3]) {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await db.prepare('DELETE FROM vault_entries WHERE id=?').bind(segments[2]).run();
+    return json({ success: true });
+  }
+
   // ── PINBOARD ───────────────────────────────────────────────────────
 
   async function ensurePinboardTables(db) {

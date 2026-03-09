@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vault – WebControl HQ</title>
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    /* ── Vault lock screen ── */
+    #vault-lock {
+      position: fixed; inset: 0; background: var(--bg); z-index: 8000;
+      display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 0;
+    }
+    #vault-lock.unlocked { display: none; }
+    .vault-lock-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 20px; padding: 44px 48px; width: 100%; max-width: 400px;
+      animation: fadeIn .3s ease; display: flex; flex-direction: column; gap: 0;
+    }
+    .vault-lock-icon {
+      width: 56px; height: 56px; border-radius: 16px;
+      background: linear-gradient(135deg, rgba(245,158,11,.15), rgba(245,158,11,.05));
+      border: 1px solid rgba(245,158,11,.25);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px; margin-bottom: 20px;
+    }
+    .vault-lock-title { font-size: 18px; font-weight: 800; margin-bottom: 4px; }
+    .vault-lock-sub {
+      font-size: 12px; color: var(--text3); font-family: 'Space Mono', monospace;
+      margin-bottom: 28px;
+    }
+    .vault-lock-input-wrap { position: relative; margin-bottom: 12px; }
+    .vault-lock-input {
+      width: 100%; padding: 13px 44px 13px 14px; font-size: 15px;
+      letter-spacing: .1em; font-family: 'Space Mono', monospace;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      color: var(--text1); outline: none; transition: border-color .15s;
+      box-sizing: border-box;
+    }
+    .vault-lock-input:focus { border-color: var(--yellow); }
+    .vault-eye {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      cursor: pointer; opacity: .5; transition: opacity .15s;
+      background: none; border: none; color: var(--text1); padding: 0;
+    }
+    .vault-eye:hover { opacity: 1; }
+    .vault-lock-error {
+      color: var(--red); font-size: 11px; font-family: 'Space Mono', monospace;
+      min-height: 16px; margin-bottom: 6px; text-align: center;
+    }
+    .vault-lock-btn {
+      width: 100%; padding: 13px; font-size: 13px; font-weight: 700;
+      background: rgba(245,158,11,.15); border: 1px solid rgba(245,158,11,.35);
+      border-radius: 10px; color: var(--yellow); cursor: pointer;
+      font-family: 'Space Mono', monospace; letter-spacing: .08em;
+      text-transform: uppercase; transition: all .15s; display: flex;
+      align-items: center; justify-content: center; gap: 8px;
+    }
+    .vault-lock-btn:hover { background: rgba(245,158,11,.25); }
+    .vault-lock-hint {
+      text-align: center; margin-top: 20px; font-size: 10px;
+      font-family: 'Space Mono', monospace; color: var(--text3);
+    }
+
+    /* ── Toolbar ── */
+    .vault-toolbar {
+      display: flex; align-items: center; gap: 10px; padding: 14px 28px;
+      border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap;
+      background: var(--bg2);
+    }
+    .vault-toolbar input[type="text"] {
+      padding: 6px 12px; font-size: 12px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 7px; color: var(--text1);
+      font-family: inherit; outline: none; width: 220px;
+    }
+    .vault-toolbar input:focus { border-color: var(--yellow); }
+    .vault-filter-sel {
+      padding: 6px 10px; font-size: 12px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 7px; color: var(--text1);
+      font-family: inherit; outline: none; cursor: pointer;
+    }
+
+    /* ── Lock button in toolbar ── */
+    .vault-relock-btn {
+      display: flex; align-items: center; gap: 6px; padding: 5px 12px;
+      font-size: 11px; font-weight: 700; border-radius: 6px;
+      border: 1px solid rgba(245,158,11,.3); background: rgba(245,158,11,.07);
+      color: var(--yellow); cursor: pointer; font-family: 'Space Mono', monospace;
+      letter-spacing: .05em; text-transform: uppercase; transition: all .15s;
+    }
+    .vault-relock-btn:hover { background: rgba(245,158,11,.18); }
+
+    /* ── Entry grid ── */
+    .vault-scroll { flex: 1; overflow-y: auto; padding: 24px 28px; }
+    .vault-group { margin-bottom: 32px; }
+    .vault-group-title {
+      font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--text3); font-family: 'Space Mono', monospace;
+      padding-bottom: 10px; border-bottom: 1px solid var(--border); margin-bottom: 12px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .vault-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px;
+    }
+
+    /* ── Entry card ── */
+    .vault-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 18px; display: flex; flex-direction: column; gap: 10px;
+      transition: border-color .15s, transform .1s;
+      position: relative; overflow: hidden;
+    }
+    .vault-card::before {
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+      width: 3px; border-radius: 12px 0 0 12px;
+    }
+    .vault-card:hover { border-color: rgba(255,255,255,.15); transform: translateY(-1px); }
+    .vault-card-head { display: flex; align-items: flex-start; gap: 10px; }
+    .vault-cat-icon {
+      width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 15px;
+    }
+    .vault-card-info { flex: 1; min-width: 0; }
+    .vault-card-label {
+      font-size: 13px; font-weight: 700; color: var(--text1); white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .vault-card-meta {
+      font-size: 10px; font-family: 'Space Mono', monospace; color: var(--text3);
+      display: flex; align-items: center; gap: 6px; margin-top: 2px; flex-wrap: wrap;
+    }
+    .vault-chip {
+      display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px;
+      border-radius: 10px; font-size: 9px; font-weight: 700; border: 1px solid;
+    }
+    .vault-username {
+      font-size: 11px; color: var(--text2); font-family: 'Space Mono', monospace;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .vault-value-row {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 12px;
+    }
+    .vault-value-text {
+      flex: 1; font-family: 'Space Mono', monospace; font-size: 11px;
+      color: var(--text2); white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; user-select: all;
+    }
+    .vault-value-text.hidden { letter-spacing: .08em; color: var(--text3); }
+    .vault-icon-btn {
+      width: 26px; height: 26px; border-radius: 6px; border: none; background: none;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      color: var(--text2); transition: background .1s, color .1s; flex-shrink: 0;
+    }
+    .vault-icon-btn:hover { background: rgba(255,255,255,.08); color: var(--text1); }
+    .vault-icon-btn.copied { color: var(--green); }
+    .vault-notes {
+      font-size: 11px; color: var(--text3); line-height: 1.5;
+      border-top: 1px solid var(--border); padding-top: 8px;
+      font-style: italic;
+    }
+    .vault-card-actions {
+      display: flex; gap: 5px; opacity: 0; transition: opacity .15s;
+    }
+    .vault-card:hover .vault-card-actions { opacity: 1; }
+
+    /* ── Category colors ── */
+    .cat-api_key    { color: #60a5fa; border-color: rgba(96,165,250,.25);  background: rgba(96,165,250,.08);  }
+    .cat-password   { color: #f472b6; border-color: rgba(244,114,182,.25); background: rgba(244,114,182,.08); }
+    .cat-token      { color: #a78bfa; border-color: rgba(167,139,250,.25); background: rgba(167,139,250,.08); }
+    .cat-secret     { color: #f59e0b; border-color: rgba(245,158,11,.25);  background: rgba(245,158,11,.08);  }
+    .cat-webhook    { color: #34d399; border-color: rgba(52,211,153,.25);  background: rgba(52,211,153,.08);  }
+    .cat-db_url     { color: #fb923c; border-color: rgba(251,146,60,.25);  background: rgba(251,146,60,.08);  }
+    .cat-env_var    { color: #06b6d4; border-color: rgba(6,182,212,.25);   background: rgba(6,182,212,.08);   }
+    .cat-other      { color: var(--text2); border-color: var(--border);     background: var(--surface2);       }
+
+    .icon-api_key  { background: rgba(96,165,250,.1);  }
+    .icon-password { background: rgba(244,114,182,.1); }
+    .icon-token    { background: rgba(167,139,250,.1); }
+    .icon-secret   { background: rgba(245,158,11,.1);  }
+    .icon-webhook  { background: rgba(52,211,153,.1);  }
+    .icon-db_url   { background: rgba(251,146,60,.1);  }
+    .icon-env_var  { background: rgba(6,182,212,.1);   }
+    .icon-other    { background: var(--surface2); }
+
+    .card-stripe-api_key  { background: #60a5fa; }
+    .card-stripe-password { background: #f472b6; }
+    .card-stripe-token    { background: #a78bfa; }
+    .card-stripe-secret   { background: #f59e0b; }
+    .card-stripe-webhook  { background: #34d399; }
+    .card-stripe-db_url   { background: #fb923c; }
+    .card-stripe-env_var  { background: #06b6d4; }
+    .card-stripe-other    { background: var(--text3); }
+
+    /* ── Empty ── */
+    .vault-empty {
+      text-align: center; padding: 80px 20px; color: var(--text3);
+      grid-column: 1 / -1;
+    }
+
+    /* ── Add / Edit modal ── */
+    .vault-overlay {
+      display: none; position: fixed; inset: 0; z-index: 9000;
+      background: rgba(0,0,0,.8); backdrop-filter: blur(5px);
+      align-items: center; justify-content: center;
+    }
+    .vault-overlay.open { display: flex; }
+    .vault-modal {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+      width: min(600px, 97vw); max-height: 92vh; overflow-y: auto;
+      display: flex; flex-direction: column;
+    }
+    .vault-modal-head {
+      padding: 20px 24px 16px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+    }
+    .vault-modal-title { font-size: 14px; font-weight: 800; }
+    .vault-modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+    .vault-modal-foot {
+      padding: 14px 24px; border-top: 1px solid var(--border);
+      display: flex; gap: 8px; justify-content: flex-end; flex-shrink: 0;
+    }
+    .vm-label {
+      font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--text3); display: block; margin-bottom: 5px;
+    }
+    .vm-input {
+      width: 100%; box-sizing: border-box; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text1);
+      font-family: inherit; font-size: 13px; padding: 9px 12px; outline: none;
+    }
+    .vm-input:focus { border-color: var(--yellow); }
+    .vm-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .vm-secret-wrap { position: relative; }
+    .vm-secret-input {
+      width: 100%; box-sizing: border-box; background: var(--bg);
+      border: 1.5px solid rgba(245,158,11,.35); border-radius: 8px; color: var(--text1);
+      font-family: 'Space Mono', monospace; font-size: 12px; padding: 10px 44px 10px 12px;
+      outline: none;
+    }
+    .vm-secret-input:focus { border-color: var(--yellow); }
+    .vm-secret-eye {
+      position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+      cursor: pointer; opacity: .5; transition: opacity .15s;
+      background: none; border: none; color: var(--text1); padding: 0;
+    }
+    .vm-secret-eye:hover { opacity: 1; }
+    .vm-warning {
+      display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+      background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.2);
+      border-radius: 8px; font-size: 11px; color: var(--yellow); line-height: 1.5;
+    }
+
+    /* Auto-clear clipboard notice */
+    #clipboard-notice {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 18px; font-size: 12px; font-family: 'Space Mono', monospace;
+      color: var(--green); display: none; align-items: center; gap: 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.4); z-index: 9999; white-space: nowrap;
+    }
+    #clipboard-notice.show { display: flex; }
+  </style>
+</head>
+<body>
+
+<div id="layout">
+  <div id="main">
+
+    <div class="page-header">
+      <div class="page-title" style="display:flex;align-items:center;gap:10px">
+        <i data-lucide="shield" style="width:20px;height:20px;color:var(--yellow)"></i>
+        Vault
+      </div>
+      <div class="page-sub">API Keys · Passwörter · Secrets · AES-256-GCM verschlüsselt</div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="vault-toolbar" id="vault-toolbar">
+      <input type="text" id="vault-search" placeholder="Suchen…" oninput="renderEntries()">
+      <select class="vault-filter-sel" id="vault-filter-site" onchange="renderEntries()">
+        <option value="">Alle Projekte</option>
+      </select>
+      <select class="vault-filter-sel" id="vault-filter-cat" onchange="renderEntries()">
+        <option value="">Alle Kategorien</option>
+        <option value="api_key">API Key</option>
+        <option value="password">Passwort</option>
+        <option value="token">Token</option>
+        <option value="secret">Secret</option>
+        <option value="webhook">Webhook URL</option>
+        <option value="db_url">Datenbank URL</option>
+        <option value="env_var">ENV Variable</option>
+        <option value="other">Sonstiges</option>
+      </select>
+      <div style="flex:1"></div>
+      <button class="vault-relock-btn" onclick="lockVault()">
+        <i data-lucide="lock" style="width:12px;height:12px"></i> Vault sperren
+      </button>
+      <button class="btn btn-sm" style="background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.3);color:var(--yellow)" onclick="openEntryModal(null)">
+        <i data-lucide="plus" style="width:12px;height:12px"></i> Eintrag hinzufügen
+      </button>
+    </div>
+
+    <!-- Content -->
+    <div class="vault-scroll" id="vault-scroll">
+      <div id="vault-content"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Vault Lock Screen ── -->
+<div id="vault-lock">
+  <div class="vault-lock-box">
+    <div class="vault-lock-icon">🔐</div>
+    <div class="vault-lock-title">Vault</div>
+    <div class="vault-lock-sub">Vault-Passwort eingeben um fortzufahren</div>
+    <div class="vault-lock-input-wrap">
+      <input class="vault-lock-input" id="vault-pw" type="password"
+        placeholder="••••••••••••" autocomplete="off">
+      <button class="vault-eye" id="vault-eye-btn" onclick="toggleVaultPwVis()" title="Anzeigen">
+        <i data-lucide="eye" style="width:15px;height:15px"></i>
+      </button>
+    </div>
+    <div class="vault-lock-error" id="vault-lock-error"></div>
+    <button class="vault-lock-btn" id="vault-unlock-btn" onclick="unlockVault()">
+      <i data-lucide="unlock" style="width:15px;height:15px"></i>
+      Vault öffnen
+    </button>
+    <div class="vault-lock-hint">Alle Werte sind Ende-zu-Ende verschlüsselt · Schlüssel verlässt nie den Browser</div>
+  </div>
+</div>
+
+<!-- ── Entry Modal ── -->
+<div class="vault-overlay" id="entry-overlay">
+  <div class="vault-modal">
+    <div class="vault-modal-head">
+      <div class="vault-modal-title" id="entry-modal-title">Neuer Eintrag</div>
+      <button class="btn btn-ghost btn-sm" onclick="closeEntryModal()" style="padding:4px 9px">✕</button>
+    </div>
+    <div class="vault-modal-body">
+      <input type="hidden" id="entry-edit-id">
+      <div class="vm-warning">
+        <i data-lucide="shield-check" style="width:14px;height:14px;flex-shrink:0"></i>
+        Der geheime Wert wird <strong>vor der Speicherung</strong> mit AES-256-GCM lokal verschlüsselt. Der Server sieht nur verschlüsselte Daten.
+      </div>
+
+      <!-- Label -->
+      <div>
+        <div class="vm-label">Bezeichnung *</div>
+        <input class="vm-input" type="text" id="entry-label" placeholder="z.B. Cloudflare API Key Production">
+      </div>
+
+      <!-- Site + Category -->
+      <div class="vm-row">
+        <div>
+          <div class="vm-label">Projekt / Site</div>
+          <select class="vm-input" id="entry-site" style="cursor:pointer">
+            <option value="">– Allgemein / Privat –</option>
+            <option value="framesphere">Frame-Sphere</option>
+            <option value="frametrain">FrameTrain</option>
+            <option value="wordify">Wordify</option>
+            <option value="flaggues">Flaggues</option>
+            <option value="spinselector">SpinSelector</option>
+            <option value="brawlmystery">BrawlMystery</option>
+            <option value="traitora">Traitora</option>
+            <option value="fileflyr">FileFlyr</option>
+            <option value="ratelimit">Ratelimit API</option>
+            <option value="framespell">FrameSpell</option>
+            <option value="cloudflare">Cloudflare</option>
+            <option value="github">GitHub</option>
+            <option value="vercel">Vercel</option>
+            <option value="openai">OpenAI</option>
+            <option value="stripe">Stripe</option>
+            <option value="other">Sonstiges</option>
+          </select>
+        </div>
+        <div>
+          <div class="vm-label">Kategorie</div>
+          <select class="vm-input" id="entry-category" style="cursor:pointer">
+            <option value="api_key">🔑 API Key</option>
+            <option value="password">🔒 Passwort</option>
+            <option value="token">🎫 Token</option>
+            <option value="secret">⚡ Secret</option>
+            <option value="webhook">🔗 Webhook URL</option>
+            <option value="db_url">🗄️ Datenbank URL</option>
+            <option value="env_var">📦 ENV Variable</option>
+            <option value="other">📋 Sonstiges</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Username / E-Mail (optional) -->
+      <div>
+        <div class="vm-label">Benutzername / E-Mail <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
+        <input class="vm-input" type="text" id="entry-username" placeholder="z.B. admin@example.com oder API-Key-Name">
+      </div>
+
+      <!-- Secret value -->
+      <div>
+        <div class="vm-label">Geheimer Wert *</div>
+        <div class="vm-secret-wrap">
+          <input class="vm-secret-input" type="password" id="entry-value"
+            placeholder="Passwort, API Key, Token …" autocomplete="off">
+          <button class="vm-secret-eye" onclick="toggleEntryValueVis()" title="Anzeigen">
+            <i data-lucide="eye" style="width:14px;height:14px"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <div>
+        <div class="vm-label">Notizen <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">(optional, nicht verschlüsselt)</span></div>
+        <textarea class="vm-input" id="entry-notes" rows="3" style="resize:vertical;font-size:12px;line-height:1.5"
+          placeholder="z.B. Nur für Production, läuft am 01.01.2026 ab, Berechtigungen: read-only…"></textarea>
+      </div>
+    </div>
+    <div class="vault-modal-foot">
+      <button class="btn btn-ghost" onclick="closeEntryModal()">Abbrechen</button>
+      <button class="btn btn-danger btn-sm" id="entry-del-btn" onclick="deleteEntry()" style="display:none">
+        <i data-lucide="trash-2" style="width:11px;height:11px"></i> Löschen
+      </button>
+      <button class="btn btn-sm" style="background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.3);color:var(--yellow)" onclick="saveEntry()">
+        <i data-lucide="save" style="width:12px;height:12px"></i> Verschlüsselt speichern
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Clipboard notice -->
+<div id="clipboard-notice">
+  <i data-lucide="check-circle-2" style="width:14px;height:14px"></i>
+  <span id="clipboard-notice-text">Kopiert · wird in 30s gelöscht</span>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
+<script>
+// ── Vault password & crypto ────────────────────────────────────────
+// NOTE: The vault has its own second-factor password separate from the
+// dashboard password. Values are encrypted with AES-256-GCM client-side.
+// The server stores only encrypted blobs and never sees plaintext.
+
+const VAULT_PW_HASH_KEY = 'vault_pw_hash';
+const VAULT_SESSION_KEY = 'vault_session_ok';
+let   vaultCryptoKey    = null;   // CryptoKey derived from vault password
+let   allEntries        = [];     // decrypted entry objects
+let   clipTimer         = null;
+
+// ── Crypto helpers ─────────────────────────────────────────────────
+async function deriveKey(password) {
+  const enc  = new TextEncoder();
+  const raw  = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: enc.encode('webcontrol-hq-vault-v1'), iterations: 200000, hash: 'SHA-256' },
+    raw,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encryptValue(cryptoKey, plaintext) {
+  const iv  = crypto.getRandomValues(new Uint8Array(12));
+  const enc = new TextEncoder();
+  const ct  = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, cryptoKey, enc.encode(plaintext));
+  // Pack iv + ciphertext as base64
+  const combined = new Uint8Array(12 + ct.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(ct), 12);
+  return btoa(String.fromCharCode(...combined));
+}
+
+async function decryptValue(cryptoKey, b64) {
+  try {
+    const combined = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const iv  = combined.slice(0, 12);
+    const ct  = combined.slice(12);
+    const pt  = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, cryptoKey, ct);
+    return new TextDecoder().decode(pt);
+  } catch(e) {
+    return null; // wrong key or corrupted
+  }
+}
+
+async function hashPassword(pw) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw + ':vault-check'));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// ── Vault lock/unlock ──────────────────────────────────────────────
+async function unlockVault() {
+  const pw  = document.getElementById('vault-pw').value;
+  const err = document.getElementById('vault-lock-error');
+  const btn = document.getElementById('vault-unlock-btn');
+  if (!pw) { err.textContent = 'Bitte Passwort eingeben'; return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<i data-lucide="loader-2" style="width:14px;height:14px;animation:spin 1s linear infinite"></i> Ableiten…';
+  refreshIcons();
+
+  try {
+    // Derive key
+    const key = await deriveKey(pw);
+    const h   = await hashPassword(pw);
+
+    // Check against stored hash OR first-time setup
+    const stored = localStorage.getItem(VAULT_PW_HASH_KEY);
+    if (stored && stored !== h) {
+      err.textContent = 'Falsches Vault-Passwort';
+      btn.disabled = false;
+      btn.innerHTML = '<i data-lucide="unlock" style="width:15px;height:15px"></i> Vault öffnen';
+      refreshIcons();
+      document.getElementById('vault-lock-box')?.classList.add('login-shake');
+      setTimeout(() => document.getElementById('vault-lock-box')?.classList.remove('login-shake'), 400);
+      return;
+    }
+    if (!stored) localStorage.setItem(VAULT_PW_HASH_KEY, h);
+
+    vaultCryptoKey = key;
+    sessionStorage.setItem(VAULT_SESSION_KEY, '1');
+    document.getElementById('vault-lock').classList.add('unlocked');
+    document.getElementById('vault-pw').value = '';
+    err.textContent = '';
+    await loadEntries();
+  } catch(e) {
+    err.textContent = 'Fehler: ' + e.message;
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i data-lucide="unlock" style="width:15px;height:15px"></i> Vault öffnen';
+  refreshIcons();
+}
+
+function lockVault() {
+  vaultCryptoKey = null;
+  allEntries = [];
+  sessionStorage.removeItem(VAULT_SESSION_KEY);
+  document.getElementById('vault-lock').classList.remove('unlocked');
+  document.getElementById('vault-content').innerHTML = '';
+  document.getElementById('vault-pw').value = '';
+  document.getElementById('vault-lock-error').textContent = '';
+  refreshIcons();
+}
+
+function toggleVaultPwVis() {
+  const inp = document.getElementById('vault-pw');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+// Keyboard unlock
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !document.getElementById('vault-lock').classList.contains('unlocked')) {
+    unlockVault();
+  }
+});
+
+// ── Load & decrypt entries ─────────────────────────────────────────
+async function loadEntries() {
+  const raw = await api('/api/vault');
+  if (!raw) { document.getElementById('vault-content').innerHTML = '<div class="empty">API nicht erreichbar</div>'; return; }
+  // Decrypt each entry's value
+  allEntries = await Promise.all(raw.map(async entry => {
+    const decrypted = await decryptValue(vaultCryptoKey, entry.encrypted_value);
+    return { ...entry, _plaintext: decrypted };
+  }));
+  populateSiteFilter();
+  renderEntries();
+}
+
+// ── Site filter dropdown ───────────────────────────────────────────
+function populateSiteFilter() {
+  const sites = [...new Set(allEntries.map(e => e.site_id).filter(Boolean))];
+  const sel   = document.getElementById('vault-filter-site');
+  const cur   = sel.value;
+  sel.innerHTML = '<option value="">Alle Projekte</option>' +
+    sites.map(s => `<option value="${s}"${s===cur?' selected':''}>${SITE_LABELS[s]||s}</option>`).join('');
+}
+
+const SITE_LABELS = {
+  framesphere:'Frame-Sphere', frametrain:'FrameTrain', wordify:'Wordify',
+  flaggues:'Flaggues', spinselector:'SpinSelector', brawlmystery:'BrawlMystery',
+  traitora:'Traitora', fileflyr:'FileFlyr', ratelimit:'Ratelimit API',
+  framespell:'FrameSpell', cloudflare:'Cloudflare', github:'GitHub',
+  vercel:'Vercel', openai:'OpenAI', stripe:'Stripe', other:'Sonstiges',
+};
+
+// ── Render entries ─────────────────────────────────────────────────
+function renderEntries() {
+  const q       = (document.getElementById('vault-search')?.value||'').toLowerCase();
+  const siteFil = document.getElementById('vault-filter-site')?.value || '';
+  const catFil  = document.getElementById('vault-filter-cat')?.value  || '';
+
+  let entries = allEntries.filter(e => {
+    if (siteFil && e.site_id !== siteFil) return false;
+    if (catFil  && e.category !== catFil) return false;
+    if (q && !e.label.toLowerCase().includes(q) &&
+             !(e.username||'').toLowerCase().includes(q) &&
+             !(e.notes||'').toLowerCase().includes(q) &&
+             !(e.site_id||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  if (!entries.length) {
+    document.getElementById('vault-content').innerHTML =
+      '<div class="vault-empty"><div style="font-size:40px;opacity:.2;margin-bottom:12px">🔐</div><div style="font-size:14px;font-weight:700;color:var(--text2);margin-bottom:6px">Kein Eintrag gefunden</div><div style="font-size:12px">Füge deinen ersten Eintrag mit dem Button oben hinzu.</div></div>';
+    return;
+  }
+
+  // Group by site
+  const groups = {};
+  entries.forEach(e => {
+    const g = e.site_id || '_general';
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(e);
+  });
+
+  const groupOrder = ['_general', ...Object.keys(SITE_LABELS)];
+  const sortedGroups = [
+    ...groupOrder.filter(k => groups[k]),
+    ...Object.keys(groups).filter(k => !groupOrder.includes(k))
+  ];
+
+  document.getElementById('vault-content').innerHTML = sortedGroups.filter(g => groups[g]).map(g => {
+    const label = g === '_general' ? '🗝 Allgemein / Privat' : (SITE_LABELS[g] || g);
+    const icon  = g === '_general' ? 'key' : 'globe';
+    return `<div class="vault-group">
+      <div class="vault-group-title">
+        <i data-lucide="${icon}" style="width:11px;height:11px"></i>
+        ${esc(label)} <span style="margin-left:4px;opacity:.5">(${groups[g].length})</span>
+      </div>
+      <div class="vault-grid">
+        ${groups[g].map(e => entryCardHtml(e)).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  refreshIcons();
+}
+
+// ── Category config ────────────────────────────────────────────────
+const CAT_CONFIG = {
+  api_key:  { label: 'API Key',        emoji: '🔑', lucide: 'key' },
+  password: { label: 'Passwort',       emoji: '🔒', lucide: 'lock' },
+  token:    { label: 'Token',          emoji: '🎫', lucide: 'ticket' },
+  secret:   { label: 'Secret',         emoji: '⚡', lucide: 'zap' },
+  webhook:  { label: 'Webhook URL',    emoji: '🔗', lucide: 'link' },
+  db_url:   { label: 'Datenbank URL',  emoji: '🗄️', lucide: 'database' },
+  env_var:  { label: 'ENV Variable',   emoji: '📦', lucide: 'package' },
+  other:    { label: 'Sonstiges',      emoji: '📋', lucide: 'clipboard-list' },
+};
+
+function entryCardHtml(e) {
+  const cat  = CAT_CONFIG[e.category] || CAT_CONFIG.other;
+  const ok   = e._plaintext !== null;
+  const mask = '•'.repeat(24);
+  return `<div class="vault-card" data-id="${e.id}">
+    <div class="vault-card::before card-stripe-${e.category}"></div>
+    <div style="position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:12px 0 0 12px;background:${catStripeColor(e.category)}"></div>
+    <div class="vault-card-head">
+      <div class="vault-cat-icon icon-${e.category}">${cat.emoji}</div>
+      <div class="vault-card-info">
+        <div class="vault-card-label">${esc(e.label)}</div>
+        <div class="vault-card-meta">
+          <span class="vault-chip cat-${e.category}">${cat.label}</span>
+          <span>${fmtDate(e.updated_at || e.created_at)}</span>
+        </div>
+      </div>
+      <div class="vault-card-actions">
+        <button class="vault-icon-btn" onclick="openEntryModal(${e.id})" title="Bearbeiten">
+          <i data-lucide="pencil" style="width:12px;height:12px"></i>
+        </button>
+      </div>
+    </div>
+    ${e.username ? `<div class="vault-username"><i data-lucide="user" style="width:10px;height:10px;margin-right:4px"></i>${esc(e.username)}</div>` : ''}
+    <div class="vault-value-row">
+      <div class="vault-value-text hidden" id="val-${e.id}" data-plain="${ok ? esc(e._plaintext||'') : ''}">${ok ? mask : '⚠ Entschlüsselung fehlgeschlagen'}</div>
+      ${ok ? `
+        <button class="vault-icon-btn" onclick="toggleValue(${e.id})" title="Anzeigen/Verbergen" id="eye-btn-${e.id}">
+          <i data-lucide="eye" style="width:13px;height:13px"></i>
+        </button>
+        <button class="vault-icon-btn" onclick="copyValue(${e.id}, this)" title="Kopieren (30s)">
+          <i data-lucide="copy" style="width:13px;height:13px"></i>
+        </button>
+      ` : ''}
+    </div>
+    ${e.notes ? `<div class="vault-notes">${esc(e.notes)}</div>` : ''}
+  </div>`;
+}
+
+function catStripeColor(cat) {
+  const colors = {
+    api_key:'#60a5fa', password:'#f472b6', token:'#a78bfa',
+    secret:'#f59e0b', webhook:'#34d399', db_url:'#fb923c',
+    env_var:'#06b6d4', other:'var(--text3)'
+  };
+  return colors[cat] || 'var(--text3)';
+}
+
+// ── Show/hide value ────────────────────────────────────────────────
+const shownValues = new Set();
+function toggleValue(id) {
+  const el  = document.getElementById(`val-${id}`);
+  const btn = document.getElementById(`eye-btn-${id}`);
+  if (!el) return;
+  const plain = el.dataset.plain;
+  if (shownValues.has(id)) {
+    shownValues.delete(id);
+    el.textContent  = '•'.repeat(24);
+    el.classList.add('hidden');
+    btn.innerHTML = '<i data-lucide="eye" style="width:13px;height:13px"></i>';
+  } else {
+    shownValues.add(id);
+    el.textContent  = plain;
+    el.classList.remove('hidden');
+    btn.innerHTML = '<i data-lucide="eye-off" style="width:13px;height:13px"></i>';
+  }
+  refreshIcons();
+}
+
+// ── Copy with auto-clear ───────────────────────────────────────────
+let clipCountdown = null;
+async function copyValue(id, btn) {
+  const el = document.getElementById(`val-${id}`);
+  if (!el) return;
+  const plain = el.dataset.plain;
+  await navigator.clipboard.writeText(plain);
+  // Show notice
+  clearTimeout(clipTimer);
+  clearInterval(clipCountdown);
+  const notice = document.getElementById('clipboard-notice');
+  const noticeText = document.getElementById('clipboard-notice-text');
+  notice.classList.add('show');
+  let secs = 30;
+  noticeText.textContent = `Kopiert · wird in ${secs}s gelöscht`;
+  clipCountdown = setInterval(() => {
+    secs--;
+    noticeText.textContent = `Kopiert · wird in ${secs}s gelöscht`;
+    if (secs <= 0) { clearInterval(clipCountdown); notice.classList.remove('show'); navigator.clipboard.writeText(''); }
+  }, 1000);
+  clipTimer = setTimeout(() => { notice.classList.remove('show'); navigator.clipboard.writeText(''); }, 30000);
+}
+
+// ── Entry Modal ────────────────────────────────────────────────────
+function openEntryModal(id) {
+  const e = id ? allEntries.find(e => e.id === id) : null;
+  document.getElementById('entry-edit-id').value  = e ? e.id : '';
+  document.getElementById('entry-label').value    = e ? e.label : '';
+  document.getElementById('entry-site').value     = e ? (e.site_id || '') : '';
+  document.getElementById('entry-category').value = e ? (e.category || 'api_key') : 'api_key';
+  document.getElementById('entry-username').value = e ? (e.username || '') : '';
+  document.getElementById('entry-value').value    = e ? (e._plaintext || '') : '';
+  document.getElementById('entry-notes').value    = e ? (e.notes || '') : '';
+  document.getElementById('entry-modal-title').textContent = e ? 'Eintrag bearbeiten' : 'Neuer Eintrag';
+  document.getElementById('entry-del-btn').style.display  = e ? '' : 'none';
+  document.getElementById('entry-overlay').classList.add('open');
+  refreshIcons();
+  setTimeout(() => document.getElementById('entry-label').focus(), 80);
+}
+
+function closeEntryModal() {
+  document.getElementById('entry-overlay').classList.remove('open');
+  document.getElementById('entry-value').type = 'password';
+}
+
+function toggleEntryValueVis() {
+  const inp = document.getElementById('entry-value');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+async function saveEntry() {
+  const id       = document.getElementById('entry-edit-id').value;
+  const label    = document.getElementById('entry-label').value.trim();
+  const site_id  = document.getElementById('entry-site').value;
+  const category = document.getElementById('entry-category').value;
+  const username = document.getElementById('entry-username').value.trim();
+  const plainVal = document.getElementById('entry-value').value;
+  const notes    = document.getElementById('entry-notes').value.trim();
+  if (!label) { document.getElementById('entry-label').focus(); return; }
+
+  let encrypted_value = null;
+  if (plainVal) {
+    encrypted_value = await encryptValue(vaultCryptoKey, plainVal);
+  }
+
+  const body = { label, site_id, category, username, notes };
+  if (encrypted_value) body.encrypted_value = encrypted_value;
+
+  if (id) {
+    await api(`/api/vault/${id}`, { method:'PATCH', body });
+  } else {
+    if (!encrypted_value) { document.getElementById('entry-value').focus(); return; }
+    await api('/api/vault', { method:'POST', body });
+  }
+  closeEntryModal();
+  await loadEntries();
+}
+
+async function deleteEntry() {
+  const id = document.getElementById('entry-edit-id').value;
+  if (!id || !confirm('Eintrag wirklich löschen?')) return;
+  await api(`/api/vault/${id}`, { method:'DELETE' });
+  closeEntryModal();
+  await loadEntries();
+}
+
+// ── Backdrop close ─────────────────────────────────────────────────
+document.getElementById('entry-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('entry-overlay'))
+    closeEntryModal();
+});
+
+// ── Boot ───────────────────────────────────────────────────────────
+injectLoginScreen();
+checkAuth(() => {
+  initLayout(null);
+  // Show vault lock screen on top (already shown by default, hide it if session active)
+  // Vault session is per browser-tab session only
+  const ok = sessionStorage.getItem(VAULT_SESSION_KEY);
+  if (!ok) {
+    document.getElementById('vault-lock').classList.remove('unlocked');
+    refreshIcons();
+  }
+  // Vault unlock triggers loadEntries() itself
+});
+
+window.initAfterLogin = () => {
+  initLayout(null);
+  document.getElementById('vault-lock').classList.remove('unlocked');
+  refreshIcons();
+};
+
+// CSS animation for spinner
+const styleEl = document.createElement('style');
+styleEl.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+document.head.appendChild(styleEl);
+</script>
+</body>
+</html>
