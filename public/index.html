@@ -5,23 +5,363 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WebControl HQ – Dashboard</title>
   <link rel="stylesheet" href="css/main.css">
+  <style>
+    /* ─── Dashboard grid ───────────────────────────────────────── */
+    .db-scroll {
+      flex: 1; overflow-y: auto; padding: 22px 28px;
+      display: flex; flex-direction: column; gap: 20px;
+    }
+
+    /* ─── KPI strip ────────────────────────────────────────────── */
+    .db-kpis {
+      display: grid; grid-template-columns: repeat(6, 1fr); gap: 11px;
+    }
+    @media (max-width:1300px) { .db-kpis { grid-template-columns: repeat(3,1fr); } }
+    @media (max-width:800px)  { .db-kpis { grid-template-columns: repeat(2,1fr); } }
+
+    .db-kpi {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px 18px; position: relative;
+      overflow: hidden; text-decoration: none; display: block;
+      transition: border-color .15s, transform .1s;
+    }
+    .db-kpi:hover { border-color: rgba(255,255,255,.14); transform: translateY(-1px); }
+    .db-kpi-accent {
+      position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      border-radius: 12px 12px 0 0;
+    }
+    .db-kpi-label {
+      font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--text3); font-family: 'Space Mono', monospace;
+      display: flex; align-items: center; gap: 5px; margin-bottom: 8px;
+    }
+    .db-kpi-val { font-size: 26px; font-weight: 800; letter-spacing: -.02em; line-height: 1; }
+    .db-kpi-sub { font-size: 10px; color: var(--text3); font-family: 'Space Mono',monospace; margin-top: 5px; }
+    .db-kpi-delta {
+      display: inline-flex; align-items: center; gap: 2px; margin-top: 7px;
+      font-size: 9px; font-weight: 700; font-family: 'Space Mono',monospace;
+      padding: 2px 7px; border-radius: 10px; border: 1px solid;
+    }
+    .db-kpi-delta.up   { color:#22c55e; border-color:rgba(34,197,94,.3); background:rgba(34,197,94,.08); }
+    .db-kpi-delta.down { color:var(--red); border-color:rgba(239,68,68,.3); background:rgba(239,68,68,.08); }
+    .db-kpi-delta.neu  { color:var(--yellow); border-color:rgba(245,158,11,.3); background:rgba(245,158,11,.08); }
+
+    /* ─── Row layouts ───────────────────────────────────────────── */
+    .db-two    { display: grid; grid-template-columns: 1fr 1fr;   gap: 16px; }
+    .db-three  { display: grid; grid-template-columns: 2fr 1fr;   gap: 16px; }
+    .db-four   { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 16px; }
+    @media (max-width:1100px) { .db-three { grid-template-columns: 1fr; } }
+    @media (max-width:900px)  { .db-two   { grid-template-columns: 1fr; } }
+
+    /* ─── Card ──────────────────────────────────────────────────── */
+    .db-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden; display: flex; flex-direction: column;
+    }
+    .db-card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+      flex-wrap: wrap; gap: 8px;
+    }
+    .db-card-title {
+      font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 7px;
+    }
+    .db-card-link {
+      font-size: 10px; color: var(--text3); font-family: 'Space Mono',monospace;
+      text-decoration: none; transition: color .12s; display: flex; align-items: center; gap: 4px;
+    }
+    .db-card-link:hover { color: var(--text1); }
+    .db-card-body { padding: 14px 18px; flex: 1; }
+
+    /* ─── Sparkline ─────────────────────────────────────────────── */
+    .db-spark-row {
+      display: flex; align-items: flex-end; gap: 3px; height: 40px; margin-top: 8px;
+    }
+    .db-spark-bar {
+      flex: 1; border-radius: 2px 2px 0 0;
+      transition: height .4s cubic-bezier(.25,.46,.45,.94);
+    }
+
+    /* ─── Mini chart SVG ────────────────────────────────────────── */
+    .db-minichart { width: 100%; height: 80px; display: block; }
+
+    /* ─── Connected / disconnected pill ────────────────────────── */
+    .db-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 9px; border-radius: 10px; font-size: 9px; font-weight: 700;
+      font-family: 'Space Mono',monospace; letter-spacing: .05em; text-transform: uppercase;
+      border: 1px solid;
+    }
+    .db-pill.ok   { color:#22c55e; border-color:rgba(34,197,94,.3); background:rgba(34,197,94,.07); }
+    .db-pill.off  { color:var(--text3); border-color:var(--border); background:var(--bg); }
+    .db-pill-dot  { width:6px; height:6px; border-radius:50%; }
+
+    /* ─── Sites grid (compact) ──────────────────────────────────── */
+    .db-sites-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap: 8px;
+    }
+    .db-site-card {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 9px;
+      padding: 10px 12px; text-decoration: none; display: flex; flex-direction: column; gap: 6px;
+      transition: border-color .12s;
+    }
+    .db-site-card:hover { border-color: rgba(255,255,255,.15); }
+    .db-site-top { display: flex; align-items: center; gap: 8px; }
+    .db-site-icon {
+      width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .db-site-name { font-size: 11px; font-weight: 700; }
+    .db-site-url  { font-size: 9px; color: var(--text3); font-family: 'Space Mono',monospace; }
+    .db-site-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+    .db-chip {
+      display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px;
+      border-radius: 8px; font-size: 9px; font-weight: 700; border: 1px solid;
+    }
+    .db-chip.ok   { color:#22c55e; border-color:rgba(34,197,94,.25); background:rgba(34,197,94,.07); }
+    .db-chip.err  { color:var(--red); border-color:rgba(239,68,68,.25); background:rgba(239,68,68,.07); }
+    .db-chip.warn { color:var(--yellow); border-color:rgba(245,158,11,.25); background:rgba(245,158,11,.07); }
+    .db-chip.info { color:#60a5fa; border-color:rgba(96,165,250,.25); background:rgba(96,165,250,.07); }
+
+    /* ─── Todos ─────────────────────────────────────────────────── */
+    .db-todo-item {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 0; border-bottom: 1px solid rgba(35,46,66,.5);
+    }
+    .db-todo-item:last-child { border-bottom: none; padding-bottom: 0; }
+    .db-todo-dot {
+      width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 3px;
+    }
+    .db-todo-title { font-size: 12px; font-weight: 600; line-height: 1.4; flex: 1; }
+    .db-todo-meta  { font-size: 9px; color: var(--text3); font-family: 'Space Mono',monospace; margin-top: 2px; }
+    .db-todo-prio  {
+      font-size: 9px; font-weight: 700; font-family: 'Space Mono',monospace;
+      padding: 1px 6px; border-radius: 4px; border: 1px solid; white-space: nowrap; margin-top: 1px;
+    }
+    .db-todo-prio.p5 { color:#ef4444; border-color:rgba(239,68,68,.3); background:rgba(239,68,68,.08); }
+    .db-todo-prio.p4 { color:#f97316; border-color:rgba(249,115,22,.3); background:rgba(249,115,22,.08); }
+    .db-todo-prio.p3 { color:#f59e0b; border-color:rgba(245,158,11,.3); background:rgba(245,158,11,.08); }
+    .db-todo-prio.p2 { color:var(--text3); border-color:var(--border); background:transparent; }
+
+    /* ─── Notifications list ────────────────────────────────────── */
+    .db-notif-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 18px; border-bottom: 1px solid rgba(35,46,66,.4);
+    }
+    .db-notif-item:last-child { border-bottom: none; }
+    .db-notif-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .db-notif-title  { font-size: 12px; font-weight: 600; flex: 1; }
+    .db-notif-msg    { font-size: 10px; color: var(--text3); }
+    .db-notif-site   { font-size: 10px; color: var(--text3); font-family:'Space Mono',monospace; }
+    .db-notif-time   { font-size: 10px; color: var(--text3); font-family:'Space Mono',monospace; white-space:nowrap; }
+
+    /* ─── Two stat row inside card ──────────────────────────────── */
+    .db-stat-pair { display: flex; gap: 16px; }
+    .db-stat-mini { flex: 1; }
+    .db-stat-mini-lbl { font-size: 9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text3); font-family:'Space Mono',monospace; margin-bottom:4px; }
+    .db-stat-mini-val { font-size: 20px; font-weight: 800; }
+
+    /* ─── Date/greeting strip ───────────────────────────────────── */
+    .db-greeting {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 8px;
+    }
+    .db-greeting-left { display: flex; flex-direction: column; gap: 2px; }
+    .db-greeting-title { font-size: 18px; font-weight: 800; }
+    .db-greeting-sub { font-size: 11px; color: var(--text3); font-family:'Space Mono',monospace; }
+    .db-greeting-right { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    /* ─── Loading skeleton ──────────────────────────────────────── */
+    .db-skel {
+      background: linear-gradient(90deg, var(--surface2) 25%, rgba(255,255,255,.04) 50%, var(--surface2) 75%);
+      background-size: 200% 100%; animation: dbskel 1.5s infinite;
+      border-radius: 6px;
+    }
+    @keyframes dbskel { to { background-position: -200% center; } }
+
+    /* ─── Section divider ───────────────────────────────────────── */
+    .db-section-label {
+      font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--text3); font-family: 'Space Mono', monospace;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .db-section-label::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+
+    /* ─── Overdue badge ─────────────────────────────────────────── */
+    .db-overdue {
+      font-size: 9px; font-weight:700; color:var(--red);
+      font-family:'Space Mono',monospace; padding: 1px 5px;
+      border-radius: 4px; background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.25);
+    }
+  </style>
 </head>
 <body>
 
-<!-- Layout shell (topbar + sidebar injected by layout.js) -->
 <div id="layout">
-  <!-- sidebar injected here -->
   <div id="main">
 
-    <div class="page-header">
-      <div class="page-title">Dashboard</div>
-      <div class="page-sub">Alle Projekte auf einen Blick</div>
-    </div>
+    <div class="db-scroll" id="db-scroll">
+      <!-- Greeting -->
+      <div class="db-greeting">
+        <div class="db-greeting-left">
+          <div class="db-greeting-title" id="db-greeting-title">Guten Morgen 👋</div>
+          <div class="db-greeting-sub" id="db-greeting-sub">Montag, 9. März 2026 · WebControl HQ</div>
+        </div>
+        <div class="db-greeting-right" id="db-status-pills">
+          <!-- pills injected -->
+        </div>
+      </div>
 
-    <div class="scroll-area" style="flex:1;overflow-y:auto;padding:24px 28px" id="overview-body">
-      <div class="loading">Lade Daten…</div>
-    </div>
+      <!-- KPI Strip -->
+      <div class="db-kpis" id="db-kpis">
+        <div class="db-kpi" href="index.html">
+          <div class="db-kpi-accent" style="background:linear-gradient(90deg,#22c55e,#16a34a)"></div>
+          <div class="db-kpi-label"><i data-lucide="globe" style="width:10px;height:10px"></i>Webseiten</div>
+          <div class="db-kpi-val" style="color:#22c55e">10</div>
+          <div class="db-kpi-sub">Alle aktiv</div>
+        </div>
+        <a class="db-kpi" href="todo.html">
+          <div class="db-kpi-accent" style="background:linear-gradient(90deg,#f59e0b,#d97706)"></div>
+          <div class="db-kpi-label"><i data-lucide="check-square-2" style="width:10px;height:10px"></i>Offene Todos</div>
+          <div class="db-kpi-val db-skel" id="kpi-todos" style="color:#f59e0b;min-height:26px;min-width:40px">–</div>
+          <div class="db-kpi-sub" id="kpi-todos-sub">gesamt offen</div>
+        </a>
+        <a class="db-kpi" href="index.html">
+          <div class="db-kpi-accent" style="background:linear-gradient(90deg,#ef4444,#dc2626)"></div>
+          <div class="db-kpi-label"><i data-lucide="x-circle" style="width:10px;height:10px"></i>Fehler</div>
+          <div class="db-kpi-val" id="kpi-errors" style="color:var(--red)">–</div>
+          <div class="db-kpi-sub">Ungelöst</div>
+        </a>
+        <a class="db-kpi" href="index.html">
+          <div class="db-kpi-accent" style="background:linear-gradient(90deg,#60a5fa,#3b82f6)"></div>
+          <div class="db-kpi-label"><i data-lucide="ticket" style="width:10px;height:10px"></i>Tickets</div>
+          <div class="db-kpi-val" id="kpi-tickets" style="color:#60a5fa">–</div>
+          <div class="db-kpi-sub">Offen</div>
+        </a>
+        <a class="db-kpi" href="revenue.html" id="kpi-revenue-card">
+          <div class="db-kpi-accent" style="background:linear-gradient(90deg,#22c55e,#16a34a)"></div>
+          <div class="db-kpi-label"><i data-lucide="circle-dollar-sign" style="width:10px;height:10px"></i>Revenue (30T)</div>
+          <div class="db-kpi-val" id="kpi-revenue" style="color:#22c55e">–</div>
+          <div class="db-kpi-sub" id="kpi-revenue-sub">AdSense Einnahmen</div>
+        </a>
+        <a class="db-kpi" href="search-radar.html" id="kpi-gsc-card">
+          <div class="db-kpi-accent" style="background:linear-gradient(90deg,#34d399,#10b981)"></div>
+          <div class="db-kpi-label"><i data-lucide="search" style="width:10px;height:10px"></i>GSC Klicks (7T)</div>
+          <div class="db-kpi-val" id="kpi-gsc" style="color:#34d399">–</div>
+          <div class="db-kpi-sub" id="kpi-gsc-sub">Search Console</div>
+        </a>
+      </div>
 
+      <!-- Row 2: Revenue chart + GSC chart -->
+      <div class="db-two" id="db-row-charts">
+
+        <!-- Revenue Mini Widget -->
+        <div class="db-card" id="db-revenue-widget">
+          <div class="db-card-head">
+            <div class="db-card-title">
+              <i data-lucide="circle-dollar-sign" style="width:13px;height:13px;color:#22c55e"></i>
+              AdSense Revenue
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="db-pill off" id="rv-pill">
+                <span class="db-pill-dot" style="background:var(--text3)"></span>Nicht verbunden
+              </span>
+              <a class="db-card-link" href="revenue.html">
+                Revenue <i data-lucide="arrow-right" style="width:10px;height:10px"></i>
+              </a>
+            </div>
+          </div>
+          <div class="db-card-body" id="rv-widget-body">
+            <div style="font-size:11px;color:var(--text3);text-align:center;padding:20px 0">
+              <i data-lucide="link" style="width:16px;height:16px;margin-bottom:6px;display:block;margin-inline:auto"></i>
+              <a href="revenue.html" style="color:#22c55e;text-decoration:none;font-weight:700">Revenue-Seite öffnen</a> und einmalig mit Google verbinden.
+            </div>
+          </div>
+        </div>
+
+        <!-- GSC Mini Widget -->
+        <div class="db-card" id="db-gsc-widget">
+          <div class="db-card-head">
+            <div class="db-card-title">
+              <i data-lucide="search" style="width:13px;height:13px;color:#34d399"></i>
+              Search Radar (GSC)
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="db-pill off" id="gsc-pill">
+                <span class="db-pill-dot" style="background:var(--text3)"></span>Nicht verbunden
+              </span>
+              <a class="db-card-link" href="search-radar.html">
+                Search Radar <i data-lucide="arrow-right" style="width:10px;height:10px"></i>
+              </a>
+            </div>
+          </div>
+          <div class="db-card-body" id="gsc-widget-body">
+            <div style="font-size:11px;color:var(--text3);text-align:center;padding:20px 0">
+              <i data-lucide="link" style="width:16px;height:16px;margin-bottom:6px;display:block;margin-inline:auto"></i>
+              <a href="search-radar.html" style="color:#34d399;text-decoration:none;font-weight:700">Search Radar öffnen</a> und mit Google verbinden.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Row 3: Todos + Sites overview -->
+      <div class="db-three">
+
+        <!-- Left: Sites grid -->
+        <div class="db-card">
+          <div class="db-card-head">
+            <div class="db-card-title">
+              <i data-lucide="globe" style="width:13px;height:13px;color:#60a5fa"></i>
+              Webseiten Status
+            </div>
+            <span style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace" id="db-sites-ts"></span>
+          </div>
+          <div class="db-card-body">
+            <div class="db-sites-grid" id="db-sites-grid">
+              <div class="loading">Lade…</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Urgent Todos -->
+        <div class="db-card">
+          <div class="db-card-head">
+            <div class="db-card-title">
+              <i data-lucide="zap" style="width:13px;height:13px;color:#f59e0b"></i>
+              Dringende Todos
+            </div>
+            <a class="db-card-link" href="todo.html">
+              Alle <i data-lucide="arrow-right" style="width:10px;height:10px"></i>
+            </a>
+          </div>
+          <div class="db-card-body" id="db-todos-list">
+            <div class="loading">Lade…</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Row 4: Recent notifications full width -->
+      <div class="db-card">
+        <div class="db-card-head">
+          <div class="db-card-title">
+            <i data-lucide="bell" style="width:13px;height:13px;color:#a78bfa"></i>
+            Letzte Aktivitäten
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace" id="db-notif-unread-count"></span>
+            <button class="btn btn-ghost btn-sm" onclick="markAllReadDash()">Alle gelesen</button>
+          </div>
+        </div>
+        <div id="db-notifs-list">
+          <div class="loading" style="padding:24px">Lade…</div>
+        </div>
+      </div>
+
+    </div><!-- /db-scroll -->
   </div>
 </div>
 
@@ -29,114 +369,416 @@
 <script src="js/api.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/layout.js"></script>
-
 <script>
-// ── Overview Loader ───────────────────────────────────────────────
-async function loadOverview() {
-  const body = document.getElementById('overview-body');
-  const data = await api('/api/overview');
 
-  if (!data) {
-    body.innerHTML = `
-      <div style="background:var(--surface);border:1px solid rgba(245,158,11,0.3);border-radius:12px;padding:24px;max-width:600px">
-        <div style="font-size:16px;font-weight:800;margin-bottom:8px;color:var(--yellow)">⚠ API nicht verbunden</div>
-        <div style="font-size:13px;color:var(--text2);line-height:1.6">
-          Worker noch nicht deployed oder API_URL falsch.<br>
-          <span class="mono">→ Siehe README.md für Setup-Anleitung</span>
-        </div>
-        <div class="sites-grid" style="margin-top:16px">
-          ${SITES.map(s => sitCard(s, {})).join('')}
-        </div>
-      </div>`;
-    return;
+// ═══════════════════════════════════════════════════════════════════
+//  Dashboard
+// ═══════════════════════════════════════════════════════════════════
+
+// ── Greeting ────────────────────────────────────────────────────────
+function initGreeting() {
+  const now  = new Date();
+  const h    = now.getHours();
+  const greet = h < 12 ? 'Guten Morgen 👋' : h < 18 ? 'Guten Tag 👋' : 'Guten Abend 👋';
+  document.getElementById('db-greeting-title').textContent = greet;
+  document.getElementById('db-greeting-sub').textContent =
+    now.toLocaleDateString('de-DE', { weekday:'long', day:'numeric', month:'long', year:'numeric' })
+    + ' · WebControl HQ';
+}
+
+// ── Internal API data ────────────────────────────────────────────────
+async function loadInternalData() {
+  const [overview, todos, stats] = await Promise.all([
+    api('/api/overview'),
+    api('/api/todos'),
+    api('/api/stats'),
+  ]);
+
+  // ── KPIs from stats
+  if (stats) {
+    const errors  = (stats.errors  || []).find(r => r.resolved === 0)?.c  || 0;
+    const tickets = (stats.tickets || []).find(r => r.status   === 'open')?.c || 0;
+    const unread  = (stats.notifs  || []).find(r => r.read     === 0)?.c  || 0;
+    document.getElementById('kpi-errors').textContent  = errors;
+    document.getElementById('kpi-tickets').textContent = tickets;
+    document.getElementById('kpi-errors').style.color  = errors  > 0 ? 'var(--red)'    : '#22c55e';
+    document.getElementById('kpi-tickets').style.color = tickets > 0 ? '#60a5fa'        : '#22c55e';
+
+    // Status pills
+    const pills = document.getElementById('db-status-pills');
+    pills.innerHTML = [
+      errors  > 0
+        ? `<span class="db-pill" style="color:var(--red);border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.08)"><span class="db-pill-dot" style="background:var(--red)"></span>${errors} Fehler</span>`
+        : `<span class="db-pill ok"><span class="db-pill-dot" style="background:#22c55e"></span>Keine Fehler</span>`,
+      tickets > 0
+        ? `<span class="db-pill" style="color:#60a5fa;border-color:rgba(96,165,250,.3);background:rgba(96,165,250,.08)"><span class="db-pill-dot" style="background:#60a5fa"></span>${tickets} Tickets</span>`
+        : '',
+      unread  > 0
+        ? `<span class="db-pill neu"><span class="db-pill-dot" style="background:var(--yellow)"></span>${unread} Ungelesen</span>`
+        : '',
+    ].filter(Boolean).join('');
+    refreshIcons();
   }
 
-  const totalErrors  = data.sites.reduce((a, s) => a + s.unresolved_errors,    0);
-  const totalTickets = data.sites.reduce((a, s) => a + s.open_tickets,          0);
-  const totalUnread  = data.sites.reduce((a, s) => a + s.unread_notifications,  0);
-
-  body.innerHTML = `
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-label">Webseiten</div>
-        <div class="stat-val green">10</div>
-        <div class="stat-sub">Alle aktiv</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Offene Tickets</div>
-        <div class="stat-val yellow">${totalTickets}</div>
-        <div class="stat-sub">Gesamt offen</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Fehler</div>
-        <div class="stat-val red">${totalErrors}</div>
-        <div class="stat-sub">Ungelöst</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Benachrichtigungen</div>
-        <div class="stat-val blue">${totalUnread}</div>
-        <div class="stat-sub">Ungelesen</div>
-      </div>
-    </div>
-
-    <div class="sidebar-label" style="margin-bottom:12px">Alle Webseiten</div>
-    <div class="sites-grid">
-      ${SITES.map(s => {
-        const sd = data.sites.find(x => x.id === s.id) || {};
-        return sitCard(s, sd);
-      }).join('')}
-    </div>
-
-    ${data.recent_notifications?.length ? `
-      <div class="mt-16">
-        <div class="sidebar-label" style="margin-bottom:12px">Letzte Aktivitäten</div><!-- refreshIcons below -->
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden">
-          ${data.recent_notifications.slice(0, 12).map(n => `
-            <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--border)">
-              <div class="notif-type-dot ${n.type}"></div>
-              <div style="flex:1">
-                <span style="font-size:12px;font-weight:700">${esc(n.title)}</span>
-                ${n.message ? `<span style="font-size:11px;color:var(--text3);margin-left:8px">${esc(n.message).slice(0, 50)}</span>` : ''}
-              </div>
-              <span class="mono" style="color:var(--text3)">${getSiteById(n.site_id)?.name || n.site_id}</span>
-              <span class="mono" style="color:var(--text3)">${fmtDate(n.created_at)}</span>
-            </div>`).join('')}
+  // ── Sites grid
+  if (overview) {
+    const sitesEl = document.getElementById('db-sites-grid');
+    document.getElementById('db-sites-ts').textContent = 'Aktuell';
+    sitesEl.innerHTML = SITES.map(s => {
+      const sd = (overview.sites || []).find(x => x.id === s.id) || {};
+      const chips = [];
+      if (sd.unresolved_errors    > 0) chips.push(`<span class="db-chip err"><i data-lucide="alert-triangle" style="width:8px;height:8px"></i>${sd.unresolved_errors}</span>`);
+      if (sd.open_tickets         > 0) chips.push(`<span class="db-chip warn"><i data-lucide="ticket" style="width:8px;height:8px"></i>${sd.open_tickets}</span>`);
+      if (sd.unread_notifications > 0) chips.push(`<span class="db-chip info"><i data-lucide="bell" style="width:8px;height:8px"></i>${sd.unread_notifications}</span>`);
+      if (!chips.length)               chips.push(`<span class="db-chip ok"><i data-lucide="check" style="width:8px;height:8px"></i>OK</span>`);
+      return `<a class="db-site-card" href="${siteHref(s.id)}">
+        <div class="db-site-top">
+          <div class="db-site-icon" style="background:${s.color}22;border:1px solid ${s.color}44">${siteIcon(s, 14)}</div>
+          <div>
+            <div class="db-site-name">${s.name}</div>
+            <div class="db-site-url">${s.url.replace('https://','')}</div>
+          </div>
         </div>
-      </div>` : ''}
-  `;
-  refreshIcons();
+        <div class="db-site-chips">${chips.join('')}</div>
+      </a>`;
+    }).join('');
+    refreshIcons();
+  }
+
+  // ── Todos
+  if (todos) {
+    const open = todos.filter(t => !t.done);
+    document.getElementById('kpi-todos').textContent    = open.length;
+    document.getElementById('kpi-todos-sub').textContent = `${open.filter(t => t.important).length} wichtig`;
+    document.getElementById('kpi-todos').classList.remove('db-skel');
+
+    // Sort: important first, then by priority desc, then overdue
+    const now = new Date();
+    const urgent = open
+      .map(t => ({ ...t, overdue: t.due_date && new Date(t.due_date) < now }))
+      .sort((a, b) => {
+        if (a.overdue && !b.overdue) return -1;
+        if (!a.overdue && b.overdue) return 1;
+        if (b.important !== a.important) return (b.important ? 1 : 0) - (a.important ? 1 : 0);
+        return (b.priority || 3) - (a.priority || 3);
+      })
+      .slice(0, 8);
+
+    const PRIO_LABEL = { 5:'Kritisch', 4:'Hoch', 3:'Normal', 2:'Niedrig', 1:'Optional' };
+    const PRIO_COLORS = { 5:'#ef4444', 4:'#f97316', 3:'#f59e0b', 2:'#6b7280', 1:'#6b7280' };
+
+    const todosEl = document.getElementById('db-todos-list');
+    if (!urgent.length) {
+      todosEl.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text3);font-size:12px">
+        <i data-lucide="check-circle-2" style="width:22px;height:22px;color:#22c55e;display:block;margin:0 auto 8px"></i>
+        Alle Todos erledigt 🎉
+      </div>`;
+    } else {
+      todosEl.innerHTML = urgent.map(t => {
+        const prio = t.priority || 3;
+        const col  = PRIO_COLORS[prio] || '#6b7280';
+        const site = t.site_id ? SITES.find(s => s.id === t.site_id) : null;
+        return `<div class="db-todo-item">
+          <div class="db-todo-dot" style="background:${col}"></div>
+          <div style="flex:1;min-width:0">
+            <div class="db-todo-title" style="${t.important ? 'font-weight:800' : ''}">
+              ${t.important ? '⭐ ' : ''}${esc(t.title)}
+            </div>
+            <div class="db-todo-meta">
+              ${site ? `<span style="color:${site.color}">${site.name}</span> · ` : ''}
+              ${t.due_date ? `<span ${t.overdue ? 'class="db-overdue"' : ''}>Fällig ${new Date(t.due_date).toLocaleDateString('de-DE')}</span>` : 'Kein Datum'}
+            </div>
+          </div>
+          <span class="db-todo-prio p${prio}">${PRIO_LABEL[prio] || ''}</span>
+        </div>`;
+      }).join('');
+    }
+    refreshIcons();
+  }
+
+  // ── Notifications
+  if (overview) {
+    const notifs = (overview.recent_notifications || []).slice(0, 12);
+    const unreadCount = notifs.filter(n => !n.read).length;
+    document.getElementById('db-notif-unread-count').textContent =
+      unreadCount > 0 ? `${unreadCount} ungelesen` : 'Alle gelesen';
+
+    const TYPE_COLORS = { error:'#ef4444', warn:'#f59e0b', info:'#60a5fa', success:'#22c55e' };
+    const nEl = document.getElementById('db-notifs-list');
+    if (!notifs.length) {
+      nEl.innerHTML = `<div style="text-align:center;padding:24px;color:var(--text3);font-size:12px">Keine Aktivitäten</div>`;
+    } else {
+      nEl.innerHTML = notifs.map(n => {
+        const site = getSiteById(n.site_id);
+        const col  = TYPE_COLORS[n.type] || 'var(--text3)';
+        return `<div class="db-notif-item${!n.read ? ' unread' : ''}">
+          <div class="db-notif-dot" style="background:${col}"></div>
+          <div class="db-notif-title">${esc(n.title)}</div>
+          ${n.message ? `<div class="db-notif-msg">${esc(n.message).slice(0,55)}${n.message.length>55?'…':''}</div>` : ''}
+          ${site ? `<div class="db-notif-site" style="color:${site.color}">${site.name}</div>` : ''}
+          <div class="db-notif-time">${fmtDate(n.created_at)}</div>
+        </div>`;
+      }).join('');
+    }
+  }
 }
 
-function sitCard(s, sd) {
-  const chips = [];
-  if (sd.unresolved_errors    > 0) chips.push(`<span class="chip error"><i data-lucide="alert-triangle" style="width:9px;height:9px"></i> ${sd.unresolved_errors} Fehler</span>`);
-  if (sd.open_tickets         > 0) chips.push(`<span class="chip warn"><i data-lucide="ticket" style="width:9px;height:9px"></i> ${sd.open_tickets} Tickets</span>`);
-  if (sd.unread_notifications > 0) chips.push(`<span class="chip info"><i data-lucide="bell" style="width:9px;height:9px"></i> ${sd.unread_notifications} Neu</span>`);
-  if (!chips.length)               chips.push(`<span class="chip ok"><i data-lucide="check" style="width:9px;height:9px"></i> Alles OK</span>`);
-  return `
-    <a class="site-card" href="${siteHref(s.id)}">
-      <div class="site-card-top">
-        <div class="site-icon" style="background:${s.color}22;border:1px solid ${s.color}44">${siteIcon(s, 16)}</div>
-        <div>
-          <div class="site-name">${s.name}</div>
-          <div class="site-url">${s.url.replace('https://','')}</div>
-        </div>
-      </div>
-      <div class="site-chips">${chips.join('')}</div>
-    </a>`;
+async function markAllReadDash() {
+  await api('/api/notifications/read-all', { method:'POST', body:{} });
+  document.getElementById('db-notif-unread-count').textContent = 'Alle gelesen';
+  document.querySelectorAll('.db-notif-item.unread').forEach(el => el.classList.remove('unread'));
 }
 
-// ── Boot ──────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//  AdSense Widget
+// ═══════════════════════════════════════════════════════════════════
+const RV_TOKEN_KEY     = 'rv_adsense_token';
+const RV_TOKEN_EXP_KEY = 'rv_adsense_token_exp';
+const AS_BASE          = 'https://adsense.googleapis.com/v2';
+
+async function loadRevenueWidget() {
+  const token = sessionStorage.getItem(RV_TOKEN_KEY);
+  const exp   = parseInt(sessionStorage.getItem(RV_TOKEN_EXP_KEY) || '0');
+  if (!token || Date.now() > exp - 60000) return; // not connected
+
+  // Mark as connected
+  document.getElementById('rv-pill').className = 'db-pill ok';
+  document.getElementById('rv-pill').innerHTML =
+    '<span class="db-pill-dot" style="background:#22c55e;box-shadow:0 0 5px #22c55e"></span>Verbunden';
+
+  try {
+    // Get account
+    const accData = await fetch(AS_BASE + '/accounts', {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(r => r.json());
+    const accountId = accData.accounts?.[0]?.name;
+    if (!accountId) return;
+
+    // Build 30-day date params
+    const end   = new Date();
+    const start = new Date(); start.setDate(start.getDate() - 29);
+    const isoDate = d => d.toISOString().slice(0,10);
+    const sd = isoDate(start).split('-');
+    const ed = isoDate(end).split('-');
+
+    const params = new URLSearchParams({
+      'startDate.year': sd[0], 'startDate.month': parseInt(sd[1]).toString(), 'startDate.day': parseInt(sd[2]).toString(),
+      'endDate.year':   ed[0], 'endDate.month':   parseInt(ed[1]).toString(), 'endDate.day':   parseInt(ed[2]).toString(),
+      currencyCode: 'EUR', dimensions: 'DATE',
+    });
+    ['ESTIMATED_EARNINGS','IMPRESSIONS','CLICKS','IMPRESSIONS_RPM'].forEach(m => params.append('metrics', m));
+
+    const r = await fetch(`${AS_BASE}/${accountId}/reports:generate?${params}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(r => r.json());
+
+    const rows = r.rows || [];
+    const totEarn  = rows.reduce((s,r) => s + parseFloat(r.cells?.[1]?.value||0), 0);
+    const totImpr  = rows.reduce((s,r) => s + parseFloat(r.cells?.[2]?.value||0), 0);
+    const totClicks= rows.reduce((s,r) => s + parseFloat(r.cells?.[3]?.value||0), 0);
+    const avgRpm   = rows.length ? rows.reduce((s,r) => s + parseFloat(r.cells?.[4]?.value||0), 0) / rows.length : 0;
+
+    // Update KPI card
+    document.getElementById('kpi-revenue').textContent     = '€' + fmtMoney(totEarn);
+    document.getElementById('kpi-revenue-sub').textContent = `Ø €${fmtMoney(totEarn/30)}/Tag`;
+
+    // Revenue widget body
+    const earns = rows.map(r => parseFloat(r.cells?.[1]?.value||0));
+    document.getElementById('rv-widget-body').innerHTML = `
+      <div class="db-stat-pair" style="margin-bottom:14px">
+        <div class="db-stat-mini">
+          <div class="db-stat-mini-lbl">30T Gesamt</div>
+          <div class="db-stat-mini-val" style="color:#22c55e">€${fmtMoney(totEarn)}</div>
+        </div>
+        <div class="db-stat-mini">
+          <div class="db-stat-mini-lbl">Ø RPM</div>
+          <div class="db-stat-mini-val" style="color:#a78bfa">€${avgRpm.toFixed(2)}</div>
+        </div>
+        <div class="db-stat-mini">
+          <div class="db-stat-mini-lbl">Impressionen</div>
+          <div class="db-stat-mini-val" style="color:#60a5fa">${fmtBig(totImpr)}</div>
+        </div>
+        <div class="db-stat-mini">
+          <div class="db-stat-mini-lbl">Klicks</div>
+          <div class="db-stat-mini-val" style="color:#f59e0b">${fmtBig(totClicks)}</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:6px">Einnahmen letzter 30 Tage</div>
+      ${renderSparkSvg(earns, '#22c55e', 70)}
+    `;
+  } catch(e) {
+    document.getElementById('rv-widget-body').innerHTML =
+      `<div style="font-size:11px;color:var(--text3);padding:12px 0">Fehler beim Laden: ${e.message}</div>`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  GSC Widget
+// ═══════════════════════════════════════════════════════════════════
+const GSC_TOKEN_KEY     = 'sr_gsc_token';
+const GSC_TOKEN_EXP_KEY = 'sr_gsc_token_exp';
+const GSC_BASE          = 'https://searchconsole.googleapis.com/webmasters/v3';
+
+async function loadGscWidget() {
+  const token = sessionStorage.getItem(GSC_TOKEN_KEY);
+  const exp   = parseInt(sessionStorage.getItem(GSC_TOKEN_EXP_KEY) || '0');
+  if (!token || Date.now() > exp - 60000) return;
+
+  document.getElementById('gsc-pill').className = 'db-pill ok';
+  document.getElementById('gsc-pill').innerHTML =
+    '<span class="db-pill-dot" style="background:#34d399;box-shadow:0 0 5px #34d399"></span>Verbunden';
+
+  try {
+    // Get properties
+    const sites = await fetch(GSC_BASE + '/sites', {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(r => r.json());
+    const props = (sites.siteEntry || []);
+    if (!props.length) return;
+
+    // Use first property
+    const prop = props[0].siteUrl;
+
+    const end   = new Date(); end.setDate(end.getDate() - 3);
+    const start = new Date(end); start.setDate(start.getDate() - 6);
+    const isoDate = d => d.toISOString().slice(0,10);
+
+    // Daily data for chart
+    const dailyData = await fetch(GSC_BASE + `/sites/${encodeURIComponent(prop)}/searchAnalytics/query`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        startDate: isoDate(start), endDate: isoDate(end),
+        dimensions: ['date'], rowLimit: 30
+      })
+    }).then(r => r.json());
+
+    // Summary (all properties combined via first)
+    const rows = dailyData.rows || [];
+    const totClicks = rows.reduce((s,r) => s + r.clicks, 0);
+    const totImpr   = rows.reduce((s,r) => s + r.impressions, 0);
+    const avgPos    = rows.length ? rows.reduce((s,r) => s + r.position, 0) / rows.length : 0;
+    const avgCtr    = rows.length ? rows.reduce((s,r) => s + r.ctr, 0) / rows.length * 100 : 0;
+
+    // Update KPI
+    document.getElementById('kpi-gsc').textContent     = fmtBig(totClicks);
+    document.getElementById('kpi-gsc-sub').textContent = `Ø Pos. ${avgPos.toFixed(1)}`;
+
+    // Top queries
+    const topData = await fetch(GSC_BASE + `/sites/${encodeURIComponent(prop)}/searchAnalytics/query`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        startDate: isoDate(start), endDate: isoDate(end),
+        dimensions: ['query'], rowLimit: 5
+      })
+    }).then(r => r.json());
+    const topQueries = (topData.rows || []).slice(0, 5);
+
+    // Widget body
+    const clicks = rows.map(r => r.clicks);
+    document.getElementById('gsc-widget-body').innerHTML = `
+      <div class="db-stat-pair" style="margin-bottom:14px">
+        <div class="db-stat-mini">
+          <div class="db-stat-mini-lbl">7T Klicks</div>
+          <div class="db-stat-mini-val" style="color:#34d399">${fmtBig(totClicks)}</div>
+        </div>
+        <div class="db-stat-mini">
+          <div class="db-stat-mini-lbl">Impressionen</div>
+          <div class="db-stat-mini-val" style="color:#60a5fa">${fmtBig(totImpr)}</div>
+        </div>
+        <div class="db-stat-mini">
+          <div class="db-stat-mini-lbl">Ø Position</div>
+          <div class="db-stat-mini-val" style="color:#a78bfa">${avgPos.toFixed(1)}</div>
+        </div>
+        <div class="db-stat-mini">
+          <div class="db-stat-mini-lbl">Ø CTR</div>
+          <div class="db-stat-mini-val" style="color:#f59e0b">${avgCtr.toFixed(1)}%</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:6px">Klicks letzter 7 Tage</div>
+      ${renderSparkSvg(clicks, '#34d399', 60)}
+      ${topQueries.length ? `
+        <div style="margin-top:14px">
+          <div style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">Top Keywords</div>
+          ${topQueries.map((q,i) => `
+            <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(35,46,66,.4)">
+              <span style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;width:14px;flex-shrink:0">${i+1}</span>
+              <span style="font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(q.keys[0])}</span>
+              <span style="font-size:10px;color:#34d399;font-family:'Space Mono',monospace;flex-shrink:0">${fmtBig(q.clicks)} Kl.</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    `;
+  } catch(e) {
+    document.getElementById('gsc-widget-body').innerHTML =
+      `<div style="font-size:11px;color:var(--text3);padding:12px 0">Fehler: ${e.message}</div>`;
+  }
+}
+
+// ─── SVG Sparkline ───────────────────────────────────────────────────
+function renderSparkSvg(values, color, height = 70) {
+  if (!values.length) return '';
+  const W   = 600; const H = height;
+  const PAD = { t: 4, r: 4, b: 4, l: 4 };
+  const iW  = W - PAD.l - PAD.r;
+  const iH  = H - PAD.t - PAD.b;
+  const max = Math.max(...values, 0.001);
+  const xs  = i => PAD.l + (i / Math.max(values.length - 1, 1)) * iW;
+  const ys  = v => PAD.t + iH - (v / max) * iH;
+  const pts = values.map((v,i) => `${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join(' ');
+  const area = `M${PAD.l},${PAD.t+iH} L${pts.replace(/ /g,' L')} L${xs(values.length-1)},${PAD.t+iH} Z`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${height}px;display:block;overflow:visible">
+    <defs>
+      <linearGradient id="sg${color.replace('#','')}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.25"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
+      </linearGradient>
+    </defs>
+    <path d="${area}" fill="url(#sg${color.replace('#','')})"/>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    ${values.length <= 20 ? values.map((v,i) =>
+      `<circle cx="${xs(i).toFixed(1)}" cy="${ys(v).toFixed(1)}" r="3" fill="${color}" stroke="var(--surface)" stroke-width="1.5"/>`
+    ).join('') : ''}
+  </svg>`;
+}
+
+// ─── Format helpers ──────────────────────────────────────────────────
+function fmtMoney(v) {
+  if (v >= 1000) return (v/1000).toFixed(2) + 'K';
+  return v.toFixed(2);
+}
+function fmtBig(v) {
+  if (v >= 1000000) return (v/1000000).toFixed(1) + 'M';
+  if (v >= 1000)    return (v/1000).toFixed(1) + 'K';
+  return Math.round(v).toString();
+}
+
+// ─── Boot ────────────────────────────────────────────────────────────
 injectLoginScreen();
 checkAuth(() => {
   initLayout(null);
-  loadOverview();
+  initGreeting();
+  loadInternalData();
+  loadRevenueWidget();
+  loadGscWidget();
+  refreshIcons();
 });
 
 window.initAfterLogin = () => {
   initLayout(null);
-  loadOverview();
+  initGreeting();
+  loadInternalData();
+  loadRevenueWidget();
+  loadGscWidget();
+  refreshIcons();
 };
+
+// Auto-refresh internal data every 60 seconds
+setInterval(() => {
+  if (document.getElementById('db-scroll')) loadInternalData();
+}, 60000);
 </script>
 </body>
 </html>
