@@ -754,7 +754,7 @@ async function loadTimeSeries() {
     const p = baseParams({
       dimensions: 'DATE',
     });
-    const metricsMain = ['ESTIMATED_EARNINGS','AD_REQUESTS_IMPRESSIONS','CLICKS','PAGE_VIEWS_RPM','AD_REQUESTS_CTR'];
+    const metricsMain = ['ESTIMATED_EARNINGS','IMPRESSIONS','CLICKS','IMPRESSIONS_RPM','IMPRESSIONS_CTR'];
     const qMain = new URLSearchParams(p);
     metricsMain.forEach(m => qMain.append('metrics', m));
     const data = await asGet(`/${rvAccountId}/reports:generate?${qMain}`);
@@ -913,7 +913,7 @@ async function loadSites() {
   try {
     const pSites = baseParams({ dimensions: 'AD_CLIENT_ID' });
     const qSites = new URLSearchParams(pSites);
-    ['ESTIMATED_EARNINGS','AD_REQUESTS_IMPRESSIONS','CLICKS','PAGE_VIEWS_RPM','AD_REQUESTS_CTR']
+    ['ESTIMATED_EARNINGS','IMPRESSIONS','CLICKS','IMPRESSIONS_RPM','IMPRESSIONS_CTR']
       .forEach(m => qSites.append('metrics', m));
     const data = await asGet(`/${rvAccountId}/reports:generate?${qSites}`);
     sitesData = (data.rows || []).map(r => ({
@@ -1043,7 +1043,7 @@ async function loadDevices() {
   try {
     const pDev = baseParams({ dimensions: 'PLATFORM_TYPE_CODE' });
     const qDev = new URLSearchParams(pDev);
-    ['ESTIMATED_EARNINGS','AD_REQUESTS_IMPRESSIONS','CLICKS'].forEach(m => qDev.append('metrics', m));
+    ['ESTIMATED_EARNINGS','IMPRESSIONS','CLICKS'].forEach(m => qDev.append('metrics', m));
     const data = await asGet(`/${rvAccountId}/reports:generate?${qDev}`);
     const rows = (data.rows || []).sort((a,b) =>
       parseFloat(b.cells?.[1]?.value||0) - parseFloat(a.cells?.[1]?.value||0));
