@@ -445,18 +445,32 @@
 // dashboard password. Values are encrypted with AES-256-GCM client-side.
 // The server stores only encrypted blobs and never sees plaintext.
 
-const VAULT_PW_HASH_KEY = 'vault_pw_hash';
+const VAULT_SALT_KEY    = 'vault_pbkdf2_salt';   // random per-device salt
+const VAULT_CHECK_KEY   = 'vault_pw_check';      // encrypted canary for pw verification
 const VAULT_SESSION_KEY = 'vault_session_ok';
 let   vaultCryptoKey    = null;   // CryptoKey derived from vault password
-let   allEntries        = [];     // decrypted entry objects
+let   allEntries        = [];     // { ...dbFields, _id } – NO plaintext stored here
+let   decryptedCache    = new Map(); // id → plaintext, only populated on explicit reveal
 let   clipTimer         = null;
 
 // ── Crypto helpers ─────────────────────────────────────────────────
+// Get or generate a random per-device salt (stored in localStorage as hex)
+function getOrCreateSalt() {
+  let hex = localStorage.getItem(VAULT_SALT_KEY);
+  if (!hex || hex.length < 32) {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    hex = Array.from(bytes).map(b => b.toString(16).padStart(2,'0')).join('');
+    localStorage.setItem(VAULT_SALT_KEY, hex);
+  }
+  return Uint8Array.from(hex.match(/.{2}/g), h => parseInt(h, 16));
+}
+
 async function deriveKey(password) {
   const enc  = new TextEncoder();
+  const salt = getOrCreateSalt();  // unique per device, not hardcoded
   const raw  = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: enc.encode('webcontrol-hq-vault-v1'), iterations: 200000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' },
     raw,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -487,9 +501,20 @@ async function decryptValue(cryptoKey, b64) {
   }
 }
 
-async function hashPassword(pw) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw + ':vault-check'));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+// Store an encrypted canary to verify the password is correct on next unlock.
+// We encrypt a known string; if decryption succeeds → password is right.
+const CANARY_PLAINTEXT = 'vault-ok';
+
+async function saveCanary(cryptoKey) {
+  const blob = await encryptValue(cryptoKey, CANARY_PLAINTEXT);
+  localStorage.setItem(VAULT_CHECK_KEY, blob);
+}
+
+async function verifyCanary(cryptoKey) {
+  const blob = localStorage.getItem(VAULT_CHECK_KEY);
+  if (!blob) return true; // first use – no canary yet
+  const result = await decryptValue(cryptoKey, blob);
+  return result === CANARY_PLAINTEXT;
 }
 
 // ── Vault lock/unlock ──────────────────────────────────────────────
@@ -504,13 +529,12 @@ async function unlockVault() {
   refreshIcons();
 
   try {
-    // Derive key
+    // Derive key from password + random per-device salt
     const key = await deriveKey(pw);
-    const h   = await hashPassword(pw);
 
-    // Check against stored hash OR first-time setup
-    const stored = localStorage.getItem(VAULT_PW_HASH_KEY);
-    if (stored && stored !== h) {
+    // Verify via encrypted canary (no hash of password stored anywhere)
+    const ok = await verifyCanary(key);
+    if (!ok) {
       err.textContent = 'Falsches Vault-Passwort';
       btn.disabled = false;
       btn.innerHTML = '<i data-lucide="unlock" style="width:15px;height:15px"></i> Vault öffnen';
@@ -519,7 +543,8 @@ async function unlockVault() {
       setTimeout(() => document.getElementById('vault-lock-box')?.classList.remove('login-shake'), 400);
       return;
     }
-    if (!stored) localStorage.setItem(VAULT_PW_HASH_KEY, h);
+    // First use: save canary so future unlocks can verify the password
+    if (!localStorage.getItem(VAULT_CHECK_KEY)) await saveCanary(key);
 
     vaultCryptoKey = key;
     sessionStorage.setItem(VAULT_SESSION_KEY, '1');
@@ -538,6 +563,7 @@ async function unlockVault() {
 function lockVault() {
   vaultCryptoKey = null;
   allEntries = [];
+  decryptedCache.clear();
   sessionStorage.removeItem(VAULT_SESSION_KEY);
   document.getElementById('vault-lock').classList.remove('unlocked');
   document.getElementById('vault-content').innerHTML = '';
@@ -558,17 +584,25 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ── Load & decrypt entries ─────────────────────────────────────────
+// ── Load entries – NO bulk decryption, NO plaintext in memory ────────
 async function loadEntries() {
   const raw = await api('/api/vault');
   if (!raw) { document.getElementById('vault-content').innerHTML = '<div class="empty">API nicht erreichbar</div>'; return; }
-  // Decrypt each entry's value
-  allEntries = await Promise.all(raw.map(async entry => {
-    const decrypted = await decryptValue(vaultCryptoKey, entry.encrypted_value);
-    return { ...entry, _plaintext: decrypted };
-  }));
+  // Store only the encrypted blobs + metadata – never plaintext at this stage
+  allEntries = raw;
+  decryptedCache.clear();
   populateSiteFilter();
   renderEntries();
+}
+
+// Decrypt a single entry on demand and cache it for the session
+async function getPlaintext(id) {
+  if (decryptedCache.has(id)) return decryptedCache.get(id);
+  const entry = allEntries.find(e => e.id === id);
+  if (!entry) return null;
+  const plain = await decryptValue(vaultCryptoKey, entry.encrypted_value);
+  if (plain !== null) decryptedCache.set(id, plain);
+  return plain;
 }
 
 // ── Site filter dropdown ───────────────────────────────────────────
@@ -655,10 +689,9 @@ const CAT_CONFIG = {
 
 function entryCardHtml(e) {
   const cat  = CAT_CONFIG[e.category] || CAT_CONFIG.other;
-  const ok   = e._plaintext !== null;
   const mask = '•'.repeat(24);
+  // NO plaintext written into the DOM – value element starts empty/masked
   return `<div class="vault-card" data-id="${e.id}">
-    <div class="vault-card::before card-stripe-${e.category}"></div>
     <div style="position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:12px 0 0 12px;background:${catStripeColor(e.category)}"></div>
     <div class="vault-card-head">
       <div class="vault-cat-icon icon-${e.category}">${cat.emoji}</div>
@@ -677,15 +710,13 @@ function entryCardHtml(e) {
     </div>
     ${e.username ? `<div class="vault-username"><i data-lucide="user" style="width:10px;height:10px;margin-right:4px"></i>${esc(e.username)}</div>` : ''}
     <div class="vault-value-row">
-      <div class="vault-value-text hidden" id="val-${e.id}" data-plain="${ok ? esc(e._plaintext||'') : ''}">${ok ? mask : '⚠ Entschlüsselung fehlgeschlagen'}</div>
-      ${ok ? `
-        <button class="vault-icon-btn" onclick="toggleValue(${e.id})" title="Anzeigen/Verbergen" id="eye-btn-${e.id}">
-          <i data-lucide="eye" style="width:13px;height:13px"></i>
-        </button>
-        <button class="vault-icon-btn" onclick="copyValue(${e.id}, this)" title="Kopieren (30s)">
-          <i data-lucide="copy" style="width:13px;height:13px"></i>
-        </button>
-      ` : ''}
+      <div class="vault-value-text hidden" id="val-${e.id}">${mask}</div>
+      <button class="vault-icon-btn" onclick="toggleValue(${e.id})" title="Anzeigen/Verbergen" id="eye-btn-${e.id}">
+        <i data-lucide="eye" style="width:13px;height:13px"></i>
+      </button>
+      <button class="vault-icon-btn" onclick="copyValue(${e.id})" title="Kopieren (30s)">
+        <i data-lucide="copy" style="width:13px;height:13px"></i>
+      </button>
     </div>
     ${e.notes ? `<div class="vault-notes">${esc(e.notes)}</div>` : ''}
   </div>`;
@@ -700,33 +731,36 @@ function catStripeColor(cat) {
   return colors[cat] || 'var(--text3)';
 }
 
-// ── Show/hide value ────────────────────────────────────────────────
+// ── Show/hide value — decrypts on demand, never stores in DOM ──────
 const shownValues = new Set();
-function toggleValue(id) {
+async function toggleValue(id) {
   const el  = document.getElementById(`val-${id}`);
   const btn = document.getElementById(`eye-btn-${id}`);
   if (!el) return;
-  const plain = el.dataset.plain;
+
   if (shownValues.has(id)) {
+    // Hide: overwrite DOM text with mask immediately
     shownValues.delete(id);
-    el.textContent  = '•'.repeat(24);
+    el.textContent = '•'.repeat(24);
     el.classList.add('hidden');
     btn.innerHTML = '<i data-lucide="eye" style="width:13px;height:13px"></i>';
   } else {
+    // Decrypt on first reveal, then serve from in-memory cache
+    const plain = await getPlaintext(id);
+    if (plain === null) { el.textContent = '⚠ Entschlüsselung fehlgeschlagen'; return; }
     shownValues.add(id);
-    el.textContent  = plain;
+    el.textContent = plain;          // written to DOM text node only, not as attribute
     el.classList.remove('hidden');
     btn.innerHTML = '<i data-lucide="eye-off" style="width:13px;height:13px"></i>';
   }
   refreshIcons();
 }
 
-// ── Copy with auto-clear ───────────────────────────────────────────
+// ── Copy with auto-clear — decrypts on demand, never touches DOM ──
 let clipCountdown = null;
-async function copyValue(id, btn) {
-  const el = document.getElementById(`val-${id}`);
-  if (!el) return;
-  const plain = el.dataset.plain;
+async function copyValue(id) {
+  const plain = await getPlaintext(id);
+  if (!plain) return;
   await navigator.clipboard.writeText(plain);
   // Show notice
   clearTimeout(clipTimer);
@@ -745,17 +779,19 @@ async function copyValue(id, btn) {
 }
 
 // ── Entry Modal ────────────────────────────────────────────────────
-function openEntryModal(id) {
+ async function openEntryModal(id) {
   const e = id ? allEntries.find(e => e.id === id) : null;
   document.getElementById('entry-edit-id').value  = e ? e.id : '';
   document.getElementById('entry-label').value    = e ? e.label : '';
   document.getElementById('entry-site').value     = e ? (e.site_id || '') : '';
   document.getElementById('entry-category').value = e ? (e.category || 'api_key') : 'api_key';
   document.getElementById('entry-username').value = e ? (e.username || '') : '';
-  document.getElementById('entry-value').value    = e ? (e._plaintext || '') : '';
-  document.getElementById('entry-notes').value    = e ? (e.notes || '') : '';
+  // Decrypt on demand for the edit form (only when explicitly opened)
+  const plainForEdit = e ? (await getPlaintext(e.id) || '') : '';
+  document.getElementById('entry-value').value = plainForEdit;
+  document.getElementById('entry-notes').value = e ? (e.notes || '') : '';
   document.getElementById('entry-modal-title').textContent = e ? 'Eintrag bearbeiten' : 'Neuer Eintrag';
-  document.getElementById('entry-del-btn').style.display  = e ? '' : 'none';
+  document.getElementById('entry-del-btn').style.display = e ? '' : 'none';
   document.getElementById('entry-overlay').classList.add('open');
   refreshIcons();
   setTimeout(() => document.getElementById('entry-label').focus(), 80);
