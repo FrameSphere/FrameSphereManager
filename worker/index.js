@@ -984,6 +984,136 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
+  // ── PINBOARD ───────────────────────────────────────────────────────
+
+  async function ensurePinboardTables(db) {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS pinboard_boards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      color TEXT DEFAULT '#3b82f6',
+      icon TEXT DEFAULT 'layout-grid',
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS pinboard_pins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      board_id INTEGER NOT NULL,
+      type TEXT DEFAULT 'idea',
+      title TEXT NOT NULL,
+      content TEXT DEFAULT '',
+      color TEXT DEFAULT '',
+      tags TEXT DEFAULT '',
+      sub_items TEXT DEFAULT '[]',
+      todo_task_id INTEGER,
+      pinned INTEGER DEFAULT 0,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`).run();
+    for (const col of ['color TEXT DEFAULT \'\'', 'pinned INTEGER DEFAULT 0', 'sort_order INTEGER DEFAULT 0']) {
+      await db.prepare(`ALTER TABLE pinboard_pins ADD COLUMN ${col}`).run().catch(() => {});
+    }
+  }
+
+  // GET /api/pinboard/boards
+  if (request.method === 'GET' && path === '/api/pinboard/boards') {
+    await ensurePinboardTables(env.DB);
+    const res = await env.DB.prepare('SELECT * FROM pinboard_boards ORDER BY sort_order ASC, created_at ASC').all();
+    return json(res.results);
+  }
+
+  // POST /api/pinboard/boards
+  if (request.method === 'POST' && path === '/api/pinboard/boards') {
+    await ensurePinboardTables(env.DB);
+    const body = await request.json().catch(() => ({}));
+    if (!body.title) return err('Titel erforderlich');
+    const r = await env.DB.prepare(
+      'INSERT INTO pinboard_boards (title, color, icon, sort_order) VALUES (?,?,?,?)'
+    ).bind(body.title, body.color || '#3b82f6', body.icon || 'layout-grid', body.sort_order || 0).run();
+    return json({ success: true, id: r.meta.last_row_id });
+  }
+
+  // PATCH /api/pinboard/boards/:id
+  if (request.method === 'PATCH' && segments[1] === 'pinboard' && segments[2] === 'boards' && segments[3]) {
+    await ensurePinboardTables(env.DB);
+    const body = await request.json().catch(() => ({}));
+    const sets = []; const params = [];
+    if (body.title      !== undefined) { sets.push('title=?');      params.push(body.title); }
+    if (body.color      !== undefined) { sets.push('color=?');      params.push(body.color); }
+    if (body.icon       !== undefined) { sets.push('icon=?');       params.push(body.icon); }
+    if (body.sort_order !== undefined) { sets.push('sort_order=?'); params.push(body.sort_order); }
+    if (!sets.length) return err('Nothing to update');
+    await env.DB.prepare(`UPDATE pinboard_boards SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[3]).run();
+    return json({ success: true });
+  }
+
+  // DELETE /api/pinboard/boards/:id
+  if (request.method === 'DELETE' && segments[1] === 'pinboard' && segments[2] === 'boards' && segments[3]) {
+    await env.DB.prepare('DELETE FROM pinboard_pins WHERE board_id=?').bind(segments[3]).run();
+    await env.DB.prepare('DELETE FROM pinboard_boards WHERE id=?').bind(segments[3]).run();
+    return json({ success: true });
+  }
+
+  // GET /api/pinboard/pins?board_id=
+  if (request.method === 'GET' && path === '/api/pinboard/pins') {
+    await ensurePinboardTables(env.DB);
+    const boardId = url.searchParams.get('board_id');
+    let q = 'SELECT * FROM pinboard_pins WHERE 1=1';
+    const params = [];
+    if (boardId) { q += ' AND board_id=?'; params.push(boardId); }
+    q += ' ORDER BY pinned DESC, sort_order ASC, created_at DESC';
+    const res = await env.DB.prepare(q).bind(...params).all();
+    return json(res.results);
+  }
+
+  // POST /api/pinboard/pins
+  if (request.method === 'POST' && path === '/api/pinboard/pins') {
+    await ensurePinboardTables(env.DB);
+    const body = await request.json().catch(() => ({}));
+    if (!body.title || !body.board_id) return err('Titel und Board erforderlich');
+    // Optional: create linked todo
+    let todoTaskId = body.todo_task_id || null;
+    if (body.create_todo && !todoTaskId) {
+      const tr = await env.DB.prepare(
+        'INSERT INTO todo_tasks (title, notes, priority) VALUES (?,?,3)'
+      ).bind(body.title, body.content || null).run();
+      todoTaskId = tr.meta.last_row_id;
+    }
+    const r = await env.DB.prepare(
+      'INSERT INTO pinboard_pins (board_id, type, title, content, color, tags, sub_items, todo_task_id, pinned, sort_order) VALUES (?,?,?,?,?,?,?,?,0,0)'
+    ).bind(
+      body.board_id, body.type || 'idea', body.title,
+      body.content || '', body.color || '',
+      body.tags || '', body.sub_items ? JSON.stringify(body.sub_items) : '[]',
+      todoTaskId
+    ).run();
+    return json({ success: true, id: r.meta.last_row_id, todo_task_id: todoTaskId });
+  }
+
+  // PATCH /api/pinboard/pins/:id
+  if (request.method === 'PATCH' && segments[1] === 'pinboard' && segments[2] === 'pins' && segments[3]) {
+    const body = await request.json().catch(() => ({}));
+    const sets = []; const params = [];
+    if (body.title        !== undefined) { sets.push('title=?');        params.push(body.title); }
+    if (body.content      !== undefined) { sets.push('content=?');      params.push(body.content); }
+    if (body.type         !== undefined) { sets.push('type=?');         params.push(body.type); }
+    if (body.color        !== undefined) { sets.push('color=?');        params.push(body.color); }
+    if (body.tags         !== undefined) { sets.push('tags=?');         params.push(body.tags); }
+    if (body.sub_items    !== undefined) { sets.push('sub_items=?');    params.push(typeof body.sub_items === 'string' ? body.sub_items : JSON.stringify(body.sub_items)); }
+    if (body.todo_task_id !== undefined) { sets.push('todo_task_id=?'); params.push(body.todo_task_id); }
+    if (body.pinned       !== undefined) { sets.push('pinned=?');       params.push(body.pinned ? 1 : 0); }
+    if (body.sort_order   !== undefined) { sets.push('sort_order=?');   params.push(body.sort_order); }
+    if (body.board_id     !== undefined) { sets.push('board_id=?');     params.push(body.board_id); }
+    if (!sets.length) return err('Nothing to update');
+    await env.DB.prepare(`UPDATE pinboard_pins SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[3]).run();
+    return json({ success: true });
+  }
+
+  // DELETE /api/pinboard/pins/:id
+  if (request.method === 'DELETE' && segments[1] === 'pinboard' && segments[2] === 'pins' && segments[3]) {
+    await env.DB.prepare('DELETE FROM pinboard_pins WHERE id=?').bind(segments[3]).run();
+    return json({ success: true });
+  }
+
   // ── DB EXPLORER ───────────────────────────────────────────────────
   const EXPLORER_TABLES = [
     'todo_tasks', 'todo_prompts', 'notifications', 'support_tickets',

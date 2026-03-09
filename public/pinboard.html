@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pin Board – WebControl HQ</title>
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    /* ── Board tabs bar ── */
+    .pb-tabs-bar {
+      display: flex; align-items: center; gap: 0;
+      padding: 0 28px; background: var(--bg2);
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+      overflow-x: auto; min-height: 46px;
+    }
+    .pb-tab {
+      display: flex; align-items: center; gap: 7px;
+      padding: 0 18px; height: 46px; font-size: 12px; font-weight: 700;
+      letter-spacing: .05em; color: var(--text3); cursor: pointer;
+      border-bottom: 2px solid transparent; white-space: nowrap;
+      background: none; border-top: none; border-left: none; border-right: none;
+      font-family: inherit; transition: color .15s, border-color .15s;
+    }
+    .pb-tab:hover:not(.active) { color: var(--text1); }
+    .pb-tab.active { color: var(--accent2); border-bottom-color: var(--accent2); }
+    .pb-tab-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .pb-tab-add {
+      padding: 0 14px; height: 46px; font-size: 18px; color: var(--text3);
+      cursor: pointer; background: none; border: none; font-family: inherit;
+      transition: color .15s; display: flex; align-items: center;
+    }
+    .pb-tab-add:hover { color: var(--accent2); }
+
+    /* ── Toolbar ── */
+    .pb-toolbar {
+      display: flex; align-items: center; gap: 10px; padding: 14px 28px;
+      border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap;
+      background: var(--bg2);
+    }
+    .pb-toolbar input[type="text"] {
+      padding: 6px 12px; font-size: 12px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 7px; color: var(--text1);
+      font-family: inherit; outline: none; width: 200px;
+    }
+    .pb-toolbar input:focus { border-color: var(--accent2); }
+    .pb-filter-btn {
+      padding: 5px 12px; font-size: 11px; font-weight: 700; border-radius: 6px;
+      border: 1px solid var(--border); background: none; color: var(--text2);
+      cursor: pointer; font-family: inherit; transition: all .12s;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .pb-filter-btn:hover { border-color: var(--border2); color: var(--text1); }
+    .pb-filter-btn.on { background: var(--surface2); border-color: var(--border2); color: var(--text1); }
+    .pb-filter-btn .dot { width: 7px; height: 7px; border-radius: 50%; }
+
+    /* ── Pin Grid ── */
+    .pb-scroll { flex: 1; overflow-y: auto; padding: 24px 28px; }
+    .pb-grid {
+      columns: 4 280px; column-gap: 14px;
+    }
+    .pb-pin-wrap { break-inside: avoid; margin-bottom: 14px; display: block; }
+
+    /* ── Pin Card ── */
+    .pb-pin {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 0; overflow: hidden;
+      transition: border-color .15s, transform .12s, box-shadow .15s;
+      cursor: pointer; position: relative;
+    }
+    .pb-pin:hover { border-color: rgba(255,255,255,.2); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+    .pb-pin.pinned-card { border-color: rgba(251,191,36,.3); }
+    .pb-pin-top {
+      height: 5px; width: 100%; flex-shrink: 0;
+    }
+    .pb-pin-body { padding: 14px 16px 12px; }
+    .pb-pin-header { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+    .pb-type-icon {
+      font-size: 15px; flex-shrink: 0; margin-top: 1px;
+      width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+      border-radius: 6px;
+    }
+    .pb-pin-title {
+      font-size: 13px; font-weight: 700; color: var(--text1);
+      line-height: 1.4; flex: 1; word-break: break-word;
+    }
+    .pb-pin-content {
+      font-size: 11px; color: var(--text2); line-height: 1.6;
+      margin-bottom: 10px; white-space: pre-wrap; word-break: break-word;
+    }
+    .pb-pin-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+    .pb-tag {
+      font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 10px;
+      background: rgba(255,255,255,.06); color: var(--text2); border: 1px solid var(--border);
+    }
+    .pb-pin-sub { margin-bottom: 10px; }
+    .pb-sub-item {
+      display: flex; align-items: flex-start; gap: 7px; padding: 4px 0;
+      font-size: 11px; color: var(--text2); line-height: 1.4;
+    }
+    .pb-sub-check {
+      flex-shrink: 0; width: 13px; height: 13px; border-radius: 3px;
+      border: 1.5px solid var(--border); margin-top: 1px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .12s; cursor: pointer; background: var(--bg);
+    }
+    .pb-sub-check.done { background: var(--green); border-color: var(--green); }
+    .pb-sub-check.done::after { content: '✓'; font-size: 8px; color: #fff; font-weight: 800; }
+    .pb-sub-text { flex: 1; }
+    .pb-sub-text.done { text-decoration: line-through; color: var(--text3); }
+    .pb-sub-more { font-size: 10px; color: var(--text3); padding: 2px 0; }
+
+    .pb-pin-footer {
+      display: flex; align-items: center; gap: 6px; padding: 8px 16px 12px;
+      flex-wrap: wrap;
+    }
+    .pb-todo-link {
+      display: flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700;
+      padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(96,165,250,.25);
+      background: rgba(96,165,250,.07); color: #60a5fa; text-decoration: none;
+    }
+    .pb-todo-link.done { border-color: rgba(34,197,94,.25); background: rgba(34,197,94,.07); color: #34d399; text-decoration: line-through; }
+    .pb-pin-date { font-size: 9px; color: var(--text3); font-family: 'Space Mono', monospace; margin-left: auto; }
+
+    /* Pin hover actions */
+    .pb-pin-actions {
+      position: absolute; top: 9px; right: 10px;
+      display: flex; gap: 3px; opacity: 0; transition: opacity .15s;
+    }
+    .pb-pin:hover .pb-pin-actions { opacity: 1; }
+    .pb-act {
+      width: 24px; height: 24px; border-radius: 6px; border: none;
+      background: var(--surface2); color: var(--text2);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      font-size: 11px; transition: background .12s; border: 1px solid var(--border);
+    }
+    .pb-act:hover { background: var(--bg); color: var(--text1); }
+    .pb-act.pinned-act { color: var(--yellow); }
+
+    /* Pinned indicator */
+    .pb-pinned-badge {
+      position: absolute; top: 12px; left: 12px; font-size: 12px; opacity: .8;
+    }
+
+    /* ── Empty board ── */
+    .pb-empty {
+      text-align: center; padding: 80px 20px; color: var(--text3);
+    }
+    .pb-empty-icon { font-size: 48px; margin-bottom: 16px; opacity: .3; }
+    .pb-empty-title { font-size: 16px; font-weight: 700; margin-bottom: 8px; color: var(--text2); }
+    .pb-empty-sub { font-size: 12px; line-height: 1.6; }
+
+    /* ── Welcome (no boards) ── */
+    .pb-welcome {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+      color: var(--text3);
+    }
+
+    /* ── Modals ── */
+    .pb-overlay {
+      display: none; position: fixed; inset: 0; z-index: 9000;
+      background: rgba(0,0,0,.78); backdrop-filter: blur(5px);
+      align-items: center; justify-content: center;
+    }
+    .pb-overlay.open { display: flex; }
+
+    /* Pin Modal */
+    .pb-pin-modal {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+      width: min(720px, 97vw); max-height: 92vh; overflow-y: auto;
+      display: flex; flex-direction: column;
+    }
+    .pb-modal-head {
+      padding: 20px 24px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .pb-modal-title { font-size: 14px; font-weight: 800; }
+    .pb-modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+    .pb-modal-foot {
+      padding: 14px 24px; border-top: 1px solid var(--border);
+      display: flex; gap: 8px; justify-content: flex-end; flex-shrink: 0; flex-wrap: wrap;
+    }
+    .pb-modal-label {
+      font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--text3); display: block; margin-bottom: 5px;
+    }
+    .pb-modal-input {
+      width: 100%; box-sizing: border-box; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text1);
+      font-family: inherit; font-size: 13px; padding: 9px 12px; outline: none;
+    }
+    .pb-modal-input:focus { border-color: var(--accent2); }
+    .pb-modal-textarea {
+      width: 100%; box-sizing: border-box; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--text1);
+      font-family: inherit; font-size: 12px; padding: 10px 12px; outline: none;
+      min-height: 100px; resize: vertical; line-height: 1.6;
+    }
+    .pb-modal-textarea:focus { border-color: var(--accent2); }
+
+    /* Type selector */
+    .pb-type-sel { display: flex; gap: 6px; flex-wrap: wrap; }
+    .pb-type-opt {
+      flex: 1; min-width: 120px; padding: 10px 14px; border-radius: 10px;
+      border: 1.5px solid var(--border); background: var(--bg); cursor: pointer;
+      display: flex; align-items: center; gap: 9px; transition: all .15s;
+      font-family: inherit;
+    }
+    .pb-type-opt:hover { border-color: var(--border2); }
+    .pb-type-opt.sel { background: var(--surface2); }
+    .pb-type-opt-icon { font-size: 18px; }
+    .pb-type-opt-label { font-size: 12px; font-weight: 700; color: var(--text2); }
+
+    /* Color picker */
+    .pb-color-sel { display: flex; gap: 6px; flex-wrap: wrap; }
+    .pb-color-opt {
+      width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+      border: 2.5px solid transparent; transition: transform .12s, border-color .12s;
+    }
+    .pb-color-opt:hover { transform: scale(1.15); }
+    .pb-color-opt.sel { border-color: white; transform: scale(1.1); }
+
+    /* Sub-items editor */
+    .pb-sub-editor { display: flex; flex-direction: column; gap: 5px; }
+    .pb-sub-edit-item {
+      display: flex; align-items: center; gap: 7px; padding: 6px 10px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 7px;
+    }
+    .pb-sub-edit-item input {
+      flex: 1; background: none; border: none; color: var(--text1);
+      font-family: inherit; font-size: 12px; outline: none; padding: 0;
+    }
+    .pb-sub-edit-check {
+      flex-shrink: 0; width: 14px; height: 14px; border-radius: 3px;
+      border: 1.5px solid var(--border); cursor: pointer; background: var(--bg);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .pb-sub-edit-check.done { background: var(--green); border-color: var(--green); }
+    .pb-sub-edit-check.done::after { content: '✓'; font-size: 8px; color: #fff; font-weight: 800; }
+
+    /* Todo integration section */
+    .pb-todo-section {
+      background: rgba(59,130,246,.05); border: 1px solid rgba(59,130,246,.15);
+      border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .pb-todo-section label {
+      font-size: 12px; font-weight: 600; color: var(--text2);
+      display: flex; align-items: center; gap: 7px; cursor: pointer;
+      text-transform: none; letter-spacing: 0;
+    }
+
+    /* Board modal */
+    .pb-board-modal {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      width: min(480px, 95vw); padding: 24px; display: flex; flex-direction: column; gap: 14px;
+    }
+
+    /* Board icon picker */
+    .pb-icon-grid {
+      display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px;
+    }
+    .pb-icon-opt {
+      width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--bg); cursor: pointer; display: flex; align-items: center;
+      justify-content: center; color: var(--text2); transition: all .12s;
+    }
+    .pb-icon-opt:hover { border-color: var(--border2); color: var(--text1); }
+    .pb-icon-opt.sel { border-color: var(--accent2); background: rgba(96,165,250,.1); color: var(--accent2); }
+
+    /* ── Pin type styling ── */
+    .pin-type-idea    .pb-pin-top { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .pin-type-project .pb-pin-top { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+    .pin-type-thought .pb-pin-top { background: linear-gradient(90deg, #a855f7, #c084fc); }
+    .pin-type-note    .pb-pin-top { background: linear-gradient(90deg, #22c55e, #4ade80); }
+
+    .pin-type-idea    .pb-type-icon { background: rgba(245,158,11,.15); }
+    .pin-type-project .pb-type-icon { background: rgba(59,130,246,.15); }
+    .pin-type-thought .pb-type-icon { background: rgba(168,85,247,.15); }
+    .pin-type-note    .pb-type-icon { background: rgba(34,197,94,.15); }
+
+    /* Custom color override for pin top */
+    .pb-pin[data-color] .pb-pin-top { background: attr(data-color); }
+
+    /* Sub-item progress bar */
+    .pb-sub-progress {
+      height: 2px; background: var(--border); border-radius: 1px; margin-bottom: 8px; overflow: hidden;
+    }
+    .pb-sub-progress-fill { height: 100%; background: var(--green); border-radius: 1px; transition: width .3s; }
+  </style>
+</head>
+<body>
+
+<div id="layout">
+  <div id="main">
+
+    <div class="page-header">
+      <div class="page-title" style="display:flex;align-items:center;gap:10px">
+        <i data-lucide="layout-grid" style="width:20px;height:20px;color:var(--accent2)"></i>
+        Pin Board
+      </div>
+      <div class="page-sub">Ideen · Projekte · Gedanken · Todo-Integration</div>
+    </div>
+
+    <!-- Board Tabs -->
+    <div class="pb-tabs-bar" id="pb-tabs-bar">
+      <button class="pb-tab-add" onclick="openBoardModal(null)" title="Neues Board erstellen">＋</button>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="pb-toolbar" id="pb-toolbar" style="display:none">
+      <input type="text" id="pb-search" placeholder="Pins suchen…" oninput="renderPins()" style="width:200px">
+      <div style="display:flex;gap:5px;flex-wrap:wrap" id="pb-type-filters">
+        <button class="pb-filter-btn on" data-type="all" onclick="toggleTypeFilter('all',this)">Alle</button>
+        <button class="pb-filter-btn" data-type="idea" onclick="toggleTypeFilter('idea',this)"><span class="dot" style="background:#f59e0b"></span> 💡 Idee</button>
+        <button class="pb-filter-btn" data-type="project" onclick="toggleTypeFilter('project',this)"><span class="dot" style="background:#3b82f6"></span> 📁 Projekt</button>
+        <button class="pb-filter-btn" data-type="thought" onclick="toggleTypeFilter('thought',this)"><span class="dot" style="background:#a855f7"></span> ⚡ Gedanke</button>
+        <button class="pb-filter-btn" data-type="note" onclick="toggleTypeFilter('note',this)"><span class="dot" style="background:#22c55e"></span> 📝 Notiz</button>
+      </div>
+      <div style="flex:1"></div>
+      <button class="btn btn-ghost btn-sm" onclick="openBoardModal(currentBoardId)">
+        <i data-lucide="settings-2" style="width:11px;height:11px"></i> Board
+      </button>
+      <button class="btn btn-primary btn-sm" onclick="openPinModal(null)">
+        <i data-lucide="plus" style="width:11px;height:11px"></i> Neuer Pin
+      </button>
+    </div>
+
+    <!-- Welcome -->
+    <div class="pb-welcome" id="pb-welcome">
+      <i data-lucide="layout-grid" style="width:52px;height:52px;opacity:.15"></i>
+      <div style="font-size:16px;font-weight:700;color:var(--text2)">Kein Board vorhanden</div>
+      <div style="font-size:12px;text-align:center;max-width:320px;line-height:1.7">Erstelle dein erstes Board mit dem <strong style="color:var(--text1)">＋</strong> oben, um Ideen, Projekte und Gedanken zu pinnen.</div>
+      <button class="btn btn-primary" onclick="openBoardModal(null)">
+        <i data-lucide="plus" style="width:13px;height:13px"></i> Erstes Board erstellen
+      </button>
+    </div>
+
+    <!-- Pin Grid -->
+    <div class="pb-scroll" id="pb-scroll" style="display:none">
+      <div class="pb-grid" id="pb-grid"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ── Pin Create / Edit Modal ── -->
+<div class="pb-overlay" id="pin-overlay">
+  <div class="pb-pin-modal">
+    <div class="pb-modal-head">
+      <div class="pb-modal-title" id="pin-modal-title">Neuen Pin erstellen</div>
+      <button class="btn btn-ghost btn-sm" onclick="closePinModal()" style="padding:4px 9px">✕</button>
+    </div>
+    <div class="pb-modal-body">
+      <input type="hidden" id="pin-edit-id">
+
+      <!-- Type selector -->
+      <div>
+        <div class="pb-modal-label">Typ</div>
+        <div class="pb-type-sel">
+          <button class="pb-type-opt sel" data-t="idea" onclick="selectPinType('idea',this)">
+            <span class="pb-type-opt-icon">💡</span>
+            <div><div class="pb-type-opt-label" style="color:#f59e0b">Idee</div><div style="font-size:10px;color:var(--text3)">Neue Idee</div></div>
+          </button>
+          <button class="pb-type-opt" data-t="project" onclick="selectPinType('project',this)">
+            <span class="pb-type-opt-icon">📁</span>
+            <div><div class="pb-type-opt-label" style="color:#60a5fa">Projekt</div><div style="font-size:10px;color:var(--text3)">Mit Sub-Items</div></div>
+          </button>
+          <button class="pb-type-opt" data-t="thought" onclick="selectPinType('thought',this)">
+            <span class="pb-type-opt-icon">⚡</span>
+            <div><div class="pb-type-opt-label" style="color:#c084fc">Gedanke</div><div style="font-size:10px;color:var(--text3)">Schnelle Notiz</div></div>
+          </button>
+          <button class="pb-type-opt" data-t="note" onclick="selectPinType('note',this)">
+            <span class="pb-type-opt-icon">📝</span>
+            <div><div class="pb-type-opt-label" style="color:#4ade80">Notiz</div><div style="font-size:10px;color:var(--text3)">Längerer Text</div></div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Title -->
+      <div>
+        <div class="pb-modal-label">Titel *</div>
+        <input class="pb-modal-input" type="text" id="pin-title" placeholder="z.B. Dark Mode für App implementieren">
+      </div>
+
+      <!-- Content -->
+      <div>
+        <div class="pb-modal-label">Beschreibung / Inhalt</div>
+        <textarea class="pb-modal-textarea" id="pin-content" placeholder="Details, Gedanken, Kontext…"></textarea>
+      </div>
+
+      <!-- Tags -->
+      <div>
+        <div class="pb-modal-label">Tags <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">(kommagetrennt)</span></div>
+        <input class="pb-modal-input" type="text" id="pin-tags" placeholder="UI, Idee, Priorität …">
+      </div>
+
+      <!-- Color accent -->
+      <div>
+        <div class="pb-modal-label">Akzentfarbe</div>
+        <div class="pb-color-sel" id="pin-color-sel">
+          <div class="pb-color-opt sel" data-c="" style="background:var(--border2)" title="Standard (nach Typ)"></div>
+          <div class="pb-color-opt" data-c="#f59e0b" style="background:#f59e0b" title="Gelb"></div>
+          <div class="pb-color-opt" data-c="#ef4444" style="background:#ef4444" title="Rot"></div>
+          <div class="pb-color-opt" data-c="#22c55e" style="background:#22c55e" title="Grün"></div>
+          <div class="pb-color-opt" data-c="#3b82f6" style="background:#3b82f6" title="Blau"></div>
+          <div class="pb-color-opt" data-c="#a855f7" style="background:#a855f7" title="Lila"></div>
+          <div class="pb-color-opt" data-c="#06b6d4" style="background:#06b6d4" title="Cyan"></div>
+          <div class="pb-color-opt" data-c="#f97316" style="background:#f97316" title="Orange"></div>
+          <div class="pb-color-opt" data-c="#ec4899" style="background:#ec4899" title="Pink"></div>
+        </div>
+      </div>
+
+      <!-- Sub-Items (Projekt) -->
+      <div id="pin-sub-wrap">
+        <div class="pb-modal-label">
+          Sub-Items / Aufgaben
+          <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0;margin-left:4px">für Projekte</span>
+        </div>
+        <div class="pb-sub-editor" id="pin-sub-editor"></div>
+        <div style="display:flex;gap:7px;margin-top:7px">
+          <input class="pb-modal-input" type="text" id="pin-sub-input" placeholder="Neues Sub-Item…"
+            style="flex:1;font-size:11px;padding:7px 10px"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();addPinSubItem()}">
+          <button class="btn btn-ghost btn-sm" onclick="addPinSubItem()">+ Item</button>
+        </div>
+      </div>
+
+      <!-- Todo Integration -->
+      <div class="pb-todo-section" id="pin-todo-section">
+        <div style="font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--accent2)">
+          <i data-lucide="check-square-2" style="width:11px;height:11px"></i> Todo-Integration
+        </div>
+        <label>
+          <input type="checkbox" id="pin-create-todo" style="accent-color:var(--accent2)">
+          Automatisch eine Todo-Aufgabe für diesen Pin erstellen
+        </label>
+        <div id="pin-link-todo-wrap">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:5px">Oder bestehende Todo verknüpfen:</div>
+          <select id="pin-link-todo" class="pb-modal-input" style="font-size:12px;padding:7px 10px">
+            <option value="">– Keine Verknüpfung –</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Move to board (edit only) -->
+      <div id="pin-move-wrap" style="display:none">
+        <div class="pb-modal-label">Board verschieben</div>
+        <select class="pb-modal-input" id="pin-move-board" style="font-size:12px">
+          <option value="">– Aktuelles Board behalten –</option>
+        </select>
+      </div>
+    </div>
+    <div class="pb-modal-foot">
+      <button class="btn btn-ghost" onclick="closePinModal()">Abbrechen</button>
+      <button class="btn btn-danger btn-sm" id="pin-del-btn" onclick="deletePin()" style="display:none">
+        <i data-lucide="trash-2" style="width:11px;height:11px"></i> Löschen
+      </button>
+      <button class="btn btn-primary" onclick="savePin()">
+        <i data-lucide="save" style="width:11px;height:11px"></i> Speichern
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Board Create / Edit Modal ── -->
+<div class="pb-overlay" id="board-overlay">
+  <div class="pb-board-modal">
+    <div style="font-size:14px;font-weight:800;margin-bottom:16px" id="board-modal-title">Neues Board</div>
+    <input type="hidden" id="board-edit-id">
+
+    <div>
+      <div class="pb-modal-label">Name *</div>
+      <input class="pb-modal-input" type="text" id="board-title" placeholder="z.B. Work Ideen, Side Projects…">
+    </div>
+
+    <div>
+      <div class="pb-modal-label">Farbe</div>
+      <div class="pb-color-sel" id="board-color-sel">
+        <div class="pb-color-opt sel" data-c="#3b82f6" style="background:#3b82f6"></div>
+        <div class="pb-color-opt" data-c="#f59e0b" style="background:#f59e0b"></div>
+        <div class="pb-color-opt" data-c="#22c55e" style="background:#22c55e"></div>
+        <div class="pb-color-opt" data-c="#ef4444" style="background:#ef4444"></div>
+        <div class="pb-color-opt" data-c="#a855f7" style="background:#a855f7"></div>
+        <div class="pb-color-opt" data-c="#06b6d4" style="background:#06b6d4"></div>
+        <div class="pb-color-opt" data-c="#f97316" style="background:#f97316"></div>
+        <div class="pb-color-opt" data-c="#ec4899" style="background:#ec4899"></div>
+        <div class="pb-color-opt" data-c="#14b8a6" style="background:#14b8a6"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="pb-modal-label">Icon</div>
+      <div class="pb-icon-grid" id="board-icon-grid">
+        <!-- Filled by JS -->
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;flex-wrap:wrap">
+      <button class="btn btn-ghost" onclick="closeBoardModal()">Abbrechen</button>
+      <button class="btn btn-danger btn-sm" id="board-del-btn" onclick="deleteBoard()" style="display:none">
+        <i data-lucide="trash-2" style="width:11px;height:11px"></i> Board löschen
+      </button>
+      <button class="btn btn-primary" onclick="saveBoard()">
+        <i data-lucide="save" style="width:11px;height:11px"></i> Speichern
+      </button>
+    </div>
+  </div>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
+<script>
+// ── State ─────────────────────────────────────────────────────────
+let allBoards    = [];
+let allPins      = [];
+let allTodos     = [];
+let currentBoardId  = null;
+let activeTypeFilter = 'all';
+let newPinType   = 'idea';
+let newPinColor  = '';
+let newBoardColor = '#3b82f6';
+let newBoardIcon  = 'layout-grid';
+let editPinSubItems = [];
+
+// ── Pin type config ───────────────────────────────────────────────
+const PIN_TYPES = {
+  idea:    { label: 'Idee',     emoji: '💡', color: '#f59e0b' },
+  project: { label: 'Projekt',  emoji: '📁', color: '#3b82f6' },
+  thought: { label: 'Gedanke',  emoji: '⚡', color: '#a855f7' },
+  note:    { label: 'Notiz',    emoji: '📝', color: '#22c55e' },
+};
+
+const BOARD_ICONS = [
+  'layout-grid','layers','star','lightbulb','briefcase','code-2','rocket',
+  'brain','folder','bookmark','zap','target','heart','globe','flask-conical',
+  'palette','music','camera','book-open','cpu','cloud','flame','diamond',
+];
+
+// ── Init ──────────────────────────────────────────────────────────
+async function initPinBoard() {
+  await Promise.all([loadBoards(), loadTodos()]);
+  populateBoardIconGrid();
+  populateTodoSelect();
+}
+
+async function loadBoards() {
+  const data = await api('/api/pinboard/boards');
+  allBoards = data || [];
+  renderBoardTabs();
+  if (allBoards.length > 0 && !currentBoardId) {
+    selectBoard(allBoards[0].id);
+  } else if (allBoards.length === 0) {
+    showWelcome(true);
+  }
+}
+
+async function loadPins(boardId) {
+  const data = await api(`/api/pinboard/pins?board_id=${boardId}`);
+  allPins = data || [];
+  renderPins();
+}
+
+async function loadTodos() {
+  const data = await api('/api/todos');
+  allTodos = data || [];
+}
+
+// ── Board tabs ────────────────────────────────────────────────────
+function renderBoardTabs() {
+  const bar = document.getElementById('pb-tabs-bar');
+  const addBtn = `<button class="pb-tab-add" onclick="openBoardModal(null)" title="Neues Board erstellen">＋</button>`;
+  if (!allBoards.length) {
+    bar.innerHTML = addBtn;
+    return;
+  }
+  bar.innerHTML = allBoards.map(b => `
+    <button class="pb-tab${b.id === currentBoardId ? ' active' : ''}" onclick="selectBoard(${b.id})">
+      <i data-lucide="${b.icon || 'layout-grid'}" style="width:13px;height:13px;color:${b.color || 'var(--text3)'}"></i>
+      ${esc(b.title)}
+    </button>
+  `).join('') + addBtn;
+  refreshIcons();
+}
+
+function selectBoard(id) {
+  currentBoardId = id;
+  renderBoardTabs();
+  showWelcome(false);
+  loadPins(id);
+  populateMoveBoard();
+}
+
+function showWelcome(show) {
+  document.getElementById('pb-welcome').style.display = show ? 'flex' : 'none';
+  document.getElementById('pb-scroll').style.display  = show ? 'none' : 'flex';
+  document.getElementById('pb-toolbar').style.display = show ? 'none' : 'flex';
+  if (!show) document.getElementById('pb-scroll').style.display = 'block';
+}
+
+// ── Type filter ───────────────────────────────────────────────────
+function toggleTypeFilter(type, btn) {
+  activeTypeFilter = type;
+  document.querySelectorAll('#pb-type-filters .pb-filter-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  renderPins();
+}
+
+// ── Render pins ───────────────────────────────────────────────────
+function renderPins() {
+  const grid = document.getElementById('pb-grid');
+  const q = (document.getElementById('pb-search')?.value || '').toLowerCase();
+
+  let pins = allPins.filter(p => {
+    if (activeTypeFilter !== 'all' && p.type !== activeTypeFilter) return false;
+    if (q && !p.title.toLowerCase().includes(q) && !(p.content||'').toLowerCase().includes(q) && !(p.tags||'').toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  if (!pins.length) {
+    grid.innerHTML = `<div class="pb-empty" style="column-span:all">
+      <div class="pb-empty-icon">📌</div>
+      <div class="pb-empty-title">${q || activeTypeFilter !== 'all' ? 'Keine Treffer' : 'Board ist leer'}</div>
+      <div class="pb-empty-sub">${q || activeTypeFilter !== 'all' ? 'Andere Suchbegriffe oder Filter probieren.' : 'Klicke auf „+ Neuer Pin" um deinen ersten Pin anzulegen.'}</div>
+    </div>`;
+    return;
+  }
+
+  grid.innerHTML = pins.map(p => pinCardHtml(p)).join('');
+  refreshIcons();
+}
+
+function pinCardHtml(p) {
+  const typeCfg = PIN_TYPES[p.type] || PIN_TYPES.idea;
+  let subItems = [];
+  try { subItems = JSON.parse(p.sub_items || '[]'); } catch(e) {}
+  const tags = (p.tags||'').split(',').map(t=>t.trim()).filter(Boolean);
+  const linkedTodo = p.todo_task_id ? allTodos.find(t => t.id === p.todo_task_id) : null;
+  const topColor = p.color || typeCfg.color;
+  const doneCount = subItems.filter(s => s.done).length;
+
+  const subHtml = subItems.length ? (() => {
+    const show = subItems.slice(0, 4);
+    const more = subItems.length - show.length;
+    const progress = subItems.length ? Math.round(doneCount / subItems.length * 100) : 0;
+    return `
+      <div class="pb-pin-sub">
+        ${subItems.length > 1 ? `<div class="pb-sub-progress"><div class="pb-sub-progress-fill" style="width:${progress}%"></div></div>` : ''}
+        ${show.map((s, i) => `
+          <div class="pb-sub-item">
+            <div class="pb-sub-check${s.done ? ' done' : ''}" onclick="event.stopPropagation();togglePinSub(${p.id},${i})"></div>
+            <span class="pb-sub-text${s.done ? ' done' : ''}">${esc(s.text)}</span>
+          </div>
+        `).join('')}
+        ${more > 0 ? `<div class="pb-sub-more">+${more} weitere</div>` : ''}
+      </div>`;
+  })() : '';
+
+  return `<div class="pb-pin-wrap">
+    <div class="pb-pin pin-type-${p.type}${p.pinned ? ' pinned-card' : ''}" data-id="${p.id}"
+      style="${p.color ? `--pin-custom-color:${p.color}` : ''}"
+      onclick="openPinModal(${p.id})">
+      <div class="pb-pin-top" style="${p.color ? `background:${p.color}` : ''}"></div>
+      ${p.pinned ? '<div class="pb-pinned-badge">📌</div>' : ''}
+      <div class="pb-pin-actions">
+        <button class="pb-act${p.pinned ? ' pinned-act' : ''}" onclick="event.stopPropagation();togglePinned(${p.id},${p.pinned?0:1})" title="${p.pinned ? 'Entnehmen' : 'Anpinnen'}">
+          <i data-lucide="pin" style="width:11px;height:11px${p.pinned ? ';fill:var(--yellow);stroke:var(--yellow)' : ''}"></i>
+        </button>
+        <button class="pb-act" onclick="event.stopPropagation();openPinModal(${p.id})" title="Bearbeiten">
+          <i data-lucide="pencil" style="width:11px;height:11px"></i>
+        </button>
+      </div>
+      <div class="pb-pin-body">
+        <div class="pb-pin-header">
+          <div class="pb-type-icon">${typeCfg.emoji}</div>
+          <div class="pb-pin-title">${esc(p.title)}</div>
+        </div>
+        ${p.content ? `<div class="pb-pin-content">${esc(p.content.length > 180 ? p.content.slice(0,180)+'…' : p.content)}</div>` : ''}
+        ${tags.length ? `<div class="pb-pin-tags">${tags.map(t => `<span class="pb-tag">${esc(t)}</span>`).join('')}</div>` : ''}
+        ${subHtml}
+      </div>
+      ${linkedTodo ? `
+        <div class="pb-pin-footer">
+          <span class="pb-todo-link${linkedTodo.done ? ' done' : ''}">
+            <i data-lucide="${linkedTodo.done ? 'check-circle-2' : 'circle'}" style="width:10px;height:10px"></i>
+            ${esc(linkedTodo.title.length > 35 ? linkedTodo.title.slice(0,35)+'…' : linkedTodo.title)}
+          </span>
+          <span class="pb-pin-date">${fmtDate(p.created_at)}</span>
+        </div>
+      ` : `<div class="pb-pin-footer"><span class="pb-pin-date" style="margin-left:auto">${fmtDate(p.created_at)}</span></div>`}
+    </div>
+  </div>`;
+}
+
+// ── Toggle pinned / sub-item ──────────────────────────────────────
+async function togglePinned(id, val) {
+  await api(`/api/pinboard/pins/${id}`, { method:'PATCH', body:{ pinned: val } });
+  const p = allPins.find(p => p.id === id);
+  if (p) p.pinned = val;
+  renderPins();
+}
+
+async function togglePinSub(pinId, idx) {
+  const p = allPins.find(p => p.id === pinId);
+  if (!p) return;
+  let items = []; try { items = JSON.parse(p.sub_items||'[]'); } catch(e) {}
+  if (!items[idx]) return;
+  items[idx].done = !items[idx].done;
+  await api(`/api/pinboard/pins/${pinId}`, { method:'PATCH', body:{ sub_items: JSON.stringify(items) } });
+  p.sub_items = JSON.stringify(items);
+  renderPins();
+}
+
+// ── Pin Modal ─────────────────────────────────────────────────────
+function openPinModal(id) {
+  const p = id ? allPins.find(p => p.id === id) : null;
+  document.getElementById('pin-edit-id').value = p ? p.id : '';
+  document.getElementById('pin-title').value   = p ? p.title : '';
+  document.getElementById('pin-content').value = p ? (p.content || '') : '';
+  document.getElementById('pin-tags').value    = p ? (p.tags || '') : '';
+  document.getElementById('pin-modal-title').textContent = p ? 'Pin bearbeiten' : 'Neuer Pin';
+  document.getElementById('pin-del-btn').style.display = p ? '' : 'none';
+  document.getElementById('pin-move-wrap').style.display = p ? '' : 'none';
+
+  // Type
+  newPinType = p ? (p.type || 'idea') : 'idea';
+  document.querySelectorAll('.pb-type-opt').forEach(b => b.classList.toggle('sel', b.dataset.t === newPinType));
+
+  // Color
+  newPinColor = p ? (p.color || '') : '';
+  document.querySelectorAll('#pin-color-sel .pb-color-opt').forEach(opt => {
+    opt.classList.toggle('sel', (opt.dataset.c || '') === newPinColor);
+  });
+
+  // Sub items
+  editPinSubItems = [];
+  if (p) { try { editPinSubItems = JSON.parse(p.sub_items||'[]'); } catch(e){} }
+  renderSubEditor();
+
+  // Todo section (new pin only shows create-option)
+  const createChk = document.getElementById('pin-create-todo');
+  createChk.checked = false;
+  document.getElementById('pin-link-todo').value = p ? (p.todo_task_id || '') : '';
+  populateTodoSelect();
+  // Hide create-todo for existing pins (already have link or not)
+  document.getElementById('pin-create-todo').parentElement.style.display = p ? 'none' : 'flex';
+
+  populateMoveBoard();
+  document.getElementById('pin-overlay').classList.add('open');
+  refreshIcons();
+  setTimeout(() => document.getElementById('pin-title').focus(), 80);
+}
+
+function closePinModal() {
+  document.getElementById('pin-overlay').classList.remove('open');
+}
+
+function selectPinType(type, btn) {
+  newPinType = type;
+  document.querySelectorAll('.pb-type-opt').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+}
+
+// ── Sub-item editor ───────────────────────────────────────────────
+function renderSubEditor() {
+  const el = document.getElementById('pin-sub-editor');
+  if (!editPinSubItems.length) { el.innerHTML = ''; return; }
+  el.innerHTML = editPinSubItems.map((s, i) => `
+    <div class="pb-sub-edit-item">
+      <div class="pb-sub-edit-check${s.done ? ' done' : ''}" onclick="toggleEditSubItem(${i})"></div>
+      <input type="text" value="${esc(s.text)}" onchange="editSubItemText(${i},this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('pin-sub-input').focus()}">
+      <button class="pb-act" onclick="removeEditSubItem(${i})" style="flex-shrink:0;opacity:.6">
+        <i data-lucide="x" style="width:10px;height:10px"></i>
+      </button>
+    </div>
+  `).join('');
+  refreshIcons();
+}
+
+function addPinSubItem() {
+  const inp = document.getElementById('pin-sub-input');
+  const text = inp.value.trim();
+  if (!text) return;
+  editPinSubItems.push({ text, done: false });
+  inp.value = '';
+  renderSubEditor();
+}
+
+function toggleEditSubItem(i) {
+  editPinSubItems[i].done = !editPinSubItems[i].done;
+  renderSubEditor();
+}
+
+function editSubItemText(i, val) {
+  editPinSubItems[i].text = val;
+}
+
+function removeEditSubItem(i) {
+  editPinSubItems.splice(i, 1);
+  renderSubEditor();
+}
+
+// ── Save pin ──────────────────────────────────────────────────────
+async function savePin() {
+  const id      = document.getElementById('pin-edit-id').value;
+  const title   = document.getElementById('pin-title').value.trim();
+  const content = document.getElementById('pin-content').value.trim();
+  const tags    = document.getElementById('pin-tags').value.trim();
+  if (!title) { document.getElementById('pin-title').focus(); return; }
+
+  const moveBoardSel = document.getElementById('pin-move-board');
+  const moveBoard = moveBoardSel?.value ? parseInt(moveBoardSel.value) : null;
+
+  const body = {
+    title, content, tags,
+    type:      newPinType,
+    color:     newPinColor,
+    sub_items: JSON.stringify(editPinSubItems),
+  };
+
+  if (id) {
+    if (moveBoard) body.board_id = moveBoard;
+    await api(`/api/pinboard/pins/${id}`, { method:'PATCH', body });
+  } else {
+    body.board_id     = currentBoardId;
+    body.todo_task_id = document.getElementById('pin-link-todo').value || null;
+    body.create_todo  = document.getElementById('pin-create-todo').checked;
+    const res = await api('/api/pinboard/pins', { method:'POST', body });
+    if (res?.todo_task_id) await loadTodos(); // refresh todo list if new todo was created
+  }
+
+  closePinModal();
+  await loadPins(moveBoard || currentBoardId);
+  if (moveBoard && moveBoard !== currentBoardId) {
+    // stay on current board after move
+    await loadPins(currentBoardId);
+  }
+}
+
+async function deletePin() {
+  const id = document.getElementById('pin-edit-id').value;
+  if (!id || !confirm('Pin löschen?')) return;
+  await api(`/api/pinboard/pins/${id}`, { method:'DELETE' });
+  closePinModal();
+  await loadPins(currentBoardId);
+}
+
+// ── Board Modal ───────────────────────────────────────────────────
+function populateBoardIconGrid() {
+  const grid = document.getElementById('board-icon-grid');
+  grid.innerHTML = BOARD_ICONS.map(ic => `
+    <div class="pb-icon-opt${ic === newBoardIcon ? ' sel' : ''}" data-ic="${ic}" onclick="selectBoardIcon('${ic}',this)">
+      <i data-lucide="${ic}" style="width:16px;height:16px"></i>
+    </div>
+  `).join('');
+  refreshIcons();
+}
+
+function selectBoardIcon(ic, el) {
+  newBoardIcon = ic;
+  document.querySelectorAll('.pb-icon-opt').forEach(o => o.classList.remove('sel'));
+  el.classList.add('sel');
+}
+
+function openBoardModal(id) {
+  const b = id ? allBoards.find(b => b.id === id) : null;
+  document.getElementById('board-edit-id').value = b ? b.id : '';
+  document.getElementById('board-title').value   = b ? b.title : '';
+  document.getElementById('board-modal-title').textContent = b ? 'Board bearbeiten' : 'Neues Board';
+  document.getElementById('board-del-btn').style.display   = b ? '' : 'none';
+  newBoardColor = b ? (b.color || '#3b82f6') : '#3b82f6';
+  newBoardIcon  = b ? (b.icon  || 'layout-grid') : 'layout-grid';
+  document.querySelectorAll('#board-color-sel .pb-color-opt').forEach(opt => {
+    opt.classList.toggle('sel', opt.dataset.c === newBoardColor);
+  });
+  populateBoardIconGrid();
+  document.getElementById('board-overlay').classList.add('open');
+  refreshIcons();
+  setTimeout(() => document.getElementById('board-title').focus(), 80);
+}
+
+function closeBoardModal() {
+  document.getElementById('board-overlay').classList.remove('open');
+}
+
+async function saveBoard() {
+  const id    = document.getElementById('board-edit-id').value;
+  const title = document.getElementById('board-title').value.trim();
+  if (!title) { document.getElementById('board-title').focus(); return; }
+  const body  = { title, color: newBoardColor, icon: newBoardIcon };
+  if (id) {
+    await api(`/api/pinboard/boards/${id}`, { method:'PATCH', body });
+  } else {
+    const res = await api('/api/pinboard/boards', { method:'POST', body });
+    if (res?.id) currentBoardId = res.id;
+  }
+  closeBoardModal();
+  await loadBoards();
+  if (currentBoardId) await loadPins(currentBoardId);
+}
+
+async function deleteBoard() {
+  const id = document.getElementById('board-edit-id').value;
+  if (!id || !confirm('Board und alle darin enthaltenen Pins löschen?')) return;
+  await api(`/api/pinboard/boards/${id}`, { method:'DELETE' });
+  currentBoardId = null;
+  closeBoardModal();
+  await loadBoards();
+}
+
+// ── Color pickers (shared) ────────────────────────────────────────
+document.getElementById('pin-color-sel').addEventListener('click', e => {
+  const opt = e.target.closest('.pb-color-opt');
+  if (!opt) return;
+  newPinColor = opt.dataset.c || '';
+  document.querySelectorAll('#pin-color-sel .pb-color-opt').forEach(o => o.classList.remove('sel'));
+  opt.classList.add('sel');
+});
+
+document.getElementById('board-color-sel').addEventListener('click', e => {
+  const opt = e.target.closest('.pb-color-opt');
+  if (!opt) return;
+  newBoardColor = opt.dataset.c;
+  document.querySelectorAll('#board-color-sel .pb-color-opt').forEach(o => o.classList.remove('sel'));
+  opt.classList.add('sel');
+});
+
+// ── Todo helpers ──────────────────────────────────────────────────
+function populateTodoSelect() {
+  const sel = document.getElementById('pin-link-todo');
+  const cur = sel.value;
+  const openTodos = allTodos.filter(t => !t.done);
+  sel.innerHTML = '<option value="">– Keine Verknüpfung –</option>' +
+    openTodos.map(t => `<option value="${t.id}"${String(t.id) === String(cur) ? ' selected' : ''}>${esc(t.title)}</option>`).join('');
+}
+
+function populateMoveBoard() {
+  const sel = document.getElementById('pin-move-board');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">– Aktuelles Board behalten –</option>' +
+    allBoards.filter(b => b.id !== currentBoardId).map(b =>
+      `<option value="${b.id}">${esc(b.title)}</option>`
+    ).join('');
+}
+
+// ── Backdrop close ────────────────────────────────────────────────
+['pin-overlay','board-overlay'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
+});
+
+// ── Boot ──────────────────────────────────────────────────────────
+injectLoginScreen();
+checkAuth(() => {
+  initLayout(null);
+  initPinBoard();
+});
+
+window.initAfterLogin = () => {
+  initLayout(null);
+  initPinBoard();
+};
+</script>
+</body>
+</html>

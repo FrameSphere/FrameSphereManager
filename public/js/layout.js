@@ -141,6 +141,10 @@ function injectSidebar(activeSiteId = null) {
         <span class="icon"><i data-lucide="database" style="width:14px;height:14px"></i></span>
         Data Explorer
       </a>
+      <a class="nav-item${window.location.pathname.includes('pinboard') ? ' active' : ''}" href="${pathPrefix()}pinboard.html">
+        <span class="icon"><i data-lucide="layout-grid" style="width:14px;height:14px"></i></span>
+        Pin Board
+      </a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Webseiten</div>
