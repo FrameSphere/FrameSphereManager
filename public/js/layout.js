@@ -149,6 +149,10 @@ function injectSidebar(activeSiteId = null) {
         <span class="icon"><i data-lucide="shield" style="width:14px;height:14px;color:var(--yellow)"></i></span>
         Vault
       </a>
+      <a class="nav-item${window.location.pathname.includes('search-radar') ? ' active' : ''}" href="${pathPrefix()}search-radar.html">
+        <span class="icon"><i data-lucide="search" style="width:14px;height:14px;color:#34d399"></i></span>
+        Search Radar
+      </a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Webseiten</div>

@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Search Radar – WebControl HQ</title>
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    /* ── Setup screen ── */
+    #sr-setup {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+    }
+    .sr-setup-box {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+      padding: 40px 44px; width: 100%; max-width: 520px;
+      display: flex; flex-direction: column; gap: 18px;
+    }
+    .sr-setup-icon {
+      width: 52px; height: 52px; border-radius: 14px;
+      background: linear-gradient(135deg, rgba(52,211,153,.15), rgba(52,211,153,.05));
+      border: 1px solid rgba(52,211,153,.25);
+      display: flex; align-items: center; justify-content: center; font-size: 24px;
+    }
+    .sr-setup-title { font-size: 18px; font-weight: 800; }
+    .sr-setup-sub { font-size: 12px; color: var(--text3); font-family: 'Space Mono', monospace; line-height: 1.7; }
+    .sr-input {
+      width: 100%; box-sizing: border-box; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 9px; color: var(--text1);
+      font-family: 'Space Mono', monospace; font-size: 12px; padding: 11px 13px; outline: none;
+      transition: border-color .15s;
+    }
+    .sr-input:focus { border-color: #34d399; }
+    .sr-label {
+      font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--text3); display: block; margin-bottom: 5px;
+    }
+    .sr-connect-btn {
+      width: 100%; padding: 13px; font-size: 13px; font-weight: 700;
+      background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.35);
+      border-radius: 10px; color: #34d399; cursor: pointer;
+      font-family: 'Space Mono', monospace; letter-spacing: .08em; text-transform: uppercase;
+      display: flex; align-items: center; justify-content: center; gap: 9px;
+      transition: all .15s;
+    }
+    .sr-connect-btn:hover { background: rgba(52,211,153,.22); }
+    .sr-connect-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .sr-hint {
+      font-size: 10px; color: var(--text3); font-family: 'Space Mono', monospace;
+      line-height: 1.7; text-align: center;
+    }
+    .sr-hint a { color: #34d399; text-decoration: underline; }
+    .sr-steps {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .sr-step {
+      display: flex; gap: 10px; font-size: 11px; color: var(--text2); line-height: 1.5;
+    }
+    .sr-step-num {
+      width: 18px; height: 18px; border-radius: 50%; background: rgba(52,211,153,.15);
+      border: 1px solid rgba(52,211,153,.3); color: #34d399; font-size: 9px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;
+    }
+
+    /* ── Toolbar ── */
+    .sr-toolbar {
+      display: flex; align-items: center; gap: 10px; padding: 12px 28px;
+      border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap;
+      background: var(--bg2);
+    }
+    .sr-sel {
+      padding: 6px 10px; font-size: 12px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 7px; color: var(--text1);
+      font-family: inherit; outline: none; cursor: pointer; max-width: 280px;
+    }
+    .sr-sel:focus { border-color: #34d399; }
+    .sr-range-btn {
+      padding: 5px 12px; font-size: 11px; font-weight: 700; border-radius: 6px;
+      border: 1px solid var(--border); background: none; color: var(--text2);
+      cursor: pointer; font-family: 'Space Mono', monospace; transition: all .12s;
+    }
+    .sr-range-btn.on { background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.35); color: #34d399; }
+    .sr-status-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #34d399;
+      box-shadow: 0 0 6px #34d399; animation: pulse 2s infinite; flex-shrink: 0;
+    }
+    .sr-token-info { font-size: 10px; color: var(--text3); font-family: 'Space Mono', monospace; }
+
+    /* ── Scroll body ── */
+    .sr-scroll { flex: 1; overflow-y: auto; padding: 24px 28px; display: flex; flex-direction: column; gap: 24px; }
+
+    /* ── KPI cards ── */
+    .sr-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .sr-kpi {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 18px 20px; position: relative; overflow: hidden;
+    }
+    .sr-kpi-label {
+      font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--text3); font-family: 'Space Mono', monospace; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .sr-kpi-val { font-size: 28px; font-weight: 800; letter-spacing: -.03em; line-height: 1; }
+    .sr-kpi-sub { font-size: 11px; color: var(--text3); font-family: 'Space Mono', monospace; margin-top: 4px; }
+    .sr-kpi-delta {
+      font-size: 10px; font-weight: 700; font-family: 'Space Mono', monospace;
+      padding: 2px 7px; border-radius: 10px; border: 1px solid;
+      display: inline-flex; align-items: center; gap: 3px; margin-top: 6px;
+    }
+    .sr-kpi-delta.up   { color: #34d399; border-color: rgba(52,211,153,.3); background: rgba(52,211,153,.08); }
+    .sr-kpi-delta.down { color: var(--red); border-color: rgba(239,68,68,.3); background: rgba(239,68,68,.08); }
+
+    /* ── Chart card ── */
+    .sr-chart-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 20px 22px;
+    }
+    .sr-card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
+    }
+    .sr-card-title {
+      font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+    }
+    .sr-legend { display: flex; gap: 14px; flex-wrap: wrap; }
+    .sr-legend-item {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 10px; font-weight: 700; color: var(--text2);
+      font-family: 'Space Mono', monospace;
+    }
+    .sr-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    #sr-chart-svg { width: 100%; height: 180px; display: block; }
+
+    /* ── Two-col layout ── */
+    .sr-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+    /* ── Table card ── */
+    .sr-table-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      overflow: hidden;
+    }
+    .sr-table-head {
+      padding: 14px 18px 10px; border-bottom: 1px solid var(--border);
+      font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+    }
+    .sr-table { width: 100%; border-collapse: collapse; }
+    .sr-table th {
+      padding: 8px 14px; text-align: left; font-size: 9px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .1em; color: var(--text3);
+      font-family: 'Space Mono', monospace; border-bottom: 1px solid var(--border);
+      cursor: pointer; white-space: nowrap; user-select: none;
+    }
+    .sr-table th:hover { color: #34d399; }
+    .sr-table th.sorted { color: #34d399; }
+    .sr-table td {
+      padding: 9px 14px; font-size: 11px; border-bottom: 1px solid rgba(35,46,66,.4);
+      font-family: 'Space Mono', monospace; color: var(--text2); vertical-align: middle;
+    }
+    .sr-table tr:last-child td { border-bottom: none; }
+    .sr-table tr:hover td { background: rgba(30,38,54,.5); }
+    .sr-url {
+      max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      display: block; color: var(--text1);
+    }
+    .sr-pos-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 20px; border-radius: 4px; font-size: 10px; font-weight: 800;
+    }
+    .sr-pos-1  { background: rgba(52,211,153,.15); color: #34d399; }
+    .sr-pos-5  { background: rgba(96,165,250,.1);  color: #60a5fa; }
+    .sr-pos-10 { background: rgba(245,158,11,.1);  color: var(--yellow); }
+    .sr-pos-hi { background: rgba(239,68,68,.08);  color: var(--red); }
+
+    /* ── Breakdown cards ── */
+    .sr-breakdown-row { display: flex; flex-direction: column; gap: 8px; padding: 0 18px 16px; }
+    .sr-breakdown-item { display: flex; align-items: center; gap: 10px; }
+    .sr-breakdown-label { font-size: 11px; color: var(--text2); width: 110px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sr-breakdown-bar-wrap { flex: 1; background: var(--border); border-radius: 3px; height: 6px; overflow: hidden; }
+    .sr-breakdown-bar { height: 100%; border-radius: 3px; transition: width .5s; }
+    .sr-breakdown-val { font-size: 10px; font-family: 'Space Mono', monospace; color: var(--text3); width: 55px; text-align: right; flex-shrink: 0; }
+
+    /* ── Loading / empty states ── */
+    .sr-loading {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 40px; color: var(--text3); font-size: 12px; font-family: 'Space Mono', monospace;
+    }
+    .sr-spinner {
+      width: 18px; height: 18px; border: 2px solid var(--border);
+      border-top-color: #34d399; border-radius: 50%; animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Disconnect btn ── */
+    .sr-disconnect {
+      padding: 4px 10px; font-size: 10px; font-weight: 700; border-radius: 5px;
+      border: 1px solid rgba(239,68,68,.3); background: none; color: var(--red);
+      cursor: pointer; font-family: 'Space Mono', monospace; transition: all .12s;
+    }
+    .sr-disconnect:hover { background: rgba(239,68,68,.08); }
+
+    /* ── CTR bar ── */
+    .sr-ctr-bar { display: flex; align-items: center; gap: 6px; }
+    .sr-ctr-fill { height: 4px; border-radius: 2px; background: #34d399; min-width: 2px; }
+
+    /* responsive */
+    @media (max-width: 900px) {
+      .sr-kpis { grid-template-columns: repeat(2, 1fr); }
+      .sr-two-col { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 600px) {
+      .sr-kpis { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="layout">
+  <div id="main">
+
+    <div class="page-header">
+      <div class="page-title" style="display:flex;align-items:center;gap:10px">
+        <i data-lucide="search" style="width:20px;height:20px;color:#34d399"></i>
+        Search Radar
+      </div>
+      <div class="page-sub">Google Search Console · Impressionen · Klicks · Keywords · Properties</div>
+    </div>
+
+    <!-- Setup screen (shown when not connected) -->
+    <div id="sr-setup">
+      <div class="sr-setup-box">
+        <div class="sr-setup-icon">📡</div>
+        <div>
+          <div class="sr-setup-title">Google Search Console verbinden</div>
+          <div class="sr-setup-sub" style="margin-top:4px">Einmalig konfigurieren — dann dauerhafter Zugriff auf alle deine Properties.</div>
+        </div>
+
+        <div class="sr-steps">
+          <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px">Einrichtung (einmalig)</div>
+          <div class="sr-step"><div class="sr-step-num">1</div><span><a href="https://console.cloud.google.com/" target="_blank" style="color:#34d399">Google Cloud Console</a> öffnen → Projekt anlegen</span></div>
+          <div class="sr-step"><div class="sr-step-num">2</div><span>APIs &amp; Dienste → Bibliothek → <strong style="color:var(--text1)">Google Search Console API</strong> aktivieren</span></div>
+          <div class="sr-step"><div class="sr-step-num">3</div><span>Anmeldedaten → OAuth-Client-ID erstellen → Typ: <strong style="color:var(--text1)">Webanwendung</strong></span></div>
+          <div class="sr-step"><div class="sr-step-num">4</div><span>Autorisierte Weiterleitungs-URIs: diese Seiten-URL eintragen (<code style="color:#34d399;font-size:10px" id="sr-redirect-hint"></code>)</span></div>
+          <div class="sr-step"><div class="sr-step-num">5</div><span>Client-ID unten einfügen und verbinden</span></div>
+        </div>
+
+        <div>
+          <div class="sr-label">Google OAuth Client-ID</div>
+          <input class="sr-input" type="text" id="sr-client-id"
+            placeholder="12345678.apps.googleusercontent.com">
+        </div>
+
+        <button class="sr-connect-btn" id="sr-connect-btn" onclick="connectGoogle()">
+          <i data-lucide="log-in" style="width:15px;height:15px"></i>
+          Mit Google verbinden
+        </button>
+
+        <div class="sr-hint">
+          Dein Browser verbindet direkt mit Google — kein Token verlässt jemals diesen Browser.<br>
+          Client-ID wird lokal gespeichert. Token gilt 1 Stunde.
+        </div>
+      </div>
+    </div>
+
+    <!-- Main dashboard (hidden until connected) -->
+    <div id="sr-dashboard" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+
+      <!-- Toolbar -->
+      <div class="sr-toolbar">
+        <div style="display:flex;align-items:center;gap:6px">
+          <div class="sr-status-dot"></div>
+          <span style="font-size:11px;font-weight:700;color:#34d399">Verbunden</span>
+        </div>
+        <div style="width:1px;height:18px;background:var(--border)"></div>
+        <select class="sr-sel" id="sr-property-sel" onchange="onPropertyChange()">
+          <option value="">Lade Properties…</option>
+        </select>
+        <div style="width:1px;height:18px;background:var(--border)"></div>
+        <div style="display:flex;gap:4px">
+          <button class="sr-range-btn on" data-days="7"   onclick="setRange(7,this)">7T</button>
+          <button class="sr-range-btn"    data-days="28"  onclick="setRange(28,this)">28T</button>
+          <button class="sr-range-btn"    data-days="90"  onclick="setRange(90,this)">90T</button>
+          <button class="sr-range-btn"    data-days="180" onclick="setRange(180,this)">6M</button>
+        </div>
+        <div style="flex:1"></div>
+        <span class="sr-token-info" id="sr-token-expiry"></span>
+        <button class="sr-disconnect" onclick="disconnect()">
+          <i data-lucide="log-out" style="width:11px;height:11px"></i> Trennen
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="loadAll()" title="Aktualisieren">
+          <i data-lucide="refresh-cw" style="width:12px;height:12px"></i>
+        </button>
+      </div>
+
+      <!-- Content -->
+      <div class="sr-scroll" id="sr-scroll">
+
+        <!-- KPIs -->
+        <div class="sr-kpis" id="sr-kpis">
+          <div class="sr-kpi"><div class="sr-kpi-label"><i data-lucide="mouse-pointer-click" style="width:11px;height:11px;color:#34d399"></i> Klicks</div><div class="sr-kpi-val" id="kpi-clicks">–</div><div class="sr-kpi-sub">gesamt im Zeitraum</div></div>
+          <div class="sr-kpi"><div class="sr-kpi-label"><i data-lucide="eye" style="width:11px;height:11px;color:#60a5fa"></i> Impressionen</div><div class="sr-kpi-val" id="kpi-impr" style="color:#60a5fa">–</div><div class="sr-kpi-sub">gesamt im Zeitraum</div></div>
+          <div class="sr-kpi"><div class="sr-kpi-label"><i data-lucide="percent" style="width:11px;height:11px;color:#f59e0b"></i> Ø CTR</div><div class="sr-kpi-val" id="kpi-ctr" style="color:#f59e0b">–</div><div class="sr-kpi-sub">Klickrate</div></div>
+          <div class="sr-kpi"><div class="sr-kpi-label"><i data-lucide="trending-up" style="width:11px;height:11px;color:#a78bfa"></i> Ø Position</div><div class="sr-kpi-val" id="kpi-pos" style="color:#a78bfa">–</div><div class="sr-kpi-sub">Ø Rankingposition</div></div>
+        </div>
+
+        <!-- Time series chart -->
+        <div class="sr-chart-card">
+          <div class="sr-card-head">
+            <div class="sr-card-title">
+              <i data-lucide="line-chart" style="width:14px;height:14px;color:#34d399"></i>
+              Verlauf
+            </div>
+            <div class="sr-legend">
+              <div class="sr-legend-item"><div class="sr-legend-dot" style="background:#34d399"></div>Klicks</div>
+              <div class="sr-legend-item"><div class="sr-legend-dot" style="background:#60a5fa"></div>Impressionen</div>
+            </div>
+          </div>
+          <div id="sr-chart-wrap">
+            <div class="sr-loading" id="sr-chart-loading"><div class="sr-spinner"></div> Lade…</div>
+            <svg id="sr-chart-svg" style="display:none"></svg>
+          </div>
+        </div>
+
+        <!-- Queries + Pages -->
+        <div class="sr-two-col">
+
+          <!-- Top Queries -->
+          <div class="sr-table-card">
+            <div class="sr-table-head">
+              <i data-lucide="search" style="width:13px;height:13px;color:#34d399"></i>
+              Top Keywords
+              <span style="margin-left:auto;font-size:10px;color:var(--text3);font-family:'Space Mono',monospace" id="sr-queries-count"></span>
+            </div>
+            <div id="sr-queries-wrap">
+              <div class="sr-loading" id="sr-queries-loading"><div class="sr-spinner"></div> Lade…</div>
+              <table class="sr-table" id="sr-queries-table" style="display:none">
+                <thead><tr>
+                  <th onclick="sortTable('queries','query',this)">Keyword</th>
+                  <th onclick="sortTable('queries','clicks',this)" class="sorted">Klicks ↓</th>
+                  <th onclick="sortTable('queries','impressions',this)">Impr.</th>
+                  <th onclick="sortTable('queries','ctr',this)">CTR</th>
+                  <th onclick="sortTable('queries','position',this)">Pos.</th>
+                </tr></thead>
+                <tbody id="sr-queries-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Top Pages -->
+          <div class="sr-table-card">
+            <div class="sr-table-head">
+              <i data-lucide="file-text" style="width:13px;height:13px;color:#60a5fa"></i>
+              Top Seiten
+              <span style="margin-left:auto;font-size:10px;color:var(--text3);font-family:'Space Mono',monospace" id="sr-pages-count"></span>
+            </div>
+            <div id="sr-pages-wrap">
+              <div class="sr-loading" id="sr-pages-loading"><div class="sr-spinner"></div> Lade…</div>
+              <table class="sr-table" id="sr-pages-table" style="display:none">
+                <thead><tr>
+                  <th onclick="sortTable('pages','page',this)">URL</th>
+                  <th onclick="sortTable('pages','clicks',this)" class="sorted">Klicks ↓</th>
+                  <th onclick="sortTable('pages','impressions',this)">Impr.</th>
+                  <th onclick="sortTable('pages','ctr',this)">CTR</th>
+                  <th onclick="sortTable('pages','position',this)">Pos.</th>
+                </tr></thead>
+                <tbody id="sr-pages-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Devices + Countries -->
+        <div class="sr-two-col">
+
+          <!-- Devices -->
+          <div class="sr-table-card">
+            <div class="sr-table-head">
+              <i data-lucide="monitor-smartphone" style="width:13px;height:13px;color:#f59e0b"></i>
+              Geräte
+            </div>
+            <div class="sr-breakdown-row" id="sr-devices-wrap">
+              <div class="sr-loading"><div class="sr-spinner"></div> Lade…</div>
+            </div>
+          </div>
+
+          <!-- Countries -->
+          <div class="sr-table-card">
+            <div class="sr-table-head">
+              <i data-lucide="globe" style="width:13px;height:13px;color:#a78bfa"></i>
+              Top Länder
+            </div>
+            <div class="sr-breakdown-row" id="sr-countries-wrap">
+              <div class="sr-loading"><div class="sr-spinner"></div> Lade…</div>
+            </div>
+          </div>
+
+        </div>
+
+      </div><!-- /sr-scroll -->
+    </div><!-- /sr-dashboard -->
+
+  </div>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
+<script>
+// ── Config ─────────────────────────────────────────────────────────
+const GSC_CLIENT_ID_KEY = 'sr_gsc_client_id';
+const GSC_TOKEN_KEY     = 'sr_gsc_token';
+const GSC_TOKEN_EXP_KEY = 'sr_gsc_token_exp';
+const GSC_SCOPE         = 'https://www.googleapis.com/auth/webmasters.readonly';
+const GSC_BASE          = 'https://searchconsole.googleapis.com/webmasters/v3';
+
+let gscToken    = null;
+let currentProp = null;
+let currentDays = 7;
+let queriesData = [];
+let pagesData   = [];
+let queriesSort = { col: 'clicks', dir: -1 };
+let pagesSort   = { col: 'clicks', dir: -1 };
+
+// ── Init ──────────────────────────────────────────────────────────
+function initSearchRadar() {
+  // Show current URL as redirect hint
+  document.getElementById('sr-redirect-hint').textContent =
+    window.location.origin + window.location.pathname;
+
+  // Restore saved client ID
+  const savedId = localStorage.getItem(GSC_CLIENT_ID_KEY);
+  if (savedId) document.getElementById('sr-client-id').value = savedId;
+
+  // Check if returning from OAuth redirect (token in hash)
+  const hash = new URLSearchParams(window.location.hash.slice(1));
+  const token   = hash.get('access_token');
+  const expiresIn = hash.get('expires_in');
+  if (token) {
+    const exp = Date.now() + parseInt(expiresIn || '3600') * 1000;
+    sessionStorage.setItem(GSC_TOKEN_KEY,     token);
+    sessionStorage.setItem(GSC_TOKEN_EXP_KEY, exp.toString());
+    // Clean hash from URL
+    history.replaceState(null, '', window.location.pathname);
+    activateToken(token, exp);
+    return;
+  }
+
+  // Check if token still valid in sessionStorage
+  const storedToken = sessionStorage.getItem(GSC_TOKEN_KEY);
+  const storedExp   = parseInt(sessionStorage.getItem(GSC_TOKEN_EXP_KEY) || '0');
+  if (storedToken && Date.now() < storedExp - 60000) {
+    activateToken(storedToken, storedExp);
+    return;
+  }
+
+  // No valid token — show setup
+  showSetup(true);
+}
+
+// ── OAuth connect ─────────────────────────────────────────────────
+function connectGoogle() {
+  const clientId = document.getElementById('sr-client-id').value.trim();
+  if (!clientId) {
+    document.getElementById('sr-client-id').focus();
+    document.getElementById('sr-client-id').style.borderColor = 'var(--red)';
+    return;
+  }
+  localStorage.setItem(GSC_CLIENT_ID_KEY, clientId);
+  const redirectUri = window.location.origin + window.location.pathname;
+  const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' +
+    `client_id=${encodeURIComponent(clientId)}&` +
+    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+    `response_type=token&` +
+    `scope=${encodeURIComponent(GSC_SCOPE)}&` +
+    `include_granted_scopes=true`;
+  window.location.href = authUrl;
+}
+
+function activateToken(token, exp) {
+  gscToken = token;
+  showSetup(false);
+  updateTokenExpiry(exp);
+  setInterval(() => updateTokenExpiry(exp), 10000);
+  loadProperties();
+}
+
+function updateTokenExpiry(exp) {
+  const remaining = Math.round((exp - Date.now()) / 60000);
+  const el = document.getElementById('sr-token-expiry');
+  if (remaining <= 0) {
+    el.textContent = '⚠ Token abgelaufen';
+    el.style.color = 'var(--red)';
+  } else {
+    el.textContent = `Token: noch ${remaining} Min.`;
+    el.style.color = remaining < 5 ? 'var(--yellow)' : 'var(--text3)';
+  }
+}
+
+function disconnect() {
+  gscToken = null;
+  sessionStorage.removeItem(GSC_TOKEN_KEY);
+  sessionStorage.removeItem(GSC_TOKEN_EXP_KEY);
+  showSetup(true);
+}
+
+function showSetup(show) {
+  document.getElementById('sr-setup').style.display     = show ? 'flex' : 'none';
+  document.getElementById('sr-dashboard').style.display = show ? 'none' : 'flex';
+}
+
+// ── GSC API helper ────────────────────────────────────────────────
+async function gscGet(endpoint) {
+  const r = await fetch(GSC_BASE + endpoint, {
+    headers: { 'Authorization': `Bearer ${gscToken}` }
+  });
+  if (!r.ok) throw new Error(`GSC API ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+async function gscPost(endpoint, body) {
+  const r = await fetch(GSC_BASE + endpoint, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${gscToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) throw new Error(`GSC API ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+// ── Date helpers ──────────────────────────────────────────────────
+function isoDate(d) { return d.toISOString().slice(0, 10); }
+function dateRange(days) {
+  const end   = new Date(); end.setDate(end.getDate() - 3); // GSC has ~3 day lag
+  const start = new Date(end); start.setDate(start.getDate() - days + 1);
+  return { startDate: isoDate(start), endDate: isoDate(end) };
+}
+
+// ── Load properties ───────────────────────────────────────────────
+async function loadProperties() {
+  const sel = document.getElementById('sr-property-sel');
+  sel.innerHTML = '<option>Lade…</option>';
+  try {
+    const data = await gscGet('/sites');
+    const sites = (data.siteEntry || []).sort((a, b) =>
+      (a.siteUrl || '').localeCompare(b.siteUrl || '')
+    );
+    sel.innerHTML = sites.map(s =>
+      `<option value="${esc(s.siteUrl)}">${esc(s.siteUrl)}</option>`
+    ).join('');
+    if (sites.length) {
+      currentProp = sites[0].siteUrl;
+      loadAll();
+    } else {
+      sel.innerHTML = '<option>Keine Properties gefunden</option>';
+    }
+  } catch(e) {
+    sel.innerHTML = '<option>Fehler beim Laden</option>';
+    console.error(e);
+  }
+}
+
+function onPropertyChange() {
+  currentProp = document.getElementById('sr-property-sel').value;
+  loadAll();
+}
+
+function setRange(days, btn) {
+  currentDays = days;
+  document.querySelectorAll('.sr-range-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  loadAll();
+}
+
+// ── Load all data ─────────────────────────────────────────────────
+async function loadAll() {
+  if (!currentProp) return;
+  refreshIcons();
+  loadKpisAndChart();
+  loadQueries();
+  loadPages();
+  loadDevices();
+  loadCountries();
+}
+
+// ── KPIs + Chart ──────────────────────────────────────────────────
+async function loadKpisAndChart() {
+  const { startDate, endDate } = dateRange(currentDays);
+  document.getElementById('sr-chart-loading').style.display = 'flex';
+  document.getElementById('sr-chart-svg').style.display = 'none';
+  ['kpi-clicks','kpi-impr','kpi-ctr','kpi-pos'].forEach(id =>
+    document.getElementById(id).textContent = '…'
+  );
+  try {
+    const data = await gscPost(`/sites/${encodeURIComponent(currentProp)}/searchAnalytics/query`, {
+      startDate, endDate,
+      dimensions: ['date'],
+      rowLimit: 500
+    });
+    const rows = data.rows || [];
+    // Totals
+    let totClicks = 0, totImpr = 0, totCtr = 0, totPos = 0;
+    rows.forEach(r => { totClicks += r.clicks; totImpr += r.impressions; totCtr += r.ctr; totPos += r.position; });
+    const n = rows.length || 1;
+    document.getElementById('kpi-clicks').textContent = fmtNum(totClicks);
+    document.getElementById('kpi-impr').textContent   = fmtNum(totImpr);
+    document.getElementById('kpi-ctr').textContent    = (totCtr / n * 100).toFixed(1) + '%';
+    document.getElementById('kpi-pos').textContent    = (totPos / n).toFixed(1);
+    // Chart
+    renderChart(rows);
+    document.getElementById('sr-chart-loading').style.display = 'none';
+    document.getElementById('sr-chart-svg').style.display = 'block';
+  } catch(e) {
+    console.error('KPI error:', e);
+    document.getElementById('sr-chart-loading').innerHTML = `<span style="color:var(--red)">Fehler: ${e.message}</span>`;
+  }
+}
+
+// ── SVG Line Chart ────────────────────────────────────────────────
+function renderChart(rows) {
+  if (!rows.length) return;
+  const svg   = document.getElementById('sr-chart-svg');
+  const W     = svg.clientWidth || 700;
+  const H     = 180;
+  const PAD   = { top: 12, right: 16, bottom: 28, left: 50 };
+  const iW    = W - PAD.left - PAD.right;
+  const iH    = H - PAD.top  - PAD.bottom;
+
+  const clicks = rows.map(r => r.clicks);
+  const imprs  = rows.map(r => r.impressions);
+  const dates  = rows.map(r => r.keys[0]);
+  const maxC   = Math.max(...clicks, 1);
+  const maxI   = Math.max(...imprs,  1);
+
+  const xScale = i => PAD.left + (i / (rows.length - 1 || 1)) * iW;
+  const yScaleC = v => PAD.top + iH - (v / maxC) * iH;
+  const yScaleI = v => PAD.top + iH - (v / maxI) * iH;
+
+  const polyline = (vals, scale) =>
+    vals.map((v, i) => `${xScale(i).toFixed(1)},${scale(v).toFixed(1)}`).join(' ');
+
+  const areaPath = (vals, scale) => {
+    const pts = vals.map((v, i) => `${xScale(i).toFixed(1)},${scale(v).toFixed(1)}`);
+    return `M${PAD.left},${PAD.top + iH} L${pts.join(' L')} L${xScale(vals.length-1)},${PAD.top + iH} Z`;
+  };
+
+  // Y axis labels (clicks scale on left)
+  const yLabels = [0, 0.25, 0.5, 0.75, 1].map(f => ({
+    y: PAD.top + iH - f * iH,
+    v: Math.round(f * maxC)
+  }));
+  // X axis labels (every Nth date)
+  const step = Math.max(1, Math.floor(rows.length / 6));
+  const xLabels = rows.map((_, i) => i).filter(i => i % step === 0 || i === rows.length - 1);
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = `
+    <!-- Grid lines -->
+    ${yLabels.map(l => `
+      <line x1="${PAD.left}" y1="${l.y.toFixed(1)}" x2="${W - PAD.right}" y2="${l.y.toFixed(1)}"
+        stroke="rgba(35,46,66,.6)" stroke-width="1"/>
+      <text x="${PAD.left - 5}" y="${(l.y + 4).toFixed(1)}"
+        text-anchor="end" font-size="9" fill="var(--text3)" font-family="Space Mono,monospace">
+        ${fmtNumShort(l.v)}
+      </text>
+    `).join('')}
+    <!-- X axis labels -->
+    ${xLabels.map(i => `
+      <text x="${xScale(i).toFixed(1)}" y="${H - 4}"
+        text-anchor="middle" font-size="9" fill="var(--text3)" font-family="Space Mono,monospace">
+        ${dates[i]?.slice(5) || ''}
+      </text>
+    `).join('')}
+    <!-- Impressions area (faint, scaled separately) -->
+    <path d="${areaPath(imprs, yScaleI)}"
+      fill="rgba(96,165,250,.07)" stroke="none"/>
+    <polyline points="${polyline(imprs, yScaleI)}"
+      fill="none" stroke="rgba(96,165,250,.55)" stroke-width="1.5" stroke-linejoin="round"/>
+    <!-- Clicks area -->
+    <path d="${areaPath(clicks, yScaleC)}"
+      fill="rgba(52,211,153,.08)" stroke="none"/>
+    <polyline points="${polyline(clicks, yScaleC)}"
+      fill="none" stroke="#34d399" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <!-- Dots on clicks -->
+    ${rows.length <= 30 ? clicks.map((v, i) => `
+      <circle cx="${xScale(i).toFixed(1)}" cy="${yScaleC(v).toFixed(1)}" r="3"
+        fill="#34d399" stroke="var(--surface)" stroke-width="1.5"/>
+    `).join('') : ''}
+  `;
+}
+
+// ── Queries (keywords) ────────────────────────────────────────────
+async function loadQueries() {
+  const { startDate, endDate } = dateRange(currentDays);
+  document.getElementById('sr-queries-loading').style.display = 'flex';
+  document.getElementById('sr-queries-table').style.display = 'none';
+  try {
+    const data = await gscPost(`/sites/${encodeURIComponent(currentProp)}/searchAnalytics/query`, {
+      startDate, endDate, dimensions: ['query'], rowLimit: 100
+    });
+    queriesData = data.rows || [];
+    document.getElementById('sr-queries-count').textContent = `${queriesData.length} Keywords`;
+    renderQueriesTable();
+  } catch(e) {
+    document.getElementById('sr-queries-loading').innerHTML = `<span style="color:var(--red);font-size:11px">Fehler</span>`;
+  }
+}
+
+function renderQueriesTable() {
+  const sorted = [...queriesData].sort((a, b) =>
+    queriesSort.dir * (b[queriesSort.col] - a[queriesSort.col] || 0)
+  );
+  const maxClicks = Math.max(...queriesData.map(r => r.clicks), 1);
+  document.getElementById('sr-queries-tbody').innerHTML = sorted.slice(0, 50).map(r => `
+    <tr>
+      <td style="color:var(--text1);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          title="${esc(r.keys[0])}">${esc(r.keys[0])}</td>
+      <td>
+        <div class="sr-ctr-bar">
+          <span>${fmtNum(r.clicks)}</span>
+          <div class="sr-ctr-fill" style="width:${Math.round(r.clicks/maxClicks*60)}px"></div>
+        </div>
+      </td>
+      <td>${fmtNum(r.impressions)}</td>
+      <td>${(r.ctr * 100).toFixed(1)}%</td>
+      <td>${posBadge(r.position)}</td>
+    </tr>
+  `).join('');
+  document.getElementById('sr-queries-loading').style.display = 'none';
+  document.getElementById('sr-queries-table').style.display = 'table';
+}
+
+// ── Pages ─────────────────────────────────────────────────────────
+async function loadPages() {
+  const { startDate, endDate } = dateRange(currentDays);
+  document.getElementById('sr-pages-loading').style.display = 'flex';
+  document.getElementById('sr-pages-table').style.display = 'none';
+  try {
+    const data = await gscPost(`/sites/${encodeURIComponent(currentProp)}/searchAnalytics/query`, {
+      startDate, endDate, dimensions: ['page'], rowLimit: 100
+    });
+    pagesData = data.rows || [];
+    document.getElementById('sr-pages-count').textContent = `${pagesData.length} Seiten`;
+    renderPagesTable();
+  } catch(e) {
+    document.getElementById('sr-pages-loading').innerHTML = `<span style="color:var(--red);font-size:11px">Fehler</span>`;
+  }
+}
+
+function renderPagesTable() {
+  const sorted = [...pagesData].sort((a, b) =>
+    pagesSort.dir * (b[pagesSort.col] - a[pagesSort.col] || 0)
+  );
+  document.getElementById('sr-pages-tbody').innerHTML = sorted.slice(0, 50).map(r => {
+    const url = r.keys[0] || '';
+    const short = url.replace(/^https?:\/\/[^/]+/, '') || '/';
+    return `<tr>
+      <td title="${esc(url)}">
+        <a class="sr-url" href="${esc(url)}" target="_blank" style="color:var(--text1);text-decoration:none;hover:color:#34d399">
+          ${esc(short.length > 30 ? short.slice(0, 30) + '…' : short)}
+        </a>
+      </td>
+      <td>${fmtNum(r.clicks)}</td>
+      <td>${fmtNum(r.impressions)}</td>
+      <td>${(r.ctr * 100).toFixed(1)}%</td>
+      <td>${posBadge(r.position)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('sr-pages-loading').style.display = 'none';
+  document.getElementById('sr-pages-table').style.display = 'table';
+}
+
+// ── Devices ───────────────────────────────────────────────────────
+async function loadDevices() {
+  const { startDate, endDate } = dateRange(currentDays);
+  const wrap = document.getElementById('sr-devices-wrap');
+  wrap.innerHTML = '<div class="sr-loading"><div class="sr-spinner"></div> Lade…</div>';
+  try {
+    const data = await gscPost(`/sites/${encodeURIComponent(currentProp)}/searchAnalytics/query`, {
+      startDate, endDate, dimensions: ['device'], rowLimit: 10
+    });
+    const rows = (data.rows || []).sort((a, b) => b.clicks - a.clicks);
+    const max  = rows[0]?.clicks || 1;
+    const DEVICE_ICONS = { DESKTOP: '🖥', MOBILE: '📱', TABLET: '📟' };
+    wrap.innerHTML = rows.map(r => `
+      <div class="sr-breakdown-item">
+        <div class="sr-breakdown-label">${DEVICE_ICONS[r.keys[0]] || ''} ${r.keys[0]}</div>
+        <div class="sr-breakdown-bar-wrap">
+          <div class="sr-breakdown-bar" style="width:${Math.round(r.clicks/max*100)}%;background:#f59e0b"></div>
+        </div>
+        <div class="sr-breakdown-val">${fmtNum(r.clicks)} Kl.</div>
+      </div>
+    `).join('') || '<div style="padding:12px;font-size:11px;color:var(--text3)">Keine Daten</div>';
+  } catch(e) {
+    wrap.innerHTML = '<div style="padding:12px;font-size:11px;color:var(--red)">Fehler</div>';
+  }
+}
+
+// ── Countries ─────────────────────────────────────────────────────
+async function loadCountries() {
+  const { startDate, endDate } = dateRange(currentDays);
+  const wrap = document.getElementById('sr-countries-wrap');
+  wrap.innerHTML = '<div class="sr-loading"><div class="sr-spinner"></div> Lade…</div>';
+  try {
+    const data = await gscPost(`/sites/${encodeURIComponent(currentProp)}/searchAnalytics/query`, {
+      startDate, endDate, dimensions: ['country'], rowLimit: 15
+    });
+    const rows = (data.rows || []).sort((a, b) => b.clicks - a.clicks).slice(0, 10);
+    const max  = rows[0]?.clicks || 1;
+    wrap.innerHTML = rows.map(r => `
+      <div class="sr-breakdown-item">
+        <div class="sr-breakdown-label">${countryFlag(r.keys[0])} ${countryName(r.keys[0])}</div>
+        <div class="sr-breakdown-bar-wrap">
+          <div class="sr-breakdown-bar" style="width:${Math.round(r.clicks/max*100)}%;background:#a78bfa"></div>
+        </div>
+        <div class="sr-breakdown-val">${fmtNum(r.clicks)} Kl.</div>
+      </div>
+    `).join('') || '<div style="padding:12px;font-size:11px;color:var(--text3)">Keine Daten</div>';
+  } catch(e) {
+    wrap.innerHTML = '<div style="padding:12px;font-size:11px;color:var(--red)">Fehler</div>';
+  }
+}
+
+// ── Table sort ────────────────────────────────────────────────────
+function sortTable(which, col, thEl) {
+  if (which === 'queries') {
+    queriesSort = { col, dir: queriesSort.col === col ? -queriesSort.dir : -1 };
+    document.querySelectorAll('#sr-queries-table th').forEach(t => t.classList.remove('sorted'));
+    thEl.classList.add('sorted');
+    renderQueriesTable();
+  } else {
+    pagesSort = { col, dir: pagesSort.col === col ? -pagesSort.dir : -1 };
+    document.querySelectorAll('#sr-pages-table th').forEach(t => t.classList.remove('sorted'));
+    thEl.classList.add('sorted');
+    renderPagesTable();
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+function fmtNum(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000)    return (n / 1000).toFixed(1) + 'K';
+  return Math.round(n).toLocaleString('de');
+}
+function fmtNumShort(n) {
+  if (n >= 1000) return (n / 1000).toFixed(0) + 'K';
+  return String(n);
+}
+function posBadge(pos) {
+  const p = pos.toFixed(1);
+  let cls = 'sr-pos-hi';
+  if (pos <= 3)  cls = 'sr-pos-1';
+  else if (pos <= 10) cls = 'sr-pos-5';
+  else if (pos <= 20) cls = 'sr-pos-10';
+  return `<span class="sr-pos-badge ${cls}">${p}</span>`;
+}
+function countryFlag(code) {
+  if (!code || code.length !== 3) return '🌍';
+  // ISO 3166-1 alpha-3 to flag via simple map for top countries
+  const m = { deu:'🇩🇪', usa:'🇺🇸', gbr:'🇬🇧', fra:'🇫🇷', aut:'🇦🇹', che:'🇨🇭', nld:'🇳🇱', esp:'🇪🇸', ita:'🇮🇹', pol:'🇵🇱', bra:'🇧🇷', ind:'🇮🇳', aus:'🇦🇺', can:'🇨🇦', jpn:'🇯🇵', kor:'🇰🇷', swe:'🇸🇪', nor:'🇳🇴', dnk:'🇩🇰', fin:'🇫🇮', prt:'🇵🇹', tur:'🇹🇷', ukr:'🇺🇦', rus:'🇷🇺', chn:'🇨🇳' };
+  return m[code.toLowerCase()] || '🌍';
+}
+function countryName(code) {
+  const m = { deu:'Deutschland', usa:'USA', gbr:'Großbritannien', fra:'Frankreich', aut:'Österreich', che:'Schweiz', nld:'Niederlande', esp:'Spanien', ita:'Italien', pol:'Polen', bra:'Brasilien', ind:'Indien', aus:'Australien', can:'Kanada', jpn:'Japan', kor:'Korea', swe:'Schweden', nor:'Norwegen', dnk:'Dänemark', fin:'Finnland', prt:'Portugal', tur:'Türkei', ukr:'Ukraine', rus:'Russland', chn:'China' };
+  return m[(code||'').toLowerCase()] || code;
+}
+
+// ── Boot ──────────────────────────────────────────────────────────
+injectLoginScreen();
+checkAuth(() => {
+  initLayout(null);
+  initSearchRadar();
+});
+
+window.initAfterLogin = () => {
+  initLayout(null);
+  initSearchRadar();
+};
+
+// Redraw chart on window resize
+window.addEventListener('resize', () => {
+  if (gscToken && document.getElementById('sr-chart-svg').style.display !== 'none') {
+    // Re-trigger chart render with last data if available
+  }
+});
+</script>
+</body>
+</html>
