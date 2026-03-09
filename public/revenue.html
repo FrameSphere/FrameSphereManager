@@ -1,0 +1,1123 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Revenue – WebControl HQ</title>
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    /* ─── Setup screen ─────────────────────────────────────────── */
+    #rv-setup {
+      flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px;
+    }
+    .rv-setup-box {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+      padding: 40px 44px; width: 100%; max-width: 560px;
+      display: flex; flex-direction: column; gap: 20px;
+    }
+    .rv-setup-icon {
+      width: 54px; height: 54px; border-radius: 14px;
+      background: linear-gradient(135deg,rgba(34,197,94,.15),rgba(34,197,94,.04));
+      border: 1px solid rgba(34,197,94,.25);
+      display: flex; align-items: center; justify-content: center; font-size: 26px;
+    }
+    .rv-setup-title { font-size: 18px; font-weight: 800; }
+    .rv-setup-sub   { font-size: 12px; color: var(--text3); line-height: 1.75; }
+    .rv-steps {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+      padding: 16px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .rv-step { display: flex; gap: 10px; font-size: 11px; color: var(--text2); line-height: 1.6; }
+    .rv-step-num {
+      width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; margin-top: 1px;
+      background: rgba(34,197,94,.15); border: 1px solid rgba(34,197,94,.3);
+      color: #22c55e; font-size: 9px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .rv-input {
+      width: 100%; box-sizing: border-box; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 9px; color: var(--text1);
+      font-family: 'Space Mono', monospace; font-size: 12px; padding: 11px 13px; outline: none;
+      transition: border-color .15s;
+    }
+    .rv-input:focus { border-color: #22c55e; }
+    .rv-label {
+      font-size: 10px; font-weight: 700; letter-spacing: .08em;
+      text-transform: uppercase; color: var(--text3); display: block; margin-bottom: 6px;
+    }
+    .rv-connect-btn {
+      width: 100%; padding: 13px; font-size: 13px; font-weight: 700;
+      background: rgba(34,197,94,.12); border: 1.5px solid rgba(34,197,94,.35);
+      border-radius: 10px; color: #22c55e; cursor: pointer;
+      font-family: 'Space Mono', monospace; letter-spacing: .08em; text-transform: uppercase;
+      display: flex; align-items: center; justify-content: center; gap: 9px;
+      transition: all .15s;
+    }
+    .rv-connect-btn:hover:not(:disabled) { background: rgba(34,197,94,.22); }
+    .rv-connect-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .rv-hint { font-size: 10px; color: var(--text3); font-family: 'Space Mono',monospace; line-height: 1.7; text-align: center; }
+    .rv-hint a { color: #22c55e; }
+
+    /* ─── Toolbar ──────────────────────────────────────────────── */
+    .rv-toolbar {
+      display: flex; align-items: center; gap: 10px; padding: 12px 28px;
+      border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap;
+      background: var(--bg2);
+    }
+    .rv-sel {
+      padding: 6px 10px; font-size: 12px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 7px; color: var(--text1);
+      font-family: inherit; outline: none; cursor: pointer; max-width: 240px;
+    }
+    .rv-sel:focus { border-color: #22c55e; }
+    .rv-range-btn {
+      padding: 5px 12px; font-size: 11px; font-weight: 700; border-radius: 6px;
+      border: 1px solid var(--border); background: none; color: var(--text2);
+      cursor: pointer; font-family: 'Space Mono', monospace; transition: all .12s;
+    }
+    .rv-range-btn.on {
+      background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.35); color: #22c55e;
+    }
+    .rv-status-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #22c55e;
+      box-shadow: 0 0 6px #22c55e; animation: rvpulse 2s infinite; flex-shrink: 0;
+    }
+    @keyframes rvpulse {
+      0%,100% { box-shadow: 0 0 4px #22c55e; }
+      50%      { box-shadow: 0 0 10px #22c55e; }
+    }
+    .rv-disconnect {
+      padding: 4px 10px; font-size: 10px; font-weight: 700; border-radius: 5px;
+      border: 1px solid rgba(239,68,68,.3); background: none; color: var(--red);
+      cursor: pointer; font-family: 'Space Mono', monospace; transition: all .12s;
+    }
+    .rv-disconnect:hover { background: rgba(239,68,68,.08); }
+    .rv-token-info { font-size: 10px; color: var(--text3); font-family: 'Space Mono', monospace; }
+
+    /* ─── Scroll body ───────────────────────────────────────────── */
+    .rv-scroll {
+      flex: 1; overflow-y: auto; padding: 24px 28px;
+      display: flex; flex-direction: column; gap: 22px;
+    }
+
+    /* ─── KPI row ───────────────────────────────────────────────── */
+    .rv-kpis { display: grid; grid-template-columns: repeat(5,1fr); gap: 12px; }
+    @media (max-width:1200px) { .rv-kpis { grid-template-columns: repeat(3,1fr); } }
+    @media (max-width:700px)  { .rv-kpis { grid-template-columns: 1fr 1fr; } }
+    .rv-kpi {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 18px 20px; position: relative; overflow: hidden;
+    }
+    .rv-kpi-accent {
+      position: absolute; top: 0; left: 0; right: 0; height: 2px; border-radius: 12px 12px 0 0;
+    }
+    .rv-kpi-label {
+      font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--text3); font-family: 'Space Mono', monospace; margin-bottom: 10px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .rv-kpi-val  { font-size: 26px; font-weight: 800; letter-spacing: -.02em; line-height: 1; }
+    .rv-kpi-sub  { font-size: 10px; color: var(--text3); font-family: 'Space Mono',monospace; margin-top: 5px; }
+    .rv-kpi-delta {
+      display: inline-flex; align-items: center; gap: 3px; margin-top: 8px;
+      font-size: 10px; font-weight: 700; font-family: 'Space Mono',monospace;
+      padding: 2px 8px; border-radius: 10px; border: 1px solid;
+    }
+    .rv-kpi-delta.up   { color: #22c55e; border-color: rgba(34,197,94,.3); background: rgba(34,197,94,.08); }
+    .rv-kpi-delta.down { color: var(--red); border-color: rgba(239,68,68,.3); background: rgba(239,68,68,.08); }
+
+    /* ─── Card ──────────────────────────────────────────────────── */
+    .rv-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      overflow: hidden;
+    }
+    .rv-card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 20px 12px; flex-wrap: wrap; gap: 10px;
+    }
+    .rv-card-title {
+      font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px;
+    }
+    .rv-card-sub { font-size: 10px; color: var(--text3); font-family: 'Space Mono',monospace; }
+    .rv-card-body { padding: 0 20px 18px; }
+
+    /* ─── Legend ────────────────────────────────────────────────── */
+    .rv-legend { display: flex; gap: 14px; flex-wrap: wrap; }
+    .rv-legend-item {
+      display: flex; align-items: center; gap: 5px;
+      font-size: 10px; font-weight: 700; color: var(--text2);
+      font-family: 'Space Mono', monospace; cursor: pointer;
+    }
+    .rv-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ─── SVG Charts ────────────────────────────────────────────── */
+    .rv-chart-wrap { position: relative; }
+    .rv-chart-tooltip {
+      position: absolute; pointer-events: none; display: none;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 12px; font-size: 11px; font-family: 'Space Mono',monospace;
+      color: var(--text1); z-index: 10; white-space: nowrap;
+      box-shadow: 0 6px 24px rgba(0,0,0,.35);
+    }
+
+    /* ─── Two / Three col ───────────────────────────────────────── */
+    .rv-two-col   { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .rv-three-col { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+    @media (max-width:900px) {
+      .rv-two-col, .rv-three-col { grid-template-columns: 1fr; }
+    }
+
+    /* ─── Table ─────────────────────────────────────────────────── */
+    .rv-table { width: 100%; border-collapse: collapse; }
+    .rv-table th {
+      padding: 8px 16px; text-align: left; font-size: 9px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .1em; color: var(--text3);
+      font-family: 'Space Mono', monospace; border-bottom: 1px solid var(--border);
+      cursor: pointer; white-space: nowrap; user-select: none;
+    }
+    .rv-table th:hover { color: #22c55e; }
+    .rv-table th.sorted { color: #22c55e; }
+    .rv-table td {
+      padding: 10px 16px; font-size: 11px; border-bottom: 1px solid rgba(35,46,66,.4);
+      font-family: 'Space Mono', monospace; color: var(--text2); vertical-align: middle;
+    }
+    .rv-table tr:last-child td { border-bottom: none; }
+    .rv-table tr:hover td { background: rgba(30,38,54,.5); }
+    .rv-table td.money { color: #22c55e; font-weight: 700; }
+    .rv-table td.name  { color: var(--text1); }
+
+    /* ─── Sparkline in table ────────────────────────────────────── */
+    .rv-spark { display: inline-block; vertical-align: middle; }
+
+    /* ─── Bar breakdown ─────────────────────────────────────────── */
+    .rv-breakdown { display: flex; flex-direction: column; gap: 10px; }
+    .rv-bdown-item { display: flex; align-items: center; gap: 10px; }
+    .rv-bdown-lbl {
+      font-size: 11px; color: var(--text2); width: 120px; flex-shrink: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .rv-bdown-bar-wrap {
+      flex: 1; background: var(--bg); border-radius: 3px; height: 7px; overflow: hidden;
+    }
+    .rv-bdown-bar { height: 100%; border-radius: 3px; transition: width .6s cubic-bezier(.25,.46,.45,.94); }
+    .rv-bdown-val { font-size: 10px; color: var(--text3); font-family: 'Space Mono',monospace; width: 70px; text-align: right; flex-shrink: 0; }
+
+    /* ─── Donut chart ───────────────────────────────────────────── */
+    .rv-donut-wrap { display: flex; align-items: center; gap: 20px; }
+    .rv-donut-legend { display: flex; flex-direction: column; gap: 8px; }
+    .rv-donut-legend-item { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text2); }
+    .rv-donut-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+    /* ─── Loading / empty ───────────────────────────────────────── */
+    .rv-loading {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 36px; color: var(--text3); font-size: 12px; font-family: 'Space Mono',monospace;
+    }
+    .rv-spinner {
+      width: 18px; height: 18px; border: 2px solid var(--border);
+      border-top-color: #22c55e; border-radius: 50%; animation: rvspin .8s linear infinite;
+    }
+    @keyframes rvspin { to { transform: rotate(360deg); } }
+    .rv-empty {
+      padding: 32px; text-align: center; color: var(--text3);
+      font-size: 12px; font-family: 'Space Mono',monospace;
+    }
+
+    /* ─── Period comparison strip ───────────────────────────────── */
+    .rv-compare-strip {
+      display: flex; gap: 12px; padding: 12px 20px;
+      border-top: 1px solid var(--border); flex-wrap: wrap;
+    }
+    .rv-compare-item { display: flex; flex-direction: column; gap: 2px; }
+    .rv-compare-lbl  { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: .08em; font-family: 'Space Mono',monospace; }
+    .rv-compare-val  { font-size: 14px; font-weight: 800; }
+    .rv-compare-delta { font-size: 9px; font-family: 'Space Mono',monospace; }
+  </style>
+</head>
+<body>
+
+<div id="layout">
+  <div id="main">
+
+    <div class="page-header">
+      <div class="page-title" style="display:flex;align-items:center;gap:10px">
+        <i data-lucide="circle-dollar-sign" style="width:20px;height:20px;color:#22c55e"></i>
+        Revenue
+      </div>
+      <div class="page-sub">Google AdSense · Einnahmen · RPM · CTR · Alle Seiten · Länder · Geräte</div>
+    </div>
+
+    <!-- ── Setup screen ─────────────────────────────────────────── -->
+    <div id="rv-setup">
+      <div class="rv-setup-box">
+        <div class="rv-setup-icon">💰</div>
+        <div>
+          <div class="rv-setup-title">Google AdSense verbinden</div>
+          <div class="rv-setup-sub" style="margin-top:4px">
+            Einmalig einrichten — danach Zugriff auf alle deine AdSense-Accounts und Seiten.
+          </div>
+        </div>
+
+        <div class="rv-steps">
+          <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);margin-bottom:4px">
+            📋 Schritt-für-Schritt Anleitung
+          </div>
+          <div class="rv-step">
+            <div class="rv-step-num">1</div>
+            <span>
+              <a href="https://console.cloud.google.com/" target="_blank" style="color:#22c55e">Google Cloud Console</a> öffnen →
+              oben links <strong style="color:var(--text1)">Projekt auswählen / erstellen</strong>
+            </span>
+          </div>
+          <div class="rv-step">
+            <div class="rv-step-num">2</div>
+            <span>
+              Linkes Menü → <strong style="color:var(--text1)">APIs &amp; Dienste → Bibliothek</strong> →
+              Suche nach <strong style="color:var(--text1)">„AdSense Management API"</strong> → Aktivieren
+            </span>
+          </div>
+          <div class="rv-step">
+            <div class="rv-step-num">3</div>
+            <span>
+              Linkes Menü → <strong style="color:var(--text1)">APIs &amp; Dienste → OAuth-Zustimmungsbildschirm</strong> →
+              Nutzertyp <strong style="color:var(--text1)">Extern</strong> → App-Name eintragen →
+              Scopes: <code style="color:#22c55e;font-size:10px">adsense.readonly</code> hinzufügen → Speichern
+            </span>
+          </div>
+          <div class="rv-step">
+            <div class="rv-step-num">4</div>
+            <span>
+              <strong style="color:var(--text1)">Anmeldedaten → + ANMELDEDATEN ERSTELLEN → OAuth-Client-ID</strong><br>
+              Anwendungstyp: <strong style="color:var(--text1)">Webanwendung</strong><br>
+              Autorisierte JavaScript-Quellen: <code style="color:#22c55e;font-size:10px" id="rv-origin-hint"></code><br>
+              Autorisierte Weiterleitungs-URIs: <code style="color:#22c55e;font-size:10px" id="rv-redirect-hint"></code>
+            </span>
+          </div>
+          <div class="rv-step">
+            <div class="rv-step-num">5</div>
+            <span>
+              Client-ID kopieren, unten einfügen, verbinden.<br>
+              <em style="color:var(--text3)">Tipp: Im Test-Modus musst du deinen Google-Account als „Testnutzer" unter OAuth-Zustimmungsbildschirm eintragen.</em>
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <div class="rv-label">Google OAuth Client-ID</div>
+          <input class="rv-input" type="text" id="rv-client-id"
+            placeholder="123456789-xxxx.apps.googleusercontent.com">
+        </div>
+
+        <button class="rv-connect-btn" onclick="rvConnect()">
+          <i data-lucide="log-in" style="width:15px;height:15px"></i>
+          Mit Google / AdSense verbinden
+        </button>
+
+        <div class="rv-hint">
+          Dein Browser verbindet direkt mit Google OAuth — kein Token verlässt den Browser.<br>
+          Client-ID wird lokal gespeichert · Token gilt 1 Stunde.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Dashboard ────────────────────────────────────────────── -->
+    <div id="rv-dashboard" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+
+      <!-- Toolbar -->
+      <div class="rv-toolbar">
+        <div style="display:flex;align-items:center;gap:6px">
+          <div class="rv-status-dot"></div>
+          <span style="font-size:11px;font-weight:700;color:#22c55e">Verbunden</span>
+        </div>
+        <div style="width:1px;height:18px;background:var(--border)"></div>
+        <select class="rv-sel" id="rv-account-sel" onchange="onAccountChange()">
+          <option>Lade Accounts…</option>
+        </select>
+        <div style="width:1px;height:18px;background:var(--border)"></div>
+        <!-- Range buttons -->
+        <div style="display:flex;gap:4px">
+          <button class="rv-range-btn" data-d="7"   onclick="setRange(7,this)">7T</button>
+          <button class="rv-range-btn on" data-d="30" onclick="setRange(30,this)">30T</button>
+          <button class="rv-range-btn" data-d="90"  onclick="setRange(90,this)">90T</button>
+          <button class="rv-range-btn" data-d="365" onclick="setRange(365,this)">1J</button>
+        </div>
+        <div style="flex:1"></div>
+        <span class="rv-token-info" id="rv-token-info"></span>
+        <button class="rv-disconnect" onclick="rvDisconnect()">
+          <i data-lucide="log-out" style="width:11px;height:11px"></i> Trennen
+        </button>
+        <button class="btn btn-ghost btn-sm" onclick="loadAll()" title="Aktualisieren">
+          <i data-lucide="refresh-cw" style="width:12px;height:12px"></i>
+        </button>
+      </div>
+
+      <!-- Content scroll -->
+      <div class="rv-scroll">
+
+        <!-- KPI row -->
+        <div class="rv-kpis" id="rv-kpis">
+          <div class="rv-kpi">
+            <div class="rv-kpi-accent" style="background:linear-gradient(90deg,#22c55e,#16a34a)"></div>
+            <div class="rv-kpi-label"><i data-lucide="euro" style="width:11px;height:11px;color:#22c55e"></i>Einnahmen</div>
+            <div class="rv-kpi-val" id="kv-earn" style="color:#22c55e">–</div>
+            <div class="rv-kpi-sub" id="kv-earn-sub">im Zeitraum</div>
+          </div>
+          <div class="rv-kpi">
+            <div class="rv-kpi-accent" style="background:linear-gradient(90deg,#60a5fa,#3b82f6)"></div>
+            <div class="rv-kpi-label"><i data-lucide="eye" style="width:11px;height:11px;color:#60a5fa"></i>Impressionen</div>
+            <div class="rv-kpi-val" id="kv-impr" style="color:#60a5fa">–</div>
+            <div class="rv-kpi-sub">Anzeigenimpressionen</div>
+          </div>
+          <div class="rv-kpi">
+            <div class="rv-kpi-accent" style="background:linear-gradient(90deg,#f59e0b,#d97706)"></div>
+            <div class="rv-kpi-label"><i data-lucide="mouse-pointer-click" style="width:11px;height:11px;color:#f59e0b"></i>Klicks</div>
+            <div class="rv-kpi-val" id="kv-clicks" style="color:#f59e0b">–</div>
+            <div class="rv-kpi-sub">gesamt</div>
+          </div>
+          <div class="rv-kpi">
+            <div class="rv-kpi-accent" style="background:linear-gradient(90deg,#a78bfa,#7c3aed)"></div>
+            <div class="rv-kpi-label"><i data-lucide="bar-chart" style="width:11px;height:11px;color:#a78bfa"></i>RPM</div>
+            <div class="rv-kpi-val" id="kv-rpm" style="color:#a78bfa">–</div>
+            <div class="rv-kpi-sub">pro 1.000 Impressionen</div>
+          </div>
+          <div class="rv-kpi">
+            <div class="rv-kpi-accent" style="background:linear-gradient(90deg,#f472b6,#ec4899)"></div>
+            <div class="rv-kpi-label"><i data-lucide="percent" style="width:11px;height:11px;color:#f472b6"></i>CTR</div>
+            <div class="rv-kpi-val" id="kv-ctr" style="color:#f472b6">–</div>
+            <div class="rv-kpi-sub">Klickrate</div>
+          </div>
+        </div>
+
+        <!-- Revenue over time + Donut -->
+        <div class="rv-three-col">
+
+          <!-- Main time-series chart -->
+          <div class="rv-card">
+            <div class="rv-card-head">
+              <div class="rv-card-title">
+                <i data-lucide="trending-up" style="width:14px;height:14px;color:#22c55e"></i>
+                Einnahmen &amp; Impressionen im Verlauf
+              </div>
+              <div class="rv-legend">
+                <div class="rv-legend-item"><div class="rv-legend-dot" style="background:#22c55e"></div>Einnahmen (€)</div>
+                <div class="rv-legend-item"><div class="rv-legend-dot" style="background:#60a5fa"></div>Impressionen</div>
+              </div>
+            </div>
+            <div class="rv-card-body" style="padding-bottom:0">
+              <div class="rv-chart-wrap" id="rv-main-chart-wrap">
+                <div class="rv-loading" id="rv-main-loading"><div class="rv-spinner"></div>Lade…</div>
+                <svg id="rv-main-svg" style="display:none;width:100%;height:200px"></svg>
+                <div class="rv-chart-tooltip" id="rv-main-tip"></div>
+              </div>
+              <!-- comparison strip -->
+              <div class="rv-compare-strip" id="rv-compare" style="display:none">
+                <div class="rv-compare-item">
+                  <div class="rv-compare-lbl">Aktueller Zeitraum</div>
+                  <div class="rv-compare-val" id="cmp-cur" style="color:#22c55e">–</div>
+                </div>
+                <div style="width:1px;background:var(--border);margin:4px 0"></div>
+                <div class="rv-compare-item">
+                  <div class="rv-compare-lbl">Vorheriger Zeitraum</div>
+                  <div class="rv-compare-val" id="cmp-prev">–</div>
+                </div>
+                <div style="width:1px;background:var(--border);margin:4px 0"></div>
+                <div class="rv-compare-item">
+                  <div class="rv-compare-lbl">Veränderung</div>
+                  <div class="rv-compare-delta" id="cmp-delta">–</div>
+                </div>
+                <div style="width:1px;background:var(--border);margin:4px 0"></div>
+                <div class="rv-compare-item">
+                  <div class="rv-compare-lbl">Bestes Tag</div>
+                  <div class="rv-compare-val" id="cmp-best" style="font-size:12px">–</div>
+                </div>
+                <div class="rv-compare-item">
+                  <div class="rv-compare-lbl">Ø pro Tag</div>
+                  <div class="rv-compare-val" id="cmp-avg" style="font-size:12px">–</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Donut: per-site split -->
+          <div class="rv-card">
+            <div class="rv-card-head">
+              <div class="rv-card-title">
+                <i data-lucide="pie-chart" style="width:14px;height:14px;color:#f59e0b"></i>
+                Einnahmen nach Seite
+              </div>
+            </div>
+            <div class="rv-card-body" id="rv-donut-wrap">
+              <div class="rv-loading"><div class="rv-spinner"></div>Lade…</div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Per-site table -->
+        <div class="rv-card">
+          <div class="rv-card-head">
+            <div class="rv-card-title">
+              <i data-lucide="globe" style="width:14px;height:14px;color:#60a5fa"></i>
+              Einnahmen pro Seite (Ad Client)
+            </div>
+            <div class="rv-card-sub" id="rv-sites-sub"></div>
+          </div>
+          <div id="rv-sites-wrap">
+            <div class="rv-loading"><div class="rv-spinner"></div>Lade…</div>
+          </div>
+        </div>
+
+        <!-- Devices + Countries -->
+        <div class="rv-two-col">
+
+          <!-- Devices -->
+          <div class="rv-card">
+            <div class="rv-card-head">
+              <div class="rv-card-title">
+                <i data-lucide="monitor-smartphone" style="width:14px;height:14px;color:#f59e0b"></i>
+                Geräte
+              </div>
+            </div>
+            <div class="rv-card-body">
+              <div class="rv-breakdown" id="rv-devices-wrap">
+                <div class="rv-loading"><div class="rv-spinner"></div>Lade…</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Countries -->
+          <div class="rv-card">
+            <div class="rv-card-head">
+              <div class="rv-card-title">
+                <i data-lucide="map" style="width:14px;height:14px;color:#a78bfa"></i>
+                Top Länder
+              </div>
+            </div>
+            <div class="rv-card-body">
+              <div class="rv-breakdown" id="rv-countries-wrap">
+                <div class="rv-loading"><div class="rv-spinner"></div>Lade…</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Clicks & CTR over time -->
+        <div class="rv-card">
+          <div class="rv-card-head">
+            <div class="rv-card-title">
+              <i data-lucide="mouse-pointer-click" style="width:14px;height:14px;color:#f59e0b"></i>
+              Klicks &amp; CTR Verlauf
+            </div>
+            <div class="rv-legend">
+              <div class="rv-legend-item"><div class="rv-legend-dot" style="background:#f59e0b"></div>Klicks</div>
+              <div class="rv-legend-item"><div class="rv-legend-dot" style="background:#f472b6"></div>CTR %</div>
+            </div>
+          </div>
+          <div class="rv-card-body" style="padding-bottom:4px">
+            <div class="rv-chart-wrap">
+              <div class="rv-loading" id="rv-ctr-loading"><div class="rv-spinner"></div>Lade…</div>
+              <svg id="rv-ctr-svg" style="display:none;width:100%;height:150px"></svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- RPM over time -->
+        <div class="rv-card">
+          <div class="rv-card-head">
+            <div class="rv-card-title">
+              <i data-lucide="bar-chart-2" style="width:14px;height:14px;color:#a78bfa"></i>
+              RPM Verlauf
+              <span style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;font-weight:400">Einnahmen pro 1.000 Impressionen</span>
+            </div>
+          </div>
+          <div class="rv-card-body" style="padding-bottom:4px">
+            <div class="rv-loading" id="rv-rpm-loading"><div class="rv-spinner"></div>Lade…</div>
+            <svg id="rv-rpm-svg" style="display:none;width:100%;height:120px"></svg>
+          </div>
+        </div>
+
+      </div><!-- /rv-scroll -->
+    </div><!-- /rv-dashboard -->
+
+  </div><!-- /main -->
+</div><!-- /layout -->
+
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  Revenue – Google AdSense Management API v2
+// ═══════════════════════════════════════════════════════════════════
+
+const RV_CLIENT_ID_KEY = 'rv_adsense_client_id';
+const RV_TOKEN_KEY     = 'rv_adsense_token';
+const RV_TOKEN_EXP_KEY = 'rv_adsense_token_exp';
+const RV_SCOPE         = 'https://www.googleapis.com/auth/adsense.readonly';
+const AS_BASE          = 'https://adsense.googleapis.com/v2';
+
+// Palette for sites / donut
+const SITE_COLORS = [
+  '#22c55e','#60a5fa','#f59e0b','#a78bfa','#f472b6',
+  '#34d399','#fb923c','#06b6d4','#e879f9','#fbbf24'
+];
+
+let rvToken      = null;
+let rvAccountId  = null;        // e.g. "accounts/pub-XXXXXXXXXXXXXXXX"
+let rvDays       = 30;
+let timeRows     = [];          // daily rows for main chart
+let sitesData    = [];          // per ad-client rows
+let sitesSort    = { col: 'estimatedEarnings', dir: -1 };
+const COUNTRY_NAMES = {deu:'Deutschland',usa:'USA',gbr:'Großbritannien',fra:'Frankreich',aut:'Österreich',che:'Schweiz',nld:'Niederlande',esp:'Spanien',ita:'Italien',pol:'Polen',bra:'Brasilien',ind:'Indien',aus:'Australien',can:'Kanada',jpn:'Japan',kor:'Korea',swe:'Schweden',nor:'Norwegen',dnk:'Dänemark',fin:'Finnland',prt:'Portugal',tur:'Türkei',ukr:'Ukraine',rus:'Russland',chn:'China'};
+const COUNTRY_FLAGS = {deu:'🇩🇪',usa:'🇺🇸',gbr:'🇬🇧',fra:'🇫🇷',aut:'🇦🇹',che:'🇨🇭',nld:'🇳🇱',esp:'🇪🇸',ita:'🇮🇹',pol:'🇵🇱',bra:'🇧🇷',ind:'🇮🇳',aus:'🇦🇺',can:'🇨🇦',jpn:'🇯🇵',kor:'🇰🇷',swe:'🇸🇪',nor:'🇳🇴',dnk:'🇩🇰',fin:'🇫🇮',prt:'🇵🇹',tur:'🇹🇷',ukr:'🇺🇦',rus:'🇷🇺',chn:'🇨🇳'};
+
+// ── Init ────────────────────────────────────────────────────────────
+function initRevenue() {
+  document.getElementById('rv-origin-hint').textContent   = window.location.origin;
+  document.getElementById('rv-redirect-hint').textContent = window.location.origin + window.location.pathname;
+
+  const saved = localStorage.getItem(RV_CLIENT_ID_KEY);
+  if (saved) document.getElementById('rv-client-id').value = saved;
+
+  // Handle OAuth redirect (implicit flow returns token in hash)
+  const hash = new URLSearchParams(window.location.hash.slice(1));
+  const token = hash.get('access_token');
+  const exp   = hash.get('expires_in');
+  if (token) {
+    const expAt = Date.now() + parseInt(exp || '3600') * 1000;
+    sessionStorage.setItem(RV_TOKEN_KEY,     token);
+    sessionStorage.setItem(RV_TOKEN_EXP_KEY, String(expAt));
+    history.replaceState(null, '', window.location.pathname);
+    activateRvToken(token, expAt);
+    return;
+  }
+
+  // Restore session token
+  const st  = sessionStorage.getItem(RV_TOKEN_KEY);
+  const se  = parseInt(sessionStorage.getItem(RV_TOKEN_EXP_KEY) || '0');
+  if (st && Date.now() < se - 60000) { activateRvToken(st, se); return; }
+
+  showSetup(true);
+}
+
+// ── OAuth ───────────────────────────────────────────────────────────
+function rvConnect() {
+  const cid = document.getElementById('rv-client-id').value.trim();
+  if (!cid) { document.getElementById('rv-client-id').focus(); return; }
+  localStorage.setItem(RV_CLIENT_ID_KEY, cid);
+  const redir = window.location.origin + window.location.pathname;
+  const url = 'https://accounts.google.com/o/oauth2/v2/auth?'
+    + `client_id=${encodeURIComponent(cid)}`
+    + `&redirect_uri=${encodeURIComponent(redir)}`
+    + `&response_type=token`
+    + `&scope=${encodeURIComponent(RV_SCOPE)}`
+    + `&include_granted_scopes=true`;
+  window.location.href = url;
+}
+
+function activateRvToken(token, expAt) {
+  rvToken = token;
+  showSetup(false);
+  updateTokenInfo(expAt);
+  setInterval(() => updateTokenInfo(expAt), 15000);
+  loadAccounts();
+}
+
+function updateTokenInfo(expAt) {
+  const rem = Math.round((expAt - Date.now()) / 60000);
+  const el  = document.getElementById('rv-token-info');
+  el.textContent = rem > 0 ? `Token: noch ${rem} Min.` : '⚠ Token abgelaufen';
+  el.style.color  = rem < 5 ? 'var(--yellow)' : 'var(--text3)';
+}
+
+function rvDisconnect() {
+  rvToken = null; rvAccountId = null;
+  sessionStorage.removeItem(RV_TOKEN_KEY);
+  sessionStorage.removeItem(RV_TOKEN_EXP_KEY);
+  showSetup(true);
+}
+
+function showSetup(show) {
+  document.getElementById('rv-setup').style.display     = show ? 'flex'  : 'none';
+  document.getElementById('rv-dashboard').style.display = show ? 'none'  : 'flex';
+}
+
+// ── AdSense API helper ──────────────────────────────────────────────
+async function asGet(path) {
+  const r = await fetch(AS_BASE + path, { headers: { Authorization: `Bearer ${rvToken}` } });
+  if (!r.ok) throw new Error(`AdSense API ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
+// ── Date helpers ────────────────────────────────────────────────────
+function isoDate(d) { return d.toISOString().slice(0,10); }
+
+function buildDateRange(days) {
+  const end   = new Date();
+  const start = new Date(); start.setDate(start.getDate() - days + 1);
+  return { startDate: isoDate(start), endDate: isoDate(end) };
+}
+
+function buildPrevRange(days) {
+  const end   = new Date(); end.setDate(end.getDate() - days);
+  const start = new Date(); start.setDate(start.getDate() - days * 2 + 1);
+  return { startDate: isoDate(start), endDate: isoDate(end) };
+}
+
+function reportUrl(accountId, params) {
+  const p = new URLSearchParams(params);
+  return `/${accountId}/reports:generate?${p}`;
+}
+
+// ── Load accounts ───────────────────────────────────────────────────
+async function loadAccounts() {
+  const sel = document.getElementById('rv-account-sel');
+  try {
+    const data = await asGet('/accounts');
+    const accounts = data.accounts || [];
+    if (!accounts.length) { sel.innerHTML = '<option>Kein AdSense-Account gefunden</option>'; return; }
+    sel.innerHTML = accounts.map(a =>
+      `<option value="${esc(a.name)}">${esc(a.displayName || a.name)}</option>`
+    ).join('');
+    rvAccountId = accounts[0].name;
+    loadAll();
+  } catch(e) {
+    sel.innerHTML = '<option>Fehler beim Laden</option>';
+    console.error(e);
+  }
+}
+
+function onAccountChange() {
+  rvAccountId = document.getElementById('rv-account-sel').value;
+  loadAll();
+}
+
+function setRange(days, btn) {
+  rvDays = days;
+  document.querySelectorAll('.rv-range-btn').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  loadAll();
+}
+
+// ── Load all ────────────────────────────────────────────────────────
+function loadAll() {
+  if (!rvAccountId) return;
+  refreshIcons();
+  loadTimeSeries();
+  loadSites();
+  loadDevices();
+  loadCountries();
+}
+
+// ── Shared report params builder ────────────────────────────────────
+function baseParams(extra = {}) {
+  const { startDate, endDate } = buildDateRange(rvDays);
+  const sd = startDate.split('-');
+  const ed = endDate.split('-');
+  return {
+    'dateRange.startDate.year':  sd[0], 'dateRange.startDate.month': sd[1], 'dateRange.startDate.day': sd[2],
+    'dateRange.endDate.year':    ed[0], 'dateRange.endDate.month':   ed[1], 'dateRange.endDate.day':   ed[2],
+    'currencyCode': 'EUR',
+    ...extra
+  };
+}
+
+function prevParams(extra = {}) {
+  const { startDate, endDate } = buildPrevRange(rvDays);
+  const sd = startDate.split('-');
+  const ed = endDate.split('-');
+  return {
+    'dateRange.startDate.year':  sd[0], 'dateRange.startDate.month': sd[1], 'dateRange.startDate.day': sd[2],
+    'dateRange.endDate.year':    ed[0], 'dateRange.endDate.month':   ed[1], 'dateRange.endDate.day':   ed[2],
+    'currencyCode': 'EUR',
+    ...extra
+  };
+}
+
+// ── Time series (main chart + KPIs) ────────────────────────────────
+async function loadTimeSeries() {
+  document.getElementById('rv-main-loading').style.display = 'flex';
+  document.getElementById('rv-main-svg').style.display     = 'none';
+  document.getElementById('rv-compare').style.display      = 'none';
+  ['kv-earn','kv-impr','kv-clicks','kv-rpm','kv-ctr'].forEach(id =>
+    document.getElementById(id).textContent = '…');
+  document.getElementById('rv-ctr-loading').style.display = 'flex';
+  document.getElementById('rv-ctr-svg').style.display     = 'none';
+  document.getElementById('rv-rpm-loading').style.display = 'flex';
+  document.getElementById('rv-rpm-svg').style.display     = 'none';
+
+  try {
+    // Current period
+    const p = baseParams({
+      'dimensions': 'DATE',
+      'metrics': ['ESTIMATED_EARNINGS','AD_REQUESTS_IMPRESSIONS','CLICKS','PAGE_VIEWS_RPM','AD_REQUESTS_CTR'].join(',')
+    });
+    const data = await asGet(reportUrl(rvAccountId, p));
+    timeRows = (data.rows || []);
+
+    // KPI totals
+    let totEarn = 0, totImpr = 0, totClicks = 0, rpmSum = 0, ctrSum = 0, n = timeRows.length || 1;
+    timeRows.forEach(r => {
+      const cv = r.cells || [];
+      totEarn   += parseFloat(cv[1]?.value || 0);
+      totImpr   += parseFloat(cv[2]?.value || 0);
+      totClicks += parseFloat(cv[3]?.value || 0);
+      rpmSum    += parseFloat(cv[4]?.value || 0);
+      ctrSum    += parseFloat(cv[5]?.value || 0);
+    });
+
+    document.getElementById('kv-earn').textContent   = '€' + fmtMoney(totEarn);
+    document.getElementById('kv-impr').textContent   = fmtBig(totImpr);
+    document.getElementById('kv-clicks').textContent = fmtBig(totClicks);
+    document.getElementById('kv-rpm').textContent    = '€' + (rpmSum / n).toFixed(2);
+    document.getElementById('kv-ctr').textContent    = ((ctrSum / n) * 100).toFixed(2) + '%';
+
+    // Previous period for comparison
+    const pp = prevParams({
+      'metrics': 'ESTIMATED_EARNINGS'
+    });
+    const prevData = await asGet(reportUrl(rvAccountId, pp));
+    const prevEarn = (prevData.rows || []).reduce((s, r) => s + parseFloat(r.cells?.[1]?.value || 0), 0);
+    const delta    = totEarn - prevEarn;
+    const deltaPct = prevEarn ? ((delta / prevEarn) * 100).toFixed(1) : '∞';
+    const bestRow  = [...timeRows].sort((a,b) => parseFloat(b.cells?.[1]?.value||0) - parseFloat(a.cells?.[1]?.value||0))[0];
+    const bestDate = bestRow?.cells?.[0]?.value || '–';
+    const bestEarn = parseFloat(bestRow?.cells?.[1]?.value || 0);
+
+    document.getElementById('cmp-cur').textContent   = '€' + fmtMoney(totEarn);
+    document.getElementById('cmp-prev').textContent  = '€' + fmtMoney(prevEarn);
+    document.getElementById('cmp-avg').textContent   = '€' + fmtMoney(totEarn / n);
+    document.getElementById('cmp-best').textContent  = `€${fmtMoney(bestEarn)} (${bestDate.slice(5)})`;
+    const dEl = document.getElementById('cmp-delta');
+    dEl.textContent = `${delta >= 0 ? '+' : ''}${deltaPct}%`;
+    dEl.style.color = delta >= 0 ? '#22c55e' : 'var(--red)';
+    dEl.style.fontWeight = '800';
+    document.getElementById('rv-compare').style.display = 'flex';
+
+    // Render charts
+    renderMainChart(timeRows);
+    renderCtrChart(timeRows);
+    renderRpmChart(timeRows);
+
+  } catch(e) {
+    document.getElementById('rv-main-loading').innerHTML =
+      `<span style="color:var(--red);font-size:11px">Fehler: ${e.message}</span>`;
+    console.error(e);
+  }
+}
+
+// ── Main SVG chart ──────────────────────────────────────────────────
+function renderSvgChart(svgId, loadingId, series, opts = {}) {
+  const svg  = document.getElementById(svgId);
+  const W    = svg.clientWidth || 800;
+  const H    = opts.h || 200;
+  const PAD  = { top: 12, right: 14, bottom: 28, left: 52 };
+  const iW   = W - PAD.left - PAD.right;
+  const iH   = H - PAD.top  - PAD.bottom;
+
+  // series: [{values, color, label, scale}]
+  // each scale is computed independently so both lines fit
+  const allScales = series.map(s => {
+    const max = Math.max(...s.values, 0.001);
+    return { max, yScale: v => PAD.top + iH - (v / max) * iH };
+  });
+
+  const xScale = i => PAD.left + (i / Math.max(series[0].values.length - 1, 1)) * iW;
+
+  // Y grid labels based on first series
+  const { max: maxV, yScale } = allScales[0];
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ y: PAD.top + iH - f * iH, v: f * maxV }));
+
+  const dates = opts.dates || series[0].values.map((_, i) => i);
+  const step  = Math.max(1, Math.floor(dates.length / 6));
+  const xLabels = dates.map((_, i) => i).filter(i => i % step === 0 || i === dates.length - 1);
+
+  let inner = '';
+
+  // Grid
+  yTicks.forEach(t => {
+    inner += `<line x1="${PAD.left}" y1="${t.y.toFixed(1)}" x2="${W - PAD.right}" y2="${t.y.toFixed(1)}" stroke="rgba(35,46,66,.6)" stroke-width="1"/>`;
+    inner += `<text x="${(PAD.left - 5).toFixed(0)}" y="${(t.y + 4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--text3)" font-family="Space Mono,monospace">${opts.formatY ? opts.formatY(t.v) : fmtBigShort(t.v)}</text>`;
+  });
+
+  // X labels
+  xLabels.forEach(i => {
+    const lbl = typeof dates[i] === 'string' ? dates[i].slice(5) : dates[i];
+    inner += `<text x="${xScale(i).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="9" fill="var(--text3)" font-family="Space Mono,monospace">${lbl}</text>`;
+  });
+
+  // Each series
+  series.forEach((s, si) => {
+    const { yScale: ys } = allScales[si];
+    const pts = s.values.map((v, i) => `${xScale(i).toFixed(1)},${ys(v).toFixed(1)}`);
+    // Area fill
+    if (!opts.noArea) {
+      const area = `M${PAD.left},${PAD.top + iH} L${pts.join(' L')} L${xScale(s.values.length - 1)},${PAD.top + iH} Z`;
+      inner += `<path d="${area}" fill="${s.color}22"/>`;
+    }
+    // Line
+    inner += `<polyline points="${pts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="${si === 0 ? 2.2 : 1.5}" stroke-linejoin="round" stroke-linecap="round" ${si > 0 ? 'stroke-dasharray="none"' : ''}/>`;
+    // Dots (few points)
+    if (s.values.length <= 35) {
+      s.values.forEach((v, i) => {
+        inner += `<circle cx="${xScale(i).toFixed(1)}" cy="${ys(v).toFixed(1)}" r="${si===0?3:2.5}" fill="${s.color}" stroke="var(--surface)" stroke-width="1.5"/>`;
+      });
+    }
+  });
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = inner;
+  document.getElementById(loadingId).style.display = 'none';
+  svg.style.display = 'block';
+}
+
+function renderMainChart(rows) {
+  const earn  = rows.map(r => parseFloat(r.cells?.[1]?.value || 0));
+  const impr  = rows.map(r => parseFloat(r.cells?.[2]?.value || 0));
+  const dates = rows.map(r => r.cells?.[0]?.value || '');
+  renderSvgChart('rv-main-svg', 'rv-main-loading', [
+    { values: earn, color: '#22c55e', label: 'Einnahmen' },
+    { values: impr, color: '#60a5fa', label: 'Impressionen' }
+  ], { h: 200, dates, formatY: v => '€' + fmtBigShort(v) });
+}
+
+function renderCtrChart(rows) {
+  const clicks = rows.map(r => parseFloat(r.cells?.[3]?.value || 0));
+  const ctr    = rows.map(r => parseFloat(r.cells?.[5]?.value || 0) * 100);
+  const dates  = rows.map(r => r.cells?.[0]?.value || '');
+  renderSvgChart('rv-ctr-svg', 'rv-ctr-loading', [
+    { values: clicks, color: '#f59e0b', label: 'Klicks' },
+    { values: ctr,    color: '#f472b6', label: 'CTR%' }
+  ], { h: 150, dates, formatY: v => fmtBigShort(v), noArea: false });
+}
+
+function renderRpmChart(rows) {
+  const rpm   = rows.map(r => parseFloat(r.cells?.[4]?.value || 0));
+  const dates = rows.map(r => r.cells?.[0]?.value || '');
+  renderSvgChart('rv-rpm-svg', 'rv-rpm-loading', [
+    { values: rpm, color: '#a78bfa', label: 'RPM' }
+  ], { h: 120, dates, formatY: v => '€' + v.toFixed(2) });
+}
+
+// ── Per-site (ad-client) breakdown ──────────────────────────────────
+async function loadSites() {
+  const wrap = document.getElementById('rv-sites-wrap');
+  wrap.innerHTML = '<div class="rv-loading"><div class="rv-spinner"></div>Lade…</div>';
+  document.getElementById('rv-donut-wrap').innerHTML =
+    '<div class="rv-loading"><div class="rv-spinner"></div>Lade…</div>';
+  try {
+    const p = baseParams({
+      'dimensions': 'AD_CLIENT_ID',
+      'metrics': ['ESTIMATED_EARNINGS','AD_REQUESTS_IMPRESSIONS','CLICKS','PAGE_VIEWS_RPM','AD_REQUESTS_CTR'].join(',')
+    });
+    const data = await asGet(reportUrl(rvAccountId, p));
+    sitesData = (data.rows || []).map(r => ({
+      client:   r.cells?.[0]?.value || '–',
+      earn:     parseFloat(r.cells?.[1]?.value || 0),
+      impr:     parseFloat(r.cells?.[2]?.value || 0),
+      clicks:   parseFloat(r.cells?.[3]?.value || 0),
+      rpm:      parseFloat(r.cells?.[4]?.value || 0),
+      ctr:      parseFloat(r.cells?.[5]?.value || 0) * 100,
+    })).sort((a,b) => b.earn - a.earn);
+
+    document.getElementById('rv-sites-sub').textContent = `${sitesData.length} Ad Clients`;
+    renderSitesTable();
+    renderDonut(sitesData);
+  } catch(e) {
+    wrap.innerHTML = `<div class="rv-empty" style="color:var(--red)">Fehler: ${e.message}</div>`;
+  }
+}
+
+function renderSitesTable() {
+  const sorted = [...sitesData].sort((a,b) => sitesSort.dir * (b[sitesSort.col] - a[sitesSort.col]));
+  const maxEarn = sorted[0]?.earn || 1;
+  const wrap    = document.getElementById('rv-sites-wrap');
+  if (!sorted.length) { wrap.innerHTML = '<div class="rv-empty">Keine Daten</div>'; return; }
+  wrap.innerHTML = `
+    <table class="rv-table">
+      <thead><tr>
+        <th onclick="sortSites('client',this)">Ad Client / Seite</th>
+        <th onclick="sortSites('earn',this)" class="sorted">Einnahmen ↓</th>
+        <th onclick="sortSites('impr',this)">Impressionen</th>
+        <th onclick="sortSites('clicks',this)">Klicks</th>
+        <th onclick="sortSites('rpm',this)">RPM</th>
+        <th onclick="sortSites('ctr',this)">CTR</th>
+        <th>Anteil</th>
+      </tr></thead>
+      <tbody>
+        ${sorted.map((r, i) => {
+          const pct = maxEarn ? (r.earn / maxEarn * 100).toFixed(0) : 0;
+          const col = SITE_COLORS[i % SITE_COLORS.length];
+          const siteLabel = r.client.replace(/^ca-pub-\d+:?/, '') || r.client;
+          return `<tr>
+            <td class="name" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.client)}">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${col};margin-right:8px;flex-shrink:0;vertical-align:middle"></span>
+              ${esc(siteLabel || r.client)}
+            </td>
+            <td class="money">€${fmtMoney(r.earn)}</td>
+            <td>${fmtBig(r.impr)}</td>
+            <td>${fmtBig(r.clicks)}</td>
+            <td>€${r.rpm.toFixed(2)}</td>
+            <td>${r.ctr.toFixed(2)}%</td>
+            <td style="min-width:80px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="flex:1;background:var(--bg);border-radius:3px;height:5px;overflow:hidden">
+                  <div style="width:${pct}%;height:100%;background:${col};border-radius:3px"></div>
+                </div>
+                <span style="font-size:9px;color:var(--text3);width:28px;text-align:right">${pct}%</span>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+function sortSites(col, th) {
+  sitesSort = { col, dir: sitesSort.col === col ? -sitesSort.dir : -1 };
+  document.querySelectorAll('.rv-table th').forEach(t => t.classList.remove('sorted'));
+  th.classList.add('sorted');
+  renderSitesTable();
+}
+
+// ── Donut chart ─────────────────────────────────────────────────────
+function renderDonut(rows) {
+  const wrap = document.getElementById('rv-donut-wrap');
+  if (!rows.length) { wrap.innerHTML = '<div class="rv-empty">Keine Daten</div>'; return; }
+
+  const total  = rows.reduce((s, r) => s + r.earn, 0) || 1;
+  const R      = 55;  // outer radius
+  const r      = 32;  // inner radius
+  const cx = 70; const cy = 70;
+  let angle    = -Math.PI / 2;
+  let paths    = '';
+  let legendHtml = '';
+
+  rows.slice(0, 8).forEach((row, i) => {
+    const pct   = row.earn / total;
+    const sweep = pct * 2 * Math.PI;
+    const x1 = cx + R * Math.cos(angle);
+    const y1 = cy + R * Math.sin(angle);
+    angle += sweep;
+    const x2 = cx + R * Math.cos(angle);
+    const y2 = cy + R * Math.sin(angle);
+    const xi1 = cx + r * Math.cos(angle);
+    const yi1 = cy + r * Math.sin(angle);
+    angle -= sweep;
+    const xi2 = cx + r * Math.cos(angle);
+    const yi2 = cy + r * Math.sin(angle);
+    angle += sweep;
+    const large = sweep > Math.PI ? 1 : 0;
+    const col = SITE_COLORS[i % SITE_COLORS.length];
+    const lbl = (row.client.replace(/^ca-pub-\d+:?/, '') || row.client).slice(0,20) || row.client.slice(-8);
+    paths += `<path d="M${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${large},1 ${x2.toFixed(2)},${y2.toFixed(2)} L${xi1.toFixed(2)},${yi1.toFixed(2)} A${r},${r} 0 ${large},0 ${xi2.toFixed(2)},${yi2.toFixed(2)} Z" fill="${col}" stroke="var(--surface)" stroke-width="1.5">
+      <title>${esc(lbl)}: €${fmtMoney(row.earn)} (${(pct*100).toFixed(1)}%)</title></path>`;
+    legendHtml += `<div class="rv-donut-legend-item">
+      <div class="rv-donut-dot" style="background:${col}"></div>
+      <span title="${esc(row.client)}">${esc(lbl.length>16?lbl.slice(0,16)+'…':lbl)}</span>
+      <span style="margin-left:auto;font-weight:700;color:var(--text1);font-family:'Space Mono',monospace;font-size:10px">€${fmtMoney(row.earn)}</span>
+    </div>`;
+  });
+
+  wrap.innerHTML = `
+    <div class="rv-donut-wrap">
+      <svg width="140" height="140" viewBox="0 0 140 140" style="flex-shrink:0">
+        ${paths}
+        <circle cx="${cx}" cy="${cy}" r="${r-2}" fill="var(--surface)"/>
+        <text x="${cx}" y="${cy-4}" text-anchor="middle" font-size="9" fill="var(--text3)" font-family="Space Mono,monospace">Gesamt</text>
+        <text x="${cx}" y="${cy+12}" text-anchor="middle" font-size="12" font-weight="800" fill="#22c55e" font-family="inherit">€${fmtMoney(total)}</text>
+      </svg>
+      <div class="rv-donut-legend" style="flex:1;min-width:0">${legendHtml}</div>
+    </div>`;
+}
+
+// ── Devices ─────────────────────────────────────────────────────────
+async function loadDevices() {
+  const wrap = document.getElementById('rv-devices-wrap');
+  wrap.innerHTML = '<div class="rv-loading"><div class="rv-spinner"></div>Lade…</div>';
+  try {
+    const p = baseParams({
+      'dimensions': 'PLATFORM_TYPE_CODE',
+      'metrics': ['ESTIMATED_EARNINGS','AD_REQUESTS_IMPRESSIONS','CLICKS'].join(',')
+    });
+    const data = await asGet(reportUrl(rvAccountId, p));
+    const rows = (data.rows || []).sort((a,b) =>
+      parseFloat(b.cells?.[1]?.value||0) - parseFloat(a.cells?.[1]?.value||0));
+    const maxE = Math.max(...rows.map(r => parseFloat(r.cells?.[1]?.value||0)), 1);
+    const DEVICE_LABEL = { HighEndMobile:'📱 Mobile', Desktop:'🖥 Desktop', Tablet:'📟 Tablet', Other:'🌀 Andere' };
+    wrap.innerHTML = '<div class="rv-breakdown">' + rows.map(r => {
+      const key   = r.cells?.[0]?.value || '';
+      const earn  = parseFloat(r.cells?.[1]?.value || 0);
+      const pct   = Math.round(earn / maxE * 100);
+      return `<div class="rv-bdown-item">
+        <div class="rv-bdown-lbl">${DEVICE_LABEL[key] || key}</div>
+        <div class="rv-bdown-bar-wrap"><div class="rv-bdown-bar" style="width:${pct}%;background:#f59e0b"></div></div>
+        <div class="rv-bdown-val">€${fmtMoney(earn)}</div>
+      </div>`;
+    }).join('') + '</div>';
+  } catch(e) {
+    wrap.innerHTML = `<div style="color:var(--red);font-size:11px;padding:12px">Fehler</div>`;
+  }
+}
+
+// ── Countries ────────────────────────────────────────────────────────
+async function loadCountries() {
+  const wrap = document.getElementById('rv-countries-wrap');
+  wrap.innerHTML = '<div class="rv-loading"><div class="rv-spinner"></div>Lade…</div>';
+  try {
+    const p = baseParams({
+      'dimensions': 'COUNTRY_CODE',
+      'metrics': ['ESTIMATED_EARNINGS','CLICKS'].join(',')
+    });
+    const data = await asGet(reportUrl(rvAccountId, p));
+    const rows = (data.rows || [])
+      .sort((a,b) => parseFloat(b.cells?.[1]?.value||0) - parseFloat(a.cells?.[1]?.value||0))
+      .slice(0, 10);
+    const maxE = Math.max(...rows.map(r => parseFloat(r.cells?.[1]?.value||0)), 1);
+    wrap.innerHTML = '<div class="rv-breakdown">' + rows.map(r => {
+      const code3 = (r.cells?.[0]?.value || '').toLowerCase();
+      const earn  = parseFloat(r.cells?.[1]?.value || 0);
+      const pct   = Math.round(earn / maxE * 100);
+      const flag  = COUNTRY_FLAGS[code3] || '🌍';
+      const name  = COUNTRY_NAMES[code3] || (r.cells?.[0]?.value || '?');
+      return `<div class="rv-bdown-item">
+        <div class="rv-bdown-lbl">${flag} ${name}</div>
+        <div class="rv-bdown-bar-wrap"><div class="rv-bdown-bar" style="width:${pct}%;background:#a78bfa"></div></div>
+        <div class="rv-bdown-val">€${fmtMoney(earn)}</div>
+      </div>`;
+    }).join('') + '</div>';
+  } catch(e) {
+    wrap.innerHTML = `<div style="color:var(--red);font-size:11px;padding:12px">Fehler</div>`;
+  }
+}
+
+// ── Format helpers ───────────────────────────────────────────────────
+function fmtMoney(v) {
+  if (v >= 1000) return (v/1000).toFixed(2) + 'K';
+  return v.toFixed(2);
+}
+function fmtBig(v) {
+  if (v >= 1000000) return (v/1000000).toFixed(1) + 'M';
+  if (v >= 1000)    return (v/1000).toFixed(1) + 'K';
+  return Math.round(v).toLocaleString('de');
+}
+function fmtBigShort(v) {
+  if (v >= 1000) return (v/1000).toFixed(0) + 'K';
+  return v.toFixed(0);
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────
+injectLoginScreen();
+checkAuth(() => {
+  initLayout(null);
+  initRevenue();
+});
+window.initAfterLogin = () => {
+  initLayout(null);
+  initRevenue();
+};
+</script>
+</body>
+</html>

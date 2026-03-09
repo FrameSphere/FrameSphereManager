@@ -153,6 +153,10 @@ function injectSidebar(activeSiteId = null) {
         <span class="icon"><i data-lucide="search" style="width:14px;height:14px;color:#34d399"></i></span>
         Search Radar
       </a>
+      <a class="nav-item${window.location.pathname.includes('revenue') ? ' active' : ''}" href="${pathPrefix()}revenue.html">
+        <span class="icon"><i data-lucide="circle-dollar-sign" style="width:14px;height:14px;color:#22c55e"></i></span>
+        Revenue
+      </a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Webseiten</div>
