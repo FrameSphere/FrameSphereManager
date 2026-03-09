@@ -714,14 +714,16 @@ function loadAll() {
 }
 
 // ── Shared report params builder ────────────────────────────────────
-// AdSense Management API v2: dates as flat strings, metrics as repeated params
+// AdSense Management API v2: dates as startDate.year / .month / .day
 function buildParams(startDate, endDate, extra = {}) {
-  const base = {
-    startDate,     // YYYY-MM-DD
-    endDate,
+  const sd = startDate.split('-');
+  const ed = endDate.split('-');
+  return {
+    'startDate.year':  sd[0], 'startDate.month': parseInt(sd[1]).toString(), 'startDate.day': parseInt(sd[2]).toString(),
+    'endDate.year':    ed[0], 'endDate.month':   parseInt(ed[1]).toString(), 'endDate.day':   parseInt(ed[2]).toString(),
     currencyCode: 'EUR',
+    ...extra
   };
-  return { ...base, ...extra };
 }
 
 function baseParams(extra = {}) {
