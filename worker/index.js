@@ -984,6 +984,99 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
+  // ── DB EXPLORER ───────────────────────────────────────────────────
+  const EXPLORER_TABLES = [
+    'todo_tasks', 'todo_prompts', 'notifications', 'support_tickets',
+    'support_messages', 'error_logs', 'suggestions', 'changelog_entries',
+    'blog_posts', 'analytics_events', 'daily_words', 'contact_messages',
+    'word_requests', 'sites',
+  ];
+
+  // GET /api/db/tables
+  if (request.method === 'GET' && path === '/api/db/tables') {
+    const tableInfos = await Promise.all(EXPLORER_TABLES.map(async t => {
+      try {
+        const count  = await db.prepare(`SELECT COUNT(*) as c FROM ${t}`).first().catch(() => ({ c: 0 }));
+        const schema = await db.prepare(`PRAGMA table_info(${t})`).all().catch(() => ({ results: [] }));
+        return { name: t, count: count?.c ?? 0, columns: schema.results.map(c => ({ name: c.name, type: c.type, pk: c.pk, notnull: c.notnull, dflt_value: c.dflt_value })) };
+      } catch(e) { return null; }
+    }));
+    return json(tableInfos.filter(Boolean));
+  }
+
+  // GET /api/db/:table
+  if (request.method === 'GET' && segments[1] === 'db' && segments[2] && !segments[3]) {
+    const table = segments[2];
+    if (!EXPLORER_TABLES.includes(table)) return err('Table not allowed', 403);
+    const limit    = Math.min(parseInt(url.searchParams.get('limit')  || '100'), 500);
+    const offset   = parseInt(url.searchParams.get('offset')  || '0');
+    const orderBy  = url.searchParams.get('order_by')  || 'id';
+    const orderDir = url.searchParams.get('order_dir') === 'asc' ? 'ASC' : 'DESC';
+    const search    = url.searchParams.get('search')    || '';
+    const filterCol = url.searchParams.get('filter_col') || '';
+    const filterVal = url.searchParams.get('filter_val') || '';
+    const schema = await db.prepare(`PRAGMA table_info(${table})`).all();
+    const cols   = schema.results.map(c => c.name);
+    let where = '1=1';
+    const params = [];
+    if (filterCol && cols.includes(filterCol) && filterVal !== '') {
+      where += ` AND ${filterCol}=?`; params.push(filterVal);
+    } else if (search) {
+      const textCols = schema.results
+        .filter(c => (c.type||'').toUpperCase().includes('TEXT') || ['title','message','name','email','subject','suggestion','word','prompt','description','content'].includes(c.name))
+        .map(c => c.name);
+      if (textCols.length) {
+        where += ` AND (${textCols.map(c => `${c} LIKE ?`).join(' OR ')})`;
+        textCols.forEach(() => params.push(`%${search}%`));
+      }
+    }
+    const validOrder = cols.includes(orderBy) ? orderBy : (cols.includes('id') ? 'id' : cols[0]);
+    const [rows, cnt] = await Promise.all([
+      db.prepare(`SELECT * FROM ${table} WHERE ${where} ORDER BY ${validOrder} ${orderDir} LIMIT ? OFFSET ?`)
+        .bind(...params, limit, offset).all(),
+      db.prepare(`SELECT COUNT(*) as c FROM ${table} WHERE ${where}`).bind(...params).first(),
+    ]);
+    return json({ rows: rows.results, total: cnt?.c ?? 0, columns: schema.results, limit, offset });
+  }
+
+  // POST /api/db/:table (insert row)
+  if (request.method === 'POST' && segments[1] === 'db' && segments[2] && !segments[3]) {
+    const table = segments[2];
+    if (!EXPLORER_TABLES.includes(table)) return err('Table not allowed', 403);
+    const body   = await request.json().catch(() => ({}));
+    const schema = await db.prepare(`PRAGMA table_info(${table})`).all();
+    const cols   = schema.results.filter(c => !c.pk).map(c => c.name);
+    const ins    = cols.filter(c => body[c] !== undefined && body[c] !== '');
+    if (!ins.length) return err('No valid fields provided');
+    const r = await db.prepare(
+      `INSERT INTO ${table} (${ins.join(',')}) VALUES (${ins.map(() => '?').join(',')})`
+    ).bind(...ins.map(c => body[c])).run();
+    return json({ success: true, id: r.meta.last_row_id });
+  }
+
+  // PATCH /api/db/:table/:id (update row)
+  if (request.method === 'PATCH' && segments[1] === 'db' && segments[2] && segments[3] && !segments[4]) {
+    const table = segments[2];
+    if (!EXPLORER_TABLES.includes(table)) return err('Table not allowed', 403);
+    const body   = await request.json().catch(() => ({}));
+    const schema = await db.prepare(`PRAGMA table_info(${table})`).all();
+    const cols   = schema.results.filter(c => !c.pk).map(c => c.name);
+    const upd    = cols.filter(c => body[c] !== undefined);
+    if (!upd.length) return err('Nothing to update');
+    await db.prepare(
+      `UPDATE ${table} SET ${upd.map(c => `${c}=?`).join(',')} WHERE id=?`
+    ).bind(...upd.map(c => body[c] === '' ? null : body[c]), segments[3]).run();
+    return json({ success: true });
+  }
+
+  // DELETE /api/db/:table/:id
+  if (request.method === 'DELETE' && segments[1] === 'db' && segments[2] && segments[3]) {
+    const table = segments[2];
+    if (!EXPLORER_TABLES.includes(table)) return err('Table not allowed', 403);
+    await db.prepare(`DELETE FROM ${table} WHERE id=?`).bind(segments[3]).run();
+    return json({ success: true });
+  }
+
   return err('Not found', 404);
 }
 
