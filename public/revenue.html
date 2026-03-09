@@ -666,6 +666,8 @@ function buildPrevRange(days) {
   return { startDate: isoDate(start), endDate: isoDate(end) };
 }
 
+// AdSense v2 reports:generate expects flat query params:
+// startDate=YYYY-MM-DD, endDate=YYYY-MM-DD, metrics=X, dimensions=Y
 function reportUrl(accountId, params) {
   const p = new URLSearchParams(params);
   return `/${accountId}/reports:generate?${p}`;
@@ -712,28 +714,24 @@ function loadAll() {
 }
 
 // ── Shared report params builder ────────────────────────────────────
+// AdSense Management API v2: dates as flat strings, metrics as repeated params
+function buildParams(startDate, endDate, extra = {}) {
+  const base = {
+    startDate,     // YYYY-MM-DD
+    endDate,
+    currencyCode: 'EUR',
+  };
+  return { ...base, ...extra };
+}
+
 function baseParams(extra = {}) {
   const { startDate, endDate } = buildDateRange(rvDays);
-  const sd = startDate.split('-');
-  const ed = endDate.split('-');
-  return {
-    'dateRange.startDate.year':  sd[0], 'dateRange.startDate.month': sd[1], 'dateRange.startDate.day': sd[2],
-    'dateRange.endDate.year':    ed[0], 'dateRange.endDate.month':   ed[1], 'dateRange.endDate.day':   ed[2],
-    'currencyCode': 'EUR',
-    ...extra
-  };
+  return buildParams(startDate, endDate, extra);
 }
 
 function prevParams(extra = {}) {
   const { startDate, endDate } = buildPrevRange(rvDays);
-  const sd = startDate.split('-');
-  const ed = endDate.split('-');
-  return {
-    'dateRange.startDate.year':  sd[0], 'dateRange.startDate.month': sd[1], 'dateRange.startDate.day': sd[2],
-    'dateRange.endDate.year':    ed[0], 'dateRange.endDate.month':   ed[1], 'dateRange.endDate.day':   ed[2],
-    'currencyCode': 'EUR',
-    ...extra
-  };
+  return buildParams(startDate, endDate, extra);
 }
 
 // ── Time series (main chart + KPIs) ────────────────────────────────
@@ -750,11 +748,14 @@ async function loadTimeSeries() {
 
   try {
     // Current period
+    // metrics must be passed as repeated params: &metrics=X&metrics=Y
     const p = baseParams({
-      'dimensions': 'DATE',
-      'metrics': ['ESTIMATED_EARNINGS','AD_REQUESTS_IMPRESSIONS','CLICKS','PAGE_VIEWS_RPM','AD_REQUESTS_CTR'].join(',')
+      dimensions: 'DATE',
     });
-    const data = await asGet(reportUrl(rvAccountId, p));
+    const metricsMain = ['ESTIMATED_EARNINGS','AD_REQUESTS_IMPRESSIONS','CLICKS','PAGE_VIEWS_RPM','AD_REQUESTS_CTR'];
+    const qMain = new URLSearchParams(p);
+    metricsMain.forEach(m => qMain.append('metrics', m));
+    const data = await asGet(`/${rvAccountId}/reports:generate?${qMain}`);
     timeRows = (data.rows || []);
 
     // KPI totals
@@ -775,10 +776,10 @@ async function loadTimeSeries() {
     document.getElementById('kv-ctr').textContent    = ((ctrSum / n) * 100).toFixed(2) + '%';
 
     // Previous period for comparison
-    const pp = prevParams({
-      'metrics': 'ESTIMATED_EARNINGS'
-    });
-    const prevData = await asGet(reportUrl(rvAccountId, pp));
+    const pp = prevParams({});
+    const qPrev = new URLSearchParams(pp);
+    qPrev.append('metrics', 'ESTIMATED_EARNINGS');
+    const prevData = await asGet(`/${rvAccountId}/reports:generate?${qPrev}`);
     const prevEarn = (prevData.rows || []).reduce((s, r) => s + parseFloat(r.cells?.[1]?.value || 0), 0);
     const delta    = totEarn - prevEarn;
     const deltaPct = prevEarn ? ((delta / prevEarn) * 100).toFixed(1) : '∞';
@@ -908,11 +909,11 @@ async function loadSites() {
   document.getElementById('rv-donut-wrap').innerHTML =
     '<div class="rv-loading"><div class="rv-spinner"></div>Lade…</div>';
   try {
-    const p = baseParams({
-      'dimensions': 'AD_CLIENT_ID',
-      'metrics': ['ESTIMATED_EARNINGS','AD_REQUESTS_IMPRESSIONS','CLICKS','PAGE_VIEWS_RPM','AD_REQUESTS_CTR'].join(',')
-    });
-    const data = await asGet(reportUrl(rvAccountId, p));
+    const pSites = baseParams({ dimensions: 'AD_CLIENT_ID' });
+    const qSites = new URLSearchParams(pSites);
+    ['ESTIMATED_EARNINGS','AD_REQUESTS_IMPRESSIONS','CLICKS','PAGE_VIEWS_RPM','AD_REQUESTS_CTR']
+      .forEach(m => qSites.append('metrics', m));
+    const data = await asGet(`/${rvAccountId}/reports:generate?${qSites}`);
     sitesData = (data.rows || []).map(r => ({
       client:   r.cells?.[0]?.value || '–',
       earn:     parseFloat(r.cells?.[1]?.value || 0),
@@ -1038,11 +1039,10 @@ async function loadDevices() {
   const wrap = document.getElementById('rv-devices-wrap');
   wrap.innerHTML = '<div class="rv-loading"><div class="rv-spinner"></div>Lade…</div>';
   try {
-    const p = baseParams({
-      'dimensions': 'PLATFORM_TYPE_CODE',
-      'metrics': ['ESTIMATED_EARNINGS','AD_REQUESTS_IMPRESSIONS','CLICKS'].join(',')
-    });
-    const data = await asGet(reportUrl(rvAccountId, p));
+    const pDev = baseParams({ dimensions: 'PLATFORM_TYPE_CODE' });
+    const qDev = new URLSearchParams(pDev);
+    ['ESTIMATED_EARNINGS','AD_REQUESTS_IMPRESSIONS','CLICKS'].forEach(m => qDev.append('metrics', m));
+    const data = await asGet(`/${rvAccountId}/reports:generate?${qDev}`);
     const rows = (data.rows || []).sort((a,b) =>
       parseFloat(b.cells?.[1]?.value||0) - parseFloat(a.cells?.[1]?.value||0));
     const maxE = Math.max(...rows.map(r => parseFloat(r.cells?.[1]?.value||0)), 1);
@@ -1067,11 +1067,10 @@ async function loadCountries() {
   const wrap = document.getElementById('rv-countries-wrap');
   wrap.innerHTML = '<div class="rv-loading"><div class="rv-spinner"></div>Lade…</div>';
   try {
-    const p = baseParams({
-      'dimensions': 'COUNTRY_CODE',
-      'metrics': ['ESTIMATED_EARNINGS','CLICKS'].join(',')
-    });
-    const data = await asGet(reportUrl(rvAccountId, p));
+    const pCtr = baseParams({ dimensions: 'COUNTRY_CODE' });
+    const qCtr = new URLSearchParams(pCtr);
+    ['ESTIMATED_EARNINGS','CLICKS'].forEach(m => qCtr.append('metrics', m));
+    const data = await asGet(`/${rvAccountId}/reports:generate?${qCtr}`);
     const rows = (data.rows || [])
       .sort((a,b) => parseFloat(b.cells?.[1]?.value||0) - parseFloat(a.cells?.[1]?.value||0))
       .slice(0, 10);
