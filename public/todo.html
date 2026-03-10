@@ -1184,6 +1184,31 @@ function openEditFromDetail() {
 }
 
 let activeStepPickerIdx = null;
+let stepPickerTab = {}; // { stepIdx: 'new' | 'existing' }
+
+function switchStepPickerTab(stepIdx, tab) {
+  stepPickerTab[stepIdx] = tab;
+  const newEl  = document.getElementById(`step-picker-new-${stepIdx}`);
+  const exEl   = document.getElementById(`step-picker-existing-${stepIdx}`);
+  const tabNew = document.getElementById(`step-tab-new-${stepIdx}`);
+  const tabEx  = document.getElementById(`step-tab-existing-${stepIdx}`);
+  if (!newEl || !exEl) return;
+  newEl.style.display = tab === 'new'      ? '' : 'none';
+  exEl.style.display  = tab === 'existing' ? '' : 'none';
+  tabNew.classList.toggle('active', tab === 'new');
+  tabEx.classList.toggle('active',  tab === 'existing');
+}
+
+async function saveNewStepPrompt(taskId, stepIdx) {
+  const title  = document.getElementById(`step-new-title-${stepIdx}`)?.value.trim();
+  const tags   = document.getElementById(`step-new-tags-${stepIdx}`)?.value.trim();
+  const prompt = document.getElementById(`step-new-text-${stepIdx}`)?.value.trim();
+  if (!title || !prompt) { alert('Titel und Prompt-Text sind erforderlich.'); return; }
+  const res = await api('/api/prompts', { method:'POST', body:{ title, tags: tags||'', prompt, create_task: false } });
+  if (!res?.id) { alert('Fehler beim Speichern.'); return; }
+  await reloadPrompts();
+  await assignPromptToStep(taskId, stepIdx, res.id);
+}
 
 function renderDetailSteps(taskOrId) {
   const t = typeof taskOrId === 'object' ? taskOrId : allTasks.find(t => t.id === taskOrId);
@@ -1218,13 +1243,42 @@ function renderDetailSteps(taskOrId) {
         </button>
       </div>
       <div class="step-prompt-picker${isPickerOpen ? ' open' : ''}" id="step-picker-${i}">
-        <div style="font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:8px">
-          Prompt für diesen Schritt
-          ${linkedPrompt ? `<button class="btn btn-danger btn-sm" style="float:right;font-size:9px" onclick="removeStepPrompt(${t.id},${i})">Entfernen</button>` : ''}
+        <!-- Header row -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px">
+          <span style="font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)">Prompt für diesen Schritt</span>
+          ${linkedPrompt ? `<button class="btn btn-danger btn-sm" style="font-size:9px" onclick="removeStepPrompt(${t.id},${i})">Entfernen</button>` : ''}
         </div>
-        <input type="text" id="step-picker-search-${i}" placeholder="Prompt suchen…" oninput="renderStepPickerList(${t.id},${i})"
-          style="background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text1);font-family:inherit;font-size:11px;padding:6px 10px;outline:none;width:100%;box-sizing:border-box;margin-bottom:6px">
-        <div id="step-picker-list-${i}" style="max-height:160px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+        <!-- Tabs -->
+        <div style="display:flex;gap:5px;margin-bottom:10px">
+          <button id="step-tab-existing-${i}" class="dtl-picker-tab active" onclick="switchStepPickerTab(${i},'existing')">
+            &#x1F4DA; Bestehenden auswählen
+          </button>
+          <button id="step-tab-new-${i}" class="dtl-picker-tab" onclick="switchStepPickerTab(${i},'new')">
+            &#x270F;&#xFE0F; Neuen schreiben
+          </button>
+        </div>
+        <!-- Existing panel -->
+        <div id="step-picker-existing-${i}">
+          <input type="text" id="step-picker-search-${i}" placeholder="Prompt suchen…" oninput="renderStepPickerList(${t.id},${i})"
+            style="background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text1);font-family:inherit;font-size:11px;padding:6px 10px;outline:none;width:100%;box-sizing:border-box;margin-bottom:6px">
+          <div id="step-picker-list-${i}" style="max-height:160px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+        </div>
+        <!-- New prompt panel -->
+        <div id="step-picker-new-${i}" style="display:none">
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <input type="text" id="step-new-title-${i}" placeholder="Titel *"
+              style="background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text1);font-family:inherit;font-size:11px;padding:6px 10px;outline:none;width:100%;box-sizing:border-box">
+            <input type="text" id="step-new-tags-${i}" placeholder="Tags (kommagetrennt, optional)"
+              style="background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text1);font-family:inherit;font-size:11px;padding:6px 10px;outline:none;width:100%;box-sizing:border-box">
+            <textarea id="step-new-text-${i}" rows="5" placeholder="Prompt-Text…"
+              style="background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text1);font-family:'Space Mono',monospace;font-size:11px;padding:8px 10px;outline:none;width:100%;box-sizing:border-box;resize:vertical;min-height:100px;line-height:1.6"></textarea>
+            <div style="display:flex;gap:6px;justify-content:flex-end">
+              <button class="btn btn-primary btn-sm" onclick="saveNewStepPrompt(${t.id},${i})">
+                <i data-lucide="save" style="width:11px;height:11px"></i> Speichern &amp; zuweisen
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>`;
   }).join('');
