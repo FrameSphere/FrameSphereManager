@@ -634,7 +634,7 @@ function renderPins() {
 function pinCardHtml(p) {
   const typeCfg = PIN_TYPES[p.type] || PIN_TYPES.idea;
   let subItems = [];
-  try { subItems = JSON.parse(p.sub_items || '[]'); } catch(e) {}
+  try { const parsed = JSON.parse(p.sub_items || '[]'); subItems = Array.isArray(parsed) ? parsed : []; } catch(e) {}
   const tags = (p.tags||'').split(',').map(t=>t.trim()).filter(Boolean);
   const linkedTodo = p.todo_task_id ? allTodos.find(t => t.id === p.todo_task_id) : null;
   const topColor = p.color || typeCfg.color;
