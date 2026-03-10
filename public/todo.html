@@ -216,6 +216,29 @@
       background:rgba(99,102,241,.15); color:#a78bfa; white-space:nowrap; flex-shrink:0;
       cursor:pointer;
     }
+    /* ── Brain button with notification count ── */
+    .step-brain-btn {
+      position:relative; width:26px; height:26px; border-radius:6px; border:none;
+      background:none; cursor:pointer; font-size:13px; display:flex; align-items:center;
+      justify-content:center; transition:background .12s; color:var(--text2);
+      flex-shrink:0;
+    }
+    .step-brain-btn:hover { background:rgba(255,255,255,.1); }
+    .step-brain-count {
+      position:absolute; top:-4px; right:-4px; min-width:14px; height:14px;
+      border-radius:7px; background:var(--accent2); color:#fff;
+      font-size:9px; font-weight:800; display:flex; align-items:center;
+      justify-content:center; padding:0 3px; box-sizing:border-box;
+      border:1px solid var(--bg); line-height:1;
+    }
+    /* ── Linked prompts in step picker ── */
+    .step-linked-prompt {
+      background:var(--bg); border:1px solid var(--border); border-radius:7px;
+      padding:8px 10px; margin-bottom:5px;
+    }
+    .step-linked-prompt-header {
+      display:flex; align-items:center; gap:6px; margin-bottom:5px;
+    }
     .step-prompt-picker {
       background:var(--surface); border:1px solid var(--border); border-radius:8px;
       padding:10px; margin-top:4px; display:none;
@@ -1226,17 +1249,16 @@ function renderDetailSteps(taskOrId) {
     return;
   }
   list.innerHTML = steps.map((s, i) => {
-    const linkedPrompt = s.prompt_id ? allPrompts.find(p => String(p.id) === String(s.prompt_id)) : null;
+    const stepPromptIds = getStepPromptIds(s);
+    const linkedPrompts = stepPromptIds.map(pid => allPrompts.find(p => String(p.id) === String(pid))).filter(Boolean);
     const isPickerOpen = activeStepPickerIdx === i;
     return `<div>
       <div class="step-item">
         <div class="step-check${s.done ? ' done' : ''}" onclick="toggleStep(${t.id},${i})"></div>
         <span class="step-text${s.done ? ' done' : ''}" style="flex:1">${esc(s.text)}</span>
-        ${linkedPrompt
-          ? `<span class="step-prompt-badge" onclick="toggleStepPromptPicker(${t.id},${i})" title="${esc(linkedPrompt.title)}">&#x1F9E0; ${esc(linkedPrompt.title.length > 18 ? linkedPrompt.title.slice(0,18)+'…' : linkedPrompt.title)}</span>`
-          : `<button class="task-act-btn" style="opacity:.5;flex-shrink:0" onclick="toggleStepPromptPicker(${t.id},${i})" title="Prompt hinzufügen">
-              <i data-lucide="brain" style="width:11px;height:11px"></i>
-             </button>`
+        ${linkedPrompts.length > 0
+          ? `<button class="step-brain-btn" onclick="toggleStepPromptPicker(${t.id},${i})" title="${linkedPrompts.length} Prompt${linkedPrompts.length > 1 ? 's' : ''} verknüpft">&#x1F9E0;<span class="step-brain-count">${linkedPrompts.length}</span></button>`
+          : `<button class="step-brain-btn" style="opacity:.45" onclick="toggleStepPromptPicker(${t.id},${i})" title="Prompt hinzufügen">&#x1F9E0;</button>`
         }
         <button class="task-act-btn" style="opacity:.6;flex-shrink:0" onclick="deleteStep(${t.id},${i})" title="Löschen">
           <i data-lucide="x" style="width:11px;height:11px"></i>
@@ -1245,9 +1267,22 @@ function renderDetailSteps(taskOrId) {
       <div class="step-prompt-picker${isPickerOpen ? ' open' : ''}" id="step-picker-${i}">
         <!-- Header row -->
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px">
-          <span style="font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)">Prompt für diesen Schritt</span>
-          ${linkedPrompt ? `<button class="btn btn-danger btn-sm" style="font-size:9px" onclick="removeStepPrompt(${t.id},${i})">Entfernen</button>` : ''}
+          <span style="font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text3)">Prompts für diesen Schritt</span>
         </div>
+        <!-- Linked prompts view -->
+        ${linkedPrompts.length > 0 ? `
+        <div style="margin-bottom:10px">
+          <div style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px">Verknüpfte Prompts (${linkedPrompts.length})</div>
+          ${linkedPrompts.map((lp,li) => `
+          <div class="step-linked-prompt">
+            <div class="step-linked-prompt-header">
+              <span style="font-size:11px;font-weight:700;flex:1;min-width:0">${esc(lp.title)}</span>
+              ${lp.used ? '<span class="prompt-used-badge" style="font-size:8px">✓</span>' : ''}
+              <button class="btn btn-danger btn-sm" style="font-size:9px;padding:2px 7px" onclick="removeStepPromptById(${t.id},${i},${lp.id})">Entfernen</button>
+            </div>
+            <div class="prompt-text" style="max-height:70px;font-size:10px">${esc(lp.prompt)}</div>
+          </div>`).join('')}
+        </div>` : ''}
         <!-- Tabs -->
         <div style="display:flex;gap:5px;margin-bottom:10px">
           <button id="step-tab-existing-${i}" class="dtl-picker-tab active" onclick="switchStepPickerTab(${i},'existing')">
@@ -1298,20 +1333,30 @@ function renderStepPickerList(taskId, stepIdx) {
   if (!listEl) return;
   const searchEl = document.getElementById(`step-picker-search-${stepIdx}`);
   const q = (searchEl?.value || '').toLowerCase();
+  const t = allTasks.find(t => t.id === taskId);
+  let steps = []; try { steps = JSON.parse(t?.steps||'[]'); } catch(e) {}
+  const alreadyLinked = new Set(getStepPromptIds(steps[stepIdx]||{}).map(String));
   const filtered = allPrompts.filter(p => !p.archived &&
     (!q || p.title.toLowerCase().includes(q) || (p.tags||'').toLowerCase().includes(q)));
   if (!filtered.length) {
     listEl.innerHTML = `<div style="font-size:11px;color:var(--text3);padding:4px">Keine Prompts gefunden.</div>`;
     return;
   }
-  listEl.innerHTML = filtered.map(p => `
-    <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;cursor:pointer;background:var(--bg);transition:border-color .12s"
-      onclick="assignPromptToStep(${taskId},${stepIdx},${p.id})"
-      onmouseover="this.style.borderColor='var(--accent2)'" onmouseout="this.style.borderColor='var(--border)'">
+  listEl.innerHTML = filtered.map(p => {
+    const already = alreadyLinked.has(String(p.id));
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid ${already?'var(--green)':'var(--border)'};border-radius:7px;cursor:${already?'default':'pointer'};background:var(--bg);transition:border-color .12s;opacity:${already?.6:1}"
+      ${already ? '' : `onclick="assignPromptToStep(${taskId},${stepIdx},${p.id})" onmouseover="this.style.borderColor='var(--accent2)'" onmouseout="this.style.borderColor='var(--border)'"` }>
       <span style="font-size:12px;font-weight:700;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(p.title)}</span>
-      <span style="font-size:10px;color:var(--text3)">${(p.tags||'').split(',').filter(Boolean).slice(0,2).map(t=>t.trim()).join(' · ')}</span>
-    </div>
-  `).join('');
+      ${already ? '<span style="font-size:10px;color:var(--green);flex-shrink:0">✓ verknüpft</span>' : '<span style="font-size:10px;color:var(--text3)">' + (p.tags||'').split(',').filter(Boolean).slice(0,2).map(t=>t.trim()).join(' · ') + '</span>'}
+    </div>`;
+  }).join('');
+}
+
+// Helper: get prompt ids array from step (supports old prompt_id format)
+function getStepPromptIds(step) {
+  if (Array.isArray(step.prompt_ids)) return step.prompt_ids;
+  if (step.prompt_id) return [step.prompt_id];
+  return [];
 }
 
 async function assignPromptToStep(taskId, stepIdx, promptId) {
@@ -1320,22 +1365,29 @@ async function assignPromptToStep(taskId, stepIdx, promptId) {
   let steps = [];
   try { steps = JSON.parse(t.steps || '[]'); } catch(e) {}
   if (!steps[stepIdx]) return;
-  steps[stepIdx].prompt_id = promptId;
+  // Migrate old format
+  const ids = getStepPromptIds(steps[stepIdx]);
+  if (!ids.includes(promptId)) ids.push(promptId);
+  steps[stepIdx].prompt_ids = ids;
+  delete steps[stepIdx].prompt_id;
   await api(`/api/todos/${taskId}`, { method:'PATCH', body:{ steps: JSON.stringify(steps) } });
   t.steps = JSON.stringify(steps);
-  activeStepPickerIdx = null;
+  // Keep picker open to allow adding more
   renderDetailSteps(t);
 }
 
-async function removeStepPrompt(taskId, stepIdx) {
+async function removeStepPromptById(taskId, stepIdx, promptId) {
   const t = allTasks.find(t => t.id === taskId);
   if (!t) return;
   let steps = [];
   try { steps = JSON.parse(t.steps || '[]'); } catch(e) {}
-  if (steps[stepIdx]) { delete steps[stepIdx].prompt_id; }
+  if (steps[stepIdx]) {
+    const ids = getStepPromptIds(steps[stepIdx]).filter(id => String(id) !== String(promptId));
+    steps[stepIdx].prompt_ids = ids;
+    delete steps[stepIdx].prompt_id;
+  }
   await api(`/api/todos/${taskId}`, { method:'PATCH', body:{ steps: JSON.stringify(steps) } });
   t.steps = JSON.stringify(steps);
-  activeStepPickerIdx = null;
   renderDetailSteps(t);
 }
 
