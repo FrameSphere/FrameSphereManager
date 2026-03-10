@@ -330,6 +330,9 @@
       Vault öffnen
     </button>
     <div class="vault-lock-hint">Alle Werte sind Ende-zu-Ende verschlüsselt · Schlüssel verlässt nie den Browser</div>
+    <a href="index.html" style="display:inline-flex;align-items:center;gap:6px;margin-top:18px;font-size:11px;font-family:'Space Mono',monospace;color:var(--text3);text-decoration:none;transition:color .15s" onmouseover="this.style.color='var(--text1)'" onmouseout="this.style.color='var(--text3)'">
+      <i data-lucide="arrow-left" style="width:12px;height:12px"></i> Zurück zum Dashboard
+    </a>
   </div>
 </div>
 
@@ -374,6 +377,7 @@
             <option value="vercel">Vercel</option>
             <option value="openai">OpenAI</option>
             <option value="stripe">Stripe</option>
+            <option value="supabase">Supabase</option>
             <option value="other">Sonstiges</option>
           </select>
         </div>
@@ -619,7 +623,7 @@ const SITE_LABELS = {
   flaggues:'Flaggues', spinselector:'SpinSelector', brawlmystery:'BrawlMystery',
   traitora:'Traitora', fileflyr:'FileFlyr', ratelimit:'Ratelimit API',
   framespell:'FrameSpell', cloudflare:'Cloudflare', github:'GitHub',
-  vercel:'Vercel', openai:'OpenAI', stripe:'Stripe', other:'Sonstiges',
+  vercel:'Vercel', openai:'OpenAI', stripe:'Stripe', supabase:'Supabase', other:'Sonstiges',
 };
 
 // ── Render entries ─────────────────────────────────────────────────
