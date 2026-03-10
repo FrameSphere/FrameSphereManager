@@ -704,7 +704,7 @@ async function togglePinned(id, val) {
 async function togglePinSub(pinId, idx) {
   const p = allPins.find(p => p.id === pinId);
   if (!p) return;
-  let items = []; try { items = JSON.parse(p.sub_items||'[]'); } catch(e) {}
+  let items = []; try { const parsed = JSON.parse(p.sub_items||'[]'); items = Array.isArray(parsed) ? parsed : []; } catch(e) {}
   if (!items[idx]) return;
   items[idx].done = !items[idx].done;
   await api(`/api/pinboard/pins/${pinId}`, { method:'PATCH', body:{ sub_items: JSON.stringify(items) } });
@@ -735,7 +735,7 @@ function openPinModal(id) {
 
   // Sub items
   editPinSubItems = [];
-  if (p) { try { editPinSubItems = JSON.parse(p.sub_items||'[]'); } catch(e){} }
+  if (p) { try { const parsed = JSON.parse(p.sub_items||'[]'); editPinSubItems = Array.isArray(parsed) ? parsed : []; } catch(e){} }
   renderSubEditor();
 
   // Todo section (new pin only shows create-option)
