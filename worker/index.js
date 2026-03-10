@@ -1278,6 +1278,114 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
+  // ── RLDB EXPLORER (ratelimit-db) ─────────────────────────────────
+  // Discover tables dynamically from sqlite_master
+  async function d1Explorer(d1db, segments, url, method, request) {
+    if (method === 'GET' && !segments[0]) {
+      // List all tables
+      const tables = await d1db.prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name`
+      ).all();
+      const infos = await Promise.all(tables.results.map(async t => {
+        const count  = await d1db.prepare(`SELECT COUNT(*) as c FROM "${t.name}"`).first().catch(() => ({ c: 0 }));
+        const schema = await d1db.prepare(`PRAGMA table_info("${t.name}")`).all().catch(() => ({ results: [] }));
+        return {
+          name: t.name,
+          count: count?.c ?? 0,
+          columns: schema.results.map(c => ({ name: c.name, type: c.type, pk: c.pk, notnull: c.notnull, dflt_value: c.dflt_value }))
+        };
+      }));
+      return json(infos);
+    }
+    if (method === 'GET' && segments[0] && !segments[1]) {
+      const table = segments[0];
+      // Validate table exists
+      const exists = await d1db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).bind(table).first();
+      if (!exists) return err('Table not found', 404);
+      const limit    = Math.min(parseInt(url.searchParams.get('limit')  || '100'), 500);
+      const offset   = parseInt(url.searchParams.get('offset')  || '0');
+      const orderBy  = url.searchParams.get('order_by')  || 'id';
+      const orderDir = url.searchParams.get('order_dir') === 'asc' ? 'ASC' : 'DESC';
+      const search    = url.searchParams.get('search')    || '';
+      const filterCol = url.searchParams.get('filter_col') || '';
+      const filterVal = url.searchParams.get('filter_val') || '';
+      const schema = await d1db.prepare(`PRAGMA table_info("${table}")`).all();
+      const cols   = schema.results.map(c => c.name);
+      let where = '1=1';
+      const params = [];
+      if (filterCol && cols.includes(filterCol) && filterVal !== '') {
+        where += ` AND \"${filterCol}\"=?`; params.push(filterVal);
+      } else if (search) {
+        const textCols = schema.results
+          .filter(c => (c.type||'').toUpperCase().includes('TEXT') || ['title','message','name','email','subject','suggestion','word','prompt','description','content','ip_address','endpoint','path','correction','input','output','error'].includes(c.name))
+          .map(c => c.name);
+        if (textCols.length) {
+          where += ` AND (${textCols.map(c => `\"${c}\" LIKE ?`).join(' OR ')})`;
+          textCols.forEach(() => params.push(`%${search}%`));
+        }
+      }
+      const validOrder = cols.includes(orderBy) ? `\"${orderBy}\"` : (cols.includes('id') ? '"id"' : `\"${cols[0]}\"`);
+      const [rows, cnt] = await Promise.all([
+        d1db.prepare(`SELECT * FROM \"${table}\" WHERE ${where} ORDER BY ${validOrder} ${orderDir} LIMIT ? OFFSET ?`)
+          .bind(...params, limit, offset).all(),
+        d1db.prepare(`SELECT COUNT(*) as c FROM \"${table}\" WHERE ${where}`).bind(...params).first(),
+      ]);
+      return json({ rows: rows.results, total: cnt?.c ?? 0, columns: schema.results, limit, offset });
+    }
+    if (method === 'POST' && segments[0] && !segments[1]) {
+      const table = segments[0];
+      const exists = await d1db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).bind(table).first();
+      if (!exists) return err('Table not found', 404);
+      const body   = await request.json().catch(() => ({}));
+      const schema = await d1db.prepare(`PRAGMA table_info(\"${table}\")`).all();
+      const cols   = schema.results.filter(c => !c.pk).map(c => c.name);
+      const ins    = cols.filter(c => body[c] !== undefined && body[c] !== '');
+      if (!ins.length) return err('No valid fields');
+      const r = await d1db.prepare(
+        `INSERT INTO \"${table}\" (${ins.map(c=>`\"${c}\"`).join(',')}) VALUES (${ins.map(()=>'?').join(',')})`
+      ).bind(...ins.map(c => body[c])).run();
+      return json({ success: true, id: r.meta.last_row_id });
+    }
+    if (method === 'PATCH' && segments[0] && segments[1]) {
+      const table = segments[0];
+      const exists = await d1db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).bind(table).first();
+      if (!exists) return err('Table not found', 404);
+      const body   = await request.json().catch(() => ({}));
+      const schema = await d1db.prepare(`PRAGMA table_info(\"${table}\")`).all();
+      const cols   = schema.results.filter(c => !c.pk).map(c => c.name);
+      const upd    = cols.filter(c => body[c] !== undefined);
+      if (!upd.length) return err('Nothing to update');
+      await d1db.prepare(
+        `UPDATE \"${table}\" SET ${upd.map(c=>`\"${c}\"=?`).join(',')} WHERE id=?`
+      ).bind(...upd.map(c => body[c] === '' ? null : body[c]), segments[1]).run();
+      return json({ success: true });
+    }
+    if (method === 'DELETE' && segments[0] && segments[1]) {
+      const table = segments[0];
+      const exists = await d1db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).bind(table).first();
+      if (!exists) return err('Table not found', 404);
+      await d1db.prepare(`DELETE FROM \"${table}\" WHERE id=?`).bind(segments[1]).run();
+      return json({ success: true });
+    }
+    return err('Not found', 404);
+  }
+
+  // Route RLDB requests
+  if (segments[1] === 'rldb') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const rl = env.RLDB;
+    if (!rl) return err('RLDB binding nicht konfiguriert', 503);
+    return d1Explorer(rl, segments.slice(2), url, request.method, request);
+  }
+
+  // Route RSDB requests
+  if (segments[1] === 'rsdb') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const rs = env.RSDB;
+    if (!rs) return err('RSDB binding nicht konfiguriert', 503);
+    return d1Explorer(rs, segments.slice(2), url, request.method, request);
+  }
+
   return err('Not found', 404);
 }
 

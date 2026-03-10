@@ -13,6 +13,11 @@ binding = "RLDB"
 database_name = "ratelimit-db"
 database_id = "33fba40f-abcc-43b1-b931-04baca75462b"
 
+[[d1_databases]]
+binding = "RSDB"
+database_name = "rechtschreibe-api-db"
+database_id = "e774513c-23fe-48ab-a936-2e04df167ff6"
+
 [vars]
 ENVIRONMENT = "production"
 # DASHBOARD_PASSWORD wird als Secret gesetzt, NICHT hier im File!
