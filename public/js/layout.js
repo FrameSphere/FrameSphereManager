@@ -162,9 +162,150 @@ function injectSidebar(activeSiteId = null) {
       <div class="sidebar-label">Webseiten</div>
       ${nav}
     </div>
+    <div style="flex:1"></div>
+    <div style="padding:10px 12px 14px;border-top:1px solid var(--border);flex-shrink:0">
+      <button class="nav-item" onclick="openSettings()" style="width:100%;cursor:pointer;border:none;background:none;text-align:left;display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;color:var(--text2);font-size:12px;font-weight:600;transition:background .12s;font-family:inherit">
+        <span class="icon"><i data-lucide="settings" style="width:14px;height:14px"></i></span>
+        Einstellungen
+      </button>
+    </div>
   `;
   document.getElementById('layout').prepend(el);
   refreshIcons();
+}
+
+// ── Settings Modal ─────────────────────────────────────────────
+function injectSettingsModal() {
+  const el = document.createElement('div');
+  el.id = 'settings-overlay';
+  el.style.cssText = 'display:none;position:fixed;inset:0;z-index:9100;background:rgba(0,0,0,.75);backdrop-filter:blur(4px);align-items:center;justify-content:center';
+  el.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:0;width:min(560px,96vw);max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px 0">
+        <div style="display:flex;align-items:center;gap:10px">
+          <i data-lucide="settings" style="width:18px;height:18px;color:var(--accent2)"></i>
+          <span style="font-size:15px;font-weight:800">Einstellungen</span>
+        </div>
+        <button onclick="closeSettings()" style="width:28px;height:28px;border-radius:6px;border:none;background:none;cursor:pointer;font-size:16px;color:var(--text3);display:flex;align-items:center;justify-content:center;transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,.08)'" onmouseout="this.style.background='none'">✕</button>
+      </div>
+      <!-- Tabs -->
+      <div style="display:flex;gap:2px;padding:14px 24px 0;border-bottom:1px solid var(--border)">
+        <button class="settings-tab active" id="stab-connections" onclick="switchSettingsTab('connections')" style="padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border:none;background:none;border-bottom:2px solid var(--accent2);color:var(--accent2);cursor:pointer;font-family:inherit;margin-bottom:-1px">
+          <i data-lucide="plug" style="width:11px;height:11px"></i> Verbindungen
+        </button>
+      </div>
+      <!-- Tab content -->
+      <div style="overflow-y:auto;padding:24px">
+        <!-- Connections Tab -->
+        <div id="stab-connections-panel">
+          <div style="font-size:12px;color:var(--text3);margin-bottom:20px;line-height:1.6">
+            Trage hier einmalig deine Google OAuth Client-IDs ein. Die Seiten verbinden sich danach automatisch beim Öffnen.
+          </div>
+
+          <!-- Search Console -->
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:14px">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">
+              <i data-lucide="search" style="width:15px;height:15px;color:#34d399"></i>
+              <span style="font-size:13px;font-weight:700">Google Search Console</span>
+              <span id="sc-status-badge" style="font-size:9px;font-weight:800;padding:2px 8px;border-radius:4px;display:none"></span>
+            </div>
+            <label style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);display:block;margin-bottom:6px">OAuth Client-ID</label>
+            <input id="settings-gsc-id" type="text"
+              placeholder="12345678.apps.googleusercontent.com"
+              style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text1);font-family:'Space Mono',monospace;font-size:11px;padding:9px 12px;outline:none;transition:border-color .15s"
+              onfocus="this.style.borderColor='#34d399'" onblur="this.style.borderColor='var(--border)'">
+            <div style="font-size:10px;color:var(--text3);margin-top:7px;font-family:'Space Mono',monospace">
+              Wird für <a href="search-radar.html" style="color:#34d399">Search Radar</a> verwendet.
+            </div>
+          </div>
+
+          <!-- AdSense -->
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:20px">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">
+              <i data-lucide="circle-dollar-sign" style="width:15px;height:15px;color:#22c55e"></i>
+              <span style="font-size:13px;font-weight:700">Google AdSense</span>
+              <span id="ads-status-badge" style="font-size:9px;font-weight:800;padding:2px 8px;border-radius:4px;display:none"></span>
+            </div>
+            <label style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);display:block;margin-bottom:6px">OAuth Client-ID</label>
+            <input id="settings-ads-id" type="text"
+              placeholder="123456789-xxxx.apps.googleusercontent.com"
+              style="width:100%;box-sizing:border-box;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text1);font-family:'Space Mono',monospace;font-size:11px;padding:9px 12px;outline:none;transition:border-color .15s"
+              onfocus="this.style.borderColor='#22c55e'" onblur="this.style.borderColor='var(--border)'">
+            <div style="font-size:10px;color:var(--text3);margin-top:7px;font-family:'Space Mono',monospace">
+              Wird für <a href="revenue.html" style="color:#22c55e">Revenue</a> verwendet.
+            </div>
+          </div>
+
+          <!-- Save button -->
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button onclick="closeSettings()" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:none;color:var(--text2);cursor:pointer;font-size:12px;font-family:inherit">Abbrechen</button>
+            <button onclick="saveSettings()" style="padding:8px 18px;border-radius:8px;border:none;background:var(--accent2);color:#fff;cursor:pointer;font-size:12px;font-weight:700;font-family:inherit;display:flex;align-items:center;gap:6px">
+              <i data-lucide="save" style="width:12px;height:12px"></i> Speichern
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(el);
+  el.addEventListener('click', e => { if (e.target === el) closeSettings(); });
+  refreshIcons();
+}
+
+function openSettings() {
+  const overlay = document.getElementById('settings-overlay');
+  // Populate current values
+  const gscId = localStorage.getItem('sr_gsc_client_id') || '';
+  const adsId = localStorage.getItem('rv_adsense_client_id') || '';
+  document.getElementById('settings-gsc-id').value = gscId;
+  document.getElementById('settings-ads-id').value = adsId;
+  // Show status badges
+  const scBadge  = document.getElementById('sc-status-badge');
+  const adsBadge = document.getElementById('ads-status-badge');
+  if (gscId) {
+    scBadge.textContent = '✓ Gespeichert';
+    scBadge.style.cssText = 'font-size:9px;font-weight:800;padding:2px 8px;border-radius:4px;background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3)';
+    scBadge.style.display = 'inline-flex';
+  } else { scBadge.style.display = 'none'; }
+  if (adsId) {
+    adsBadge.textContent = '✓ Gespeichert';
+    adsBadge.style.cssText = 'font-size:9px;font-weight:800;padding:2px 8px;border-radius:4px;background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)';
+    adsBadge.style.display = 'inline-flex';
+  } else { adsBadge.style.display = 'none'; }
+  overlay.style.display = 'flex';
+  refreshIcons();
+}
+
+function closeSettings() {
+  document.getElementById('settings-overlay').style.display = 'none';
+}
+
+function saveSettings() {
+  const gscId = document.getElementById('settings-gsc-id').value.trim();
+  const adsId = document.getElementById('settings-ads-id').value.trim();
+  if (gscId) localStorage.setItem('sr_gsc_client_id', gscId);
+  else localStorage.removeItem('sr_gsc_client_id');
+  if (adsId) localStorage.setItem('rv_adsense_client_id', adsId);
+  else localStorage.removeItem('rv_adsense_client_id');
+  closeSettings();
+  // Show a quick success toast if possible
+  const btn = document.querySelector('#settings-overlay button[onclick="saveSettings()"]');
+  // Re-open to show updated badges
+  openSettings();
+}
+
+function switchSettingsTab(tab) {
+  document.querySelectorAll('.settings-tab').forEach(t => {
+    t.classList.remove('active');
+    t.style.borderBottomColor = 'transparent';
+    t.style.color = 'var(--text3)';
+  });
+  const active = document.getElementById('stab-' + tab);
+  if (active) { active.classList.add('active'); active.style.borderBottomColor = 'var(--accent2)'; active.style.color = 'var(--accent2)'; }
+  document.querySelectorAll('[id^="stab-"][id$="-panel"]').forEach(p => p.style.display = 'none');
+  const panel = document.getElementById('stab-' + tab + '-panel');
+  if (panel) panel.style.display = '';
 }
 
 // ── Inject Notif Panel ────────────────────────────────────────────
@@ -259,6 +400,7 @@ function initLayout(activeSiteId = null) {
   const layoutEl = document.getElementById('layout');
   if (layoutEl) injectSidebar(activeSiteId);
   injectNotifPanel();
+  injectSettingsModal();
   loadTopbarStats();
   setInterval(loadTopbarStats, 30000);
 }

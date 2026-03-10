@@ -599,7 +599,12 @@ function initRevenue() {
   const se  = parseInt(sessionStorage.getItem(RV_TOKEN_EXP_KEY) || '0');
   if (st && Date.now() < se - 60000) { activateRvToken(st, se); return; }
 
-  showSetup(true);
+  // Auto-connect if client ID is saved, else show setup
+  if (saved) {
+    rvConnect();
+  } else {
+    showSetup(true);
+  }
 }
 
 // ── OAuth ───────────────────────────────────────────────────────────

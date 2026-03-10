@@ -454,8 +454,12 @@ function initSearchRadar() {
     return;
   }
 
-  // No valid token — show setup
-  showSetup(true);
+  // No valid token — auto-connect if client ID is saved, else show setup
+  if (savedId) {
+    connectGoogle();
+  } else {
+    showSetup(true);
+  }
 }
 
 // ── OAuth connect ─────────────────────────────────────────────────
