@@ -323,35 +323,6 @@
   </div>
 </div>
 
-<!-- ── Supabase Config Modal ── -->
-<div class="db-overlay" id="sb-config-overlay">
-  <div class="db-modal db-modal-sm">
-    <div class="db-modal-head">
-      <div class="db-modal-title" id="sb-config-title">Supabase API Key konfigurieren</div>
-      <button class="db-act-btn" onclick="closeSbConfig()"><i data-lucide="x" style="width:13px;height:13px"></i></button>
-    </div>
-    <div class="db-modal-body">
-      <p class="sb-config-hint">
-        Den <code>service_role</code> Key findest du in deinem Supabase-Projekt unter<br>
-        <strong>Project Settings → API → Project API Keys</strong>.<br>
-        Der Key wird nur lokal in deinem Browser gespeichert.
-      </p>
-      <div class="db-field-group">
-        <label>API Key (anon oder service_role)</label>
-        <input type="password" id="sb-key-input" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…" autocomplete="off">
-        <div class="sb-key-preview" id="sb-key-preview"></div>
-      </div>
-    </div>
-    <div class="db-modal-foot">
-      <button class="btn btn-ghost btn-sm" id="sb-key-clear-btn" onclick="clearSbKey()" style="margin-right:auto">Key löschen</button>
-      <button class="btn btn-ghost" onclick="closeSbConfig()">Abbrechen</button>
-      <button class="btn btn-primary" onclick="saveSbKey()">
-        <i data-lucide="key" style="width:12px;height:12px"></i> Speichern & Verbinden
-      </button>
-    </div>
-  </div>
-</div>
-
 <!-- ── Toast ── -->
 <div id="db-toast"></div>
 
@@ -385,15 +356,13 @@ const DATABASES = [
   {
     id: 'frametrain', label: 'FrameTrain', shortLabel: 'PG',
     type: 'supabase', color: '#10b981', icon: 'train-front',
-    ref: 'pmilxbuzfghbphjjaiar',
-    lsKey: 'sb_frametrain_key',
+    apiPrefix: '/api/supabase/frametrain',
     description: 'Supabase PostgreSQL · FrameTrain'
   },
   {
     id: 'framesphere', label: 'FrameSphere', shortLabel: 'PG',
     type: 'supabase', color: '#06b6d4', icon: 'globe-2',
-    ref: 'pvvxqiervpdopjzszrzj',
-    lsKey: 'sb_framesphere_key',
+    apiPrefix: '/api/supabase/framesphere',
     description: 'Supabase PostgreSQL · FrameSphere'
   },
 ];
@@ -446,36 +415,11 @@ async function loadDbMeta(db) {
       const data = await api(`${db.apiPrefix}/tables`);
       dbMeta[db.id] = data || [];
     } else if (db.type === 'supabase') {
-      const key = localStorage.getItem(db.lsKey);
-      if (!key) { dbMeta[db.id] = null; return; } // not configured
-      const url = `https://${db.ref}.supabase.co/rest/v1/`;
-      const r = await fetch(url, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
-      if (!r.ok) { dbMeta[db.id] = { error: `HTTP ${r.status}` }; return; }
-      const spec = await r.json();
-      // Extract tables from OpenAPI paths
-      const tables = Object.keys(spec.paths || {})
-        .map(p => p.replace(/^\//, ''))
-        .filter(n => n && !n.includes('{') && !n.startsWith('rpc/'));
-      // Get row counts in parallel
-      const infos = await Promise.all(tables.map(async name => {
-        try {
-          const cr = await fetch(`https://${db.ref}.supabase.co/rest/v1/${name}?select=*&limit=0`, {
-            headers: { apikey: key, Authorization: `Bearer ${key}`, Prefer: 'count=exact' }
-          });
-          const range = cr.headers.get('Content-Range') || '';
-          const total = parseInt((range.split('/')[1] || '0'), 10);
-          // Try to get columns from spec
-          const def = spec.definitions?.[name];
-          const columns = def?.properties
-            ? Object.entries(def.properties).map(([k,v]) => ({
-                name: k, type: v.format || v.type || 'any',
-                pk: def['x-pk']?.includes(k) || k === 'id', notnull: false
-              }))
-            : [];
-          return { name, count: isNaN(total) ? '?' : total, columns };
-        } catch { return { name, count: '?', columns: [] }; }
-      }));
-      dbMeta[db.id] = infos;
+      // Proxy through worker — no client-side key needed
+      const data = await api(`${db.apiPrefix}/tables`);
+      if (!data) { dbMeta[db.id] = { error: 'Worker-Proxy nicht erreichbar oder Secret nicht gesetzt' }; return; }
+      if (data.error) { dbMeta[db.id] = { error: data.error }; return; }
+      dbMeta[db.id] = data;
     }
   } catch(e) {
     dbMeta[db.id] = { error: e.message };
@@ -511,15 +455,16 @@ function renderDbGroup(db, q) {
     // Still loading
     tablesHtml = `<div class="dbt-loading">Lade…</div>`;
   } else if (meta === null) {
-    // Supabase not configured
-    tablesHtml = `<button class="db-key-btn" onclick="openSbConfig('${db.id}')">
-      <i data-lucide="key" style="width:11px;height:11px"></i> API Key konfigurieren
-    </button>`;
+    tablesHtml = `<div class="db-group-error"><i data-lucide="alert-circle" style="width:11px;height:11px"></i> Nicht konfiguriert</div>`;
   } else if (meta.error) {
+    // Show error — for Supabase hint to set wrangler secret
+    const hint = db.type === 'supabase'
+      ? `<div style="font-size:9px;color:var(--text3);padding:4px 8px 2px;font-family:'Space Mono',monospace;line-height:1.6">→ <code style="color:var(--accent2)">npx wrangler secret put ${db.id === 'frametrain' ? 'SUPABASE_FT_KEY' : 'SUPABASE_FS_KEY'}</code></div>`
+      : '';
     tablesHtml = `<div class="db-group-error">
-      <i data-lucide="alert-circle" style="width:11px;height:11px"></i> ${esc(meta.error)}
-      ${db.type==='supabase' ? `<button class="db-key-btn" style="display:inline-flex;margin-left:auto" onclick="openSbConfig('${db.id}')">Key ändern</button>` : ''}
-    </div>`;
+      <i data-lucide="alert-circle" style="width:11px;height:11px"></i>
+      <span style="flex:1;word-break:break-word">${esc(meta.error)}</span>
+    </div>${hint}`;
   } else {
     const filtered = q
       ? meta.filter(t => t.name.toLowerCase().includes(q))
@@ -536,12 +481,7 @@ function renderDbGroup(db, q) {
           <span class="dbt-count">${t.count}</span>
         </div>`;
       }).join('');
-      // Config button for supabase
-      if (db.type === 'supabase') {
-        tablesHtml += `<button class="db-key-btn" style="margin-top:4px" onclick="openSbConfig('${db.id}')">
-          <i data-lucide="settings" style="width:11px;height:11px"></i> API Key ändern
-        </button>`;
-      }
+      // Supabase tables are loaded via Worker proxy — no config button needed
     }
   }
 
@@ -660,64 +600,8 @@ async function loadD1Table(db) {
 }
 
 async function loadSupabaseTable(db) {
-  const key = localStorage.getItem(db.lsKey);
-  if (!key) { showToast('Kein API Key konfiguriert', 'err'); return; }
-
-  const search    = document.getElementById('db-search').value.trim();
-  const filterCol = document.getElementById('db-filter-col').value;
-  const filterVal = document.getElementById('db-filter-val').value.trim();
-
-  const base = `https://${db.ref}.supabase.co/rest/v1/${currentTable}`;
-  const params = new URLSearchParams();
-  params.set('select', '*');
-  params.set('limit', currentLimit);
-  params.set('offset', currentOffset);
-
-  // Order
-  params.set('order', `${currentOrderBy}.${currentOrderDir}`);
-
-  // Filter
-  if (filterCol && filterVal) {
-    params.set(filterCol, `eq.${filterVal}`);
-  } else if (search) {
-    // Use text search on first suitable column (Supabase ilike)
-    const textCol = currentSchema.find(c =>
-      ['text','varchar','character varying'].includes((c.type||'').toLowerCase()) ||
-      ['title','name','message','content','email','description'].includes(c.name)
-    );
-    if (textCol) params.set(textCol.name, `ilike.*${search}*`);
-  }
-
-  const r = await fetch(`${base}?${params}`, {
-    headers: {
-      apikey: key, Authorization: `Bearer ${key}`,
-      Prefer: 'count=exact',
-    }
-  });
-
-  if (!r.ok) {
-    const errTxt = await r.text();
-    throw new Error(`Supabase ${r.status}: ${errTxt.slice(0,100)}`);
-  }
-
-  const rows = await r.json();
-  const range = r.headers.get('Content-Range') || '';
-  const total = parseInt((range.split('/')[1] || String(rows.length)), 10);
-
-  currentRows  = rows;
-  currentTotal = isNaN(total) ? rows.length : total;
-
-  // Build schema from row keys if not yet available
-  if (!currentSchema.length && rows.length) {
-    currentSchema = Object.keys(rows[0]).map(k => ({ name: k, type: 'any', pk: k === 'id', notnull: false }));
-  } else if (!currentSchema.length) {
-    // Try from cached meta
-    const meta = dbMeta[currentDbId];
-    const tbl  = meta?.find?.(t => t.name === currentTable);
-    if (tbl?.columns?.length) currentSchema = tbl.columns;
-  }
-
-  finalizeTableRender();
+  // All Supabase calls go through the Worker proxy — same as D1
+  await loadD1Table(db);
 }
 
 function finalizeTableRender() {
@@ -947,35 +831,14 @@ async function saveRow() {
   const db = DATABASES.find(d => d.id === currentDbId);
   let ok = false;
 
-  if (db.type === 'd1') {
-    let res;
-    if (editingRowId !== null) {
-      res = await api(`${db.apiPrefix}/${currentTable}/${editingRowId}`, { method:'PATCH', body });
-    } else {
-      res = await api(`${db.apiPrefix}/${currentTable}`, { method:'POST', body });
-    }
-    ok = res?.success;
-  } else if (db.type === 'supabase') {
-    const key  = localStorage.getItem(db.lsKey);
-    const base = `https://${db.ref}.supabase.co/rest/v1/${currentTable}`;
-    const pkCol = getPkCol();
-    let r;
-    if (editingRowId !== null) {
-      r = await fetch(`${base}?${pkCol}=eq.${editingRowId}`, {
-        method: 'PATCH',
-        headers: { apikey:key, Authorization:`Bearer ${key}`, 'Content-Type':'application/json', Prefer:'return=minimal' },
-        body: JSON.stringify(body),
-      });
-    } else {
-      r = await fetch(base, {
-        method: 'POST',
-        headers: { apikey:key, Authorization:`Bearer ${key}`, 'Content-Type':'application/json', Prefer:'return=minimal' },
-        body: JSON.stringify(body),
-      });
-    }
-    ok = r.ok;
-    if (!ok) { const t = await r.text(); showToast('Fehler: ' + t.slice(0,80), 'err'); return; }
+  // Both D1 and Supabase use the same Worker-proxy pattern
+  let res;
+  if (editingRowId !== null) {
+    res = await api(`${db.apiPrefix}/${currentTable}/${editingRowId}`, { method:'PATCH', body });
+  } else {
+    res = await api(`${db.apiPrefix}/${currentTable}`, { method:'POST', body });
   }
+  ok = res?.success;
 
   if (ok) {
     showToast(editingRowId!==null ? 'Zeile aktualisiert' : 'Zeile hinzugefügt', 'ok');
@@ -996,18 +859,9 @@ async function deleteRow(id) {
   const db = DATABASES.find(d => d.id === currentDbId);
   let ok = false;
 
-  if (db.type === 'd1') {
-    const res = await api(`${db.apiPrefix}/${currentTable}/${id}`, { method:'DELETE' });
-    ok = res?.success;
-  } else if (db.type === 'supabase') {
-    const key   = localStorage.getItem(db.lsKey);
-    const pkCol = getPkCol();
-    const r = await fetch(`https://${db.ref}.supabase.co/rest/v1/${currentTable}?${pkCol}=eq.${id}`, {
-      method: 'DELETE',
-      headers: { apikey:key, Authorization:`Bearer ${key}`, Prefer:'return=minimal' },
-    });
-    ok = r.ok;
-  }
+  // Both D1 and Supabase go through Worker proxy
+  const res = await api(`${db.apiPrefix}/${currentTable}/${id}`, { method:'DELETE' });
+  ok = res?.success;
 
   if (ok) {
     showToast('Zeile gelöscht', 'ok');
@@ -1076,7 +930,7 @@ function showToast(msg, type='ok') {
 // ════════════════════════════════════════════════════════════════════
 // BACKDROP CLOSE
 // ════════════════════════════════════════════════════════════════════
-['detail-overlay','edit-overlay','sb-config-overlay'].forEach(id => {
+['detail-overlay','edit-overlay'].forEach(id => {
   const el = document.getElementById(id);
   el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
 });

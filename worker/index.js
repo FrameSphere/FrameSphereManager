@@ -1281,7 +1281,7 @@ async function handleRequest(request, env) {
   // ── RLDB EXPLORER (ratelimit-db) ─────────────────────────────────
   // Discover tables dynamically from sqlite_master
   async function d1Explorer(d1db, segments, url, method, request) {
-    if (method === 'GET' && !segments[0]) {
+    if (method === 'GET' && segments[0] === 'tables') {
       // List all tables
       const tables = await d1db.prepare(
         `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name`
@@ -1297,7 +1297,7 @@ async function handleRequest(request, env) {
       }));
       return json(infos);
     }
-    if (method === 'GET' && segments[0] && !segments[1]) {
+    if (method === 'GET' && segments[0] && segments[0] !== 'tables' && !segments[1]) {
       const table = segments[0];
       // Validate table exists
       const exists = await d1db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).bind(table).first();
@@ -1368,6 +1368,142 @@ async function handleRequest(request, env) {
       return json({ success: true });
     }
     return err('Not found', 404);
+  }
+
+  // ── SUPABASE PROXY ───────────────────────────────────────────────
+  // Browser → Worker → Supabase REST API
+  // Keys stored as Wrangler secrets: SUPABASE_FT_KEY, SUPABASE_FS_KEY
+  // Set via: npx wrangler secret put SUPABASE_FT_KEY
+  //          npx wrangler secret put SUPABASE_FS_KEY
+  if (segments[1] === 'supabase') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+
+    const SB_DBS = {
+      frametrain:  { ref: 'pmilxbuzfghbphjjaiar', keyEnv: 'SUPABASE_FT_KEY' },
+      framesphere: { ref: 'pvvxqiervpdopjzszrzj', keyEnv: 'SUPABASE_FS_KEY' },
+    };
+
+    const dbSlug = segments[2];
+    const sbCfg  = SB_DBS[dbSlug];
+    if (!sbCfg) return err('Unbekannte Supabase-Datenbank', 404);
+
+    const sbKey = env[sbCfg.keyEnv];
+    if (!sbKey) return err(`Secret ${sbCfg.keyEnv} nicht konfiguriert. Bitte: npx wrangler secret put ${sbCfg.keyEnv}`, 503);
+
+    const sbBase = `https://${sbCfg.ref}.supabase.co`;
+    const sbHeaders = { apikey: sbKey, Authorization: `Bearer ${sbKey}`, 'Content-Type': 'application/json' };
+
+    // GET /api/supabase/:db/tables  →  list all tables + counts + schema
+    if (request.method === 'GET' && segments[3] === 'tables') {
+      // Fetch OpenAPI spec from Supabase
+      const specR = await fetch(`${sbBase}/rest/v1/`, { headers: sbHeaders });
+      if (!specR.ok) return err(`Supabase spec error ${specR.status}`, 502);
+      const spec   = await specR.json();
+      const tableNames = Object.keys(spec.paths || {})
+        .map(p => p.replace(/^\//, ''))
+        .filter(n => n && !n.includes('{') && !n.startsWith('rpc/'));
+
+      const infos = await Promise.all(tableNames.map(async name => {
+        try {
+          const cr = await fetch(`${sbBase}/rest/v1/${name}?select=*&limit=0`, {
+            headers: { ...sbHeaders, Prefer: 'count=exact' }
+          });
+          const range = cr.headers.get('Content-Range') || '';
+          const total = parseInt((range.split('/')[1] || '0'), 10);
+          // Build columns from OpenAPI definition
+          const def  = spec.definitions?.[name];
+          const columns = def?.properties
+            ? Object.entries(def.properties).map(([k, v]) => ({
+                name: k,
+                type: v.format || v.type || 'any',
+                pk:   (def['x-pk'] || []).includes(k) || k === 'id',
+                notnull: false
+              }))
+            : [];
+          return { name, count: isNaN(total) ? 0 : total, columns };
+        } catch { return { name, count: 0, columns: [] }; }
+      }));
+      return json(infos);
+    }
+
+    // GET /api/supabase/:db/:table?limit=&offset=&order_by=&order_dir=&search=&filter_col=&filter_val=
+    if (request.method === 'GET' && segments[3] && !segments[4]) {
+      const table     = segments[3];
+      const limit     = Math.min(parseInt(url.searchParams.get('limit')   || '100'), 500);
+      const offset    = parseInt(url.searchParams.get('offset')   || '0');
+      const orderBy   = url.searchParams.get('order_by')  || 'id';
+      const orderDir  = url.searchParams.get('order_dir') === 'asc' ? 'asc' : 'desc';
+      const search    = url.searchParams.get('search')    || '';
+      const filterCol = url.searchParams.get('filter_col') || '';
+      const filterVal = url.searchParams.get('filter_val') || '';
+
+      const params = new URLSearchParams();
+      params.set('select', '*');
+      params.set('limit',  limit);
+      params.set('offset', offset);
+      params.set('order',  `${orderBy}.${orderDir}`);
+      if (filterCol && filterVal) {
+        params.set(filterCol, `eq.${filterVal}`);
+      } else if (search) {
+        // Use textSearch on common text columns
+        const textCols = ['title','name','message','content','email','description','subject','body','text','label','notes'];
+        params.set(textCols[0], `ilike.*${search}*`); // best-effort, single column
+      }
+
+      const r = await fetch(`${sbBase}/rest/v1/${table}?${params}`, {
+        headers: { ...sbHeaders, Prefer: 'count=exact' }
+      });
+      if (!r.ok) return err(`Supabase ${r.status}: ${(await r.text()).slice(0,100)}`, 502);
+      const rows  = await r.json();
+      const range = r.headers.get('Content-Range') || '';
+      const total = parseInt((range.split('/')[1] || String(rows.length)), 10);
+      // Build schema from first row
+      const columns = rows.length
+        ? Object.keys(rows[0]).map(k => ({ name: k, type: 'any', pk: k === 'id', notnull: false }))
+        : [];
+      return json({ rows, total: isNaN(total) ? rows.length : total, columns, limit, offset });
+    }
+
+    // POST /api/supabase/:db/:table  (insert)
+    if (request.method === 'POST' && segments[3] && !segments[4]) {
+      const table = segments[3];
+      const body  = await request.json().catch(() => ({}));
+      const r = await fetch(`${sbBase}/rest/v1/${table}`, {
+        method: 'POST',
+        headers: { ...sbHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) return err(`Supabase ${r.status}: ${(await r.text()).slice(0,100)}`, 502);
+      return json({ success: true });
+    }
+
+    // PATCH /api/supabase/:db/:table/:id  (update)
+    if (request.method === 'PATCH' && segments[3] && segments[4]) {
+      const table = segments[3];
+      const id    = segments[4];
+      const body  = await request.json().catch(() => ({}));
+      const r = await fetch(`${sbBase}/rest/v1/${table}?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { ...sbHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) return err(`Supabase ${r.status}: ${(await r.text()).slice(0,100)}`, 502);
+      return json({ success: true });
+    }
+
+    // DELETE /api/supabase/:db/:table/:id  (delete)
+    if (request.method === 'DELETE' && segments[3] && segments[4]) {
+      const table = segments[3];
+      const id    = segments[4];
+      const r = await fetch(`${sbBase}/rest/v1/${table}?id=eq.${id}`, {
+        method: 'DELETE',
+        headers: { ...sbHeaders, Prefer: 'return=minimal' },
+      });
+      if (!r.ok) return err(`Supabase ${r.status}: ${(await r.text()).slice(0,100)}`, 502);
+      return json({ success: true });
+    }
+
+    return err('Supabase route nicht gefunden', 404);
   }
 
   // Route RLDB requests
