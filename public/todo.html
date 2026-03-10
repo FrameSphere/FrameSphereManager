@@ -1257,8 +1257,8 @@ function renderDetailSteps(taskOrId) {
         <div class="step-check${s.done ? ' done' : ''}" onclick="toggleStep(${t.id},${i})"></div>
         <span class="step-text${s.done ? ' done' : ''}" style="flex:1">${esc(s.text)}</span>
         ${linkedPrompts.length > 0
-          ? `<button class="step-brain-btn" onclick="toggleStepPromptPicker(${t.id},${i})" title="${linkedPrompts.length} Prompt${linkedPrompts.length > 1 ? 's' : ''} verknüpft">&#x1F9E0;<span class="step-brain-count">${linkedPrompts.length}</span></button>`
-          : `<button class="step-brain-btn" style="opacity:.45" onclick="toggleStepPromptPicker(${t.id},${i})" title="Prompt hinzufügen">&#x1F9E0;</button>`
+          ? `<button class="step-brain-btn" onclick="toggleStepPromptPicker(${t.id},${i})" title="${linkedPrompts.length} Prompt${linkedPrompts.length > 1 ? 's' : ''} verknüpft"><i data-lucide="brain" style="width:14px;height:14px"></i><span class="step-brain-count">${linkedPrompts.length}</span></button>`
+          : `<button class="step-brain-btn" style="opacity:.45" onclick="toggleStepPromptPicker(${t.id},${i})" title="Prompt hinzufügen"><i data-lucide="brain" style="width:14px;height:14px"></i></button>`
         }
         <button class="task-act-btn" style="opacity:.6;flex-shrink:0" onclick="deleteStep(${t.id},${i})" title="Löschen">
           <i data-lucide="x" style="width:11px;height:11px"></i>
