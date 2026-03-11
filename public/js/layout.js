@@ -121,9 +121,10 @@ function injectSidebar(activeSiteId = null) {
   const el = document.createElement('nav');
   el.id = 'sidebar';
   el.innerHTML = `
+    <div style="flex:1;overflow-y:auto;min-height:0">
     <div class="sidebar-section">
       <div class="sidebar-label">Übersicht</div>
-      <a class="nav-item${!activeSiteId && !window.location.pathname.includes('todo') && !window.location.pathname.includes('infrastructure') && !window.location.pathname.includes('analytics') && !window.location.pathname.includes('db') && !window.location.pathname.includes('pinboard') && !window.location.pathname.includes('vault') && !window.location.pathname.includes('search-radar') && !window.location.pathname.includes('revenue') ? ' active' : ''}" href="${pathPrefix()}index.html">
+      <a class="nav-item${!activeSiteId && !window.location.pathname.includes('todo') && !window.location.pathname.includes('infrastructure') && !window.location.pathname.includes('analytics') && !window.location.pathname.includes('db') && !window.location.pathname.includes('pinboard') && !window.location.pathname.includes('vault') && !window.location.pathname.includes('search-radar') && !window.location.pathname.includes('revenue') && !window.location.pathname.includes('apps') ? ' active' : ''}" href="${pathPrefix()}index.html">
         <span class="icon"><i data-lucide="layout-dashboard" style="width:14px;height:14px"></i></span>
         Dashboard
       </a>
@@ -172,7 +173,7 @@ function injectSidebar(activeSiteId = null) {
         <span class="site-color" style="background:#6366f1"></span>
       </a>
     </div>
-    <div style="flex:1"></div>
+    </div>
     <div style="padding:10px 12px 14px;border-top:1px solid var(--border);flex-shrink:0">
       <button class="nav-item" onclick="openSettings()" style="width:100%;cursor:pointer;border:none;background:none;text-align:left;display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;color:var(--text2);font-size:12px;font-weight:600;transition:background .12s;font-family:inherit">
         <span class="icon"><i data-lucide="settings" style="width:14px;height:14px"></i></span>
