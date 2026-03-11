@@ -236,12 +236,28 @@ async function loadAll() {
     _cfData = await api('/api/cf-analytics', { headers: { 'CF-Token': cfTok } });
   }
 
-  // Per-site analytics (parallel)
-  const siteAnalytics = await Promise.all(
-    SITES.map(s => api(`/api/analytics?site_id=${s.id}&days=${days}`).then(d => ({ id: s.id, d })))
-  );
-  _siteData = {};
-  siteAnalytics.forEach(({ id, d }) => { _siteData[id] = d; });
+  // Per-site analytics: CF Web Analytics wenn Token vorhanden, sonst D1-Fallback
+  const cfTokForSites = localStorage.getItem('cf_api_token');
+  if (cfTokForSites) {
+    const cfSiteData = await api(`/api/cf-site-analytics?range=${_range}`, {
+      headers: { 'CF-Token': cfTokForSites }
+    });
+    _siteData = {};
+    SITES.forEach(s => {
+      let hostname = '';
+      try { hostname = new URL(s.url).hostname; } catch(_) {}
+      const cfEntry = cfSiteData?.[hostname];
+      _siteData[s.id] = cfEntry
+        ? { by_day: cfEntry.by_day, by_type: [] }
+        : { by_day: [], by_type: [] };
+    });
+  } else {
+    const siteAnalytics = await Promise.all(
+      SITES.map(s => api(`/api/analytics?site_id=${s.id}&days=${days}`).then(d => ({ id: s.id, d })))
+    );
+    _siteData = {};
+    siteAnalytics.forEach(({ id, d }) => { _siteData[id] = d; });
+  }
 
   if (icon) icon.classList.remove('spinning');
 

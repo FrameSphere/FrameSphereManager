@@ -24,7 +24,9 @@ function getSiteById(id) {
 
 // Resolve relative path prefix depending on current page location
 function pathPrefix() {
-  return window.location.pathname.includes('/sites/') ? '../' : '';
+  const p = window.location.pathname;
+  if (p.includes('/sites/') || p.includes('/apps/')) return '../';
+  return '';
 }
 
 function siteHref(siteId) {
@@ -161,6 +163,14 @@ function injectSidebar(activeSiteId = null) {
     <div class="sidebar-section">
       <div class="sidebar-label">Webseiten</div>
       ${nav}
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Apps</div>
+      <a class="nav-item${window.location.pathname.includes('stride') ? ' active' : ''}" href="${pathPrefix()}apps/stride.html">
+        <span class="icon"><i data-lucide="activity" style="width:14px;height:14px;color:#6366f1"></i></span>
+        Stride
+        <span class="site-color" style="background:#6366f1"></span>
+      </a>
     </div>
     <div style="flex:1"></div>
     <div style="padding:10px 12px 14px;border-top:1px solid var(--border);flex-shrink:0">

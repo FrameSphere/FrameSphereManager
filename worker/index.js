@@ -865,6 +865,94 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
+  // ── GET /api/cf-site-analytics ── CF Web Analytics per Site ──────────
+  if (request.method === 'GET' && path === '/api/cf-site-analytics') {
+    const cfToken = request.headers.get('CF-Token');
+    if (!cfToken) return err('CF-Token Header fehlt', 400);
+
+    const accountId = '75ab77c2ccd4045de59e99835480bc53';
+    const range  = url.searchParams.get('range') || '7d';
+    const days   = range === '30d' ? 30 : 7;
+    const now    = new Date();
+    const startDt  = new Date(now.getTime() - days * 24 * 3600000).toISOString();
+    const endDt    = now.toISOString();
+    const startDay = startDt.slice(0, 10);
+    const endDay   = endDt.slice(0, 10);
+    const cfH = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfToken}` };
+
+    try {
+      // 1. Parallel: Zones + Web Analytics Sites
+      const [zonesRes, waRes] = await Promise.all([
+        fetch(`https://api.cloudflare.com/client/v4/zones?account.id=${accountId}&per_page=50`, { headers: cfH }),
+        fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/web-analytics/sites?per_page=100`, { headers: cfH }),
+      ]);
+      const [zonesJson, waJson] = await Promise.all([zonesRes.json(), waRes.json()]);
+
+      const zones   = zonesJson.result || [];
+      const waSites = Array.isArray(waJson.result) ? waJson.result : (waJson.result?.data || []);
+
+      // hostname -> Web Analytics siteTag
+      const hostToWaTag = {};
+      waSites.forEach(s => {
+        const h = s.host || s.hostname || '';
+        const t = s.id   || s.site_tag || s.siteTag || '';
+        if (h && t) hostToWaTag[h] = t;
+      });
+
+      // hostname -> zone ID (fuer Custom Domains)
+      const hostToZoneId = {};
+      zones.forEach(z => { if (z.name && z.id) hostToZoneId[z.name] = z.id; });
+
+      const result = {}; // hostname -> { by_day: [{day, views}] }
+
+      // 2. RUM Pageviews per Web Analytics Site (parallel)
+      await Promise.all(Object.entries(hostToWaTag).map(async ([host, tag]) => {
+        const q = JSON.stringify({ query:
+          `{viewer{accounts(filter:{accountTag:"${accountId}"}){` +
+          `rumPageloadEventsAdaptiveGroups(limit:200 ` +
+          `filter:{AND:[{datetime_geq:"${startDt}"},{datetime_leq:"${endDt}"},{siteTag:"${tag}"}]} ` +
+          `orderBy:[date_ASC]){sum{visits pageViews}dimensions{date}}}}}` });
+        try {
+          const r  = await fetch('https://api.cloudflare.com/client/v4/graphql', { method: 'POST', headers: cfH, body: q });
+          const d  = await r.json();
+          const gs = d?.data?.viewer?.accounts?.[0]?.rumPageloadEventsAdaptiveGroups || [];
+          if (gs.length > 0) {
+            result[host] = {
+              by_day: gs
+                .map(g => ({ day: g.dimensions?.date || '', views: g.sum?.pageViews || g.sum?.visits || 0 }))
+                .filter(x => x.day),
+            };
+          }
+        } catch(_) {}
+      }));
+
+      // 3. Zone HTTP Analytics fuer Custom Domains (ueberschreibt RUM wenn vorhanden)
+      await Promise.all(Object.entries(hostToZoneId).map(async ([host, zoneId]) => {
+        const q = JSON.stringify({ query:
+          `{viewer{zones(filter:{zoneTag:"${zoneId}"}){` +
+          `httpRequestsAdaptiveGroups(limit:200 ` +
+          `filter:{AND:[{date_geq:"${startDay}"},{date_leq:"${endDay}"},{requestSource:"eyeball"}]} ` +
+          `orderBy:[date_ASC]){sum{requests pageViews}dimensions{date}}}}}` });
+        try {
+          const r  = await fetch('https://api.cloudflare.com/client/v4/graphql', { method: 'POST', headers: cfH, body: q });
+          const d  = await r.json();
+          const gs = d?.data?.viewer?.zones?.[0]?.httpRequestsAdaptiveGroups || [];
+          if (gs.length > 0) {
+            result[host] = {
+              by_day: gs
+                .map(g => ({ day: g.dimensions?.date || '', views: g.sum?.pageViews || g.sum?.requests || 0 }))
+                .filter(x => x.day),
+            };
+          }
+        } catch(_) {}
+      }));
+
+      return json(result);
+    } catch(e) {
+      return err('CF Site Analytics fehlgeschlagen: ' + e.message, 502);
+    }
+  }
+
   // ── GET /api/cf-analytics ── Cloudflare GraphQL Proxy ──────────
   if (request.method === 'GET' && path === '/api/cf-analytics') {
     const cfToken = request.headers.get('CF-Token');
