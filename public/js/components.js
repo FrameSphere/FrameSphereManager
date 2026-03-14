@@ -204,67 +204,6 @@ async function updateTicket(id, field, value, siteId) {
   reloadPanel(siteId, 'support');
 }
 
-// ── BLOG ──────────────────────────────────────────────────────────
-async function renderBlog(siteId, panel) {
-  const posts = await api(`/api/blog?site_id=${siteId}`);
-  if (!posts) { panel.innerHTML = errState(); return; }
-  panel.innerHTML = `
-    <div class="form-card">
-      <div class="form-card-title">Neuer Blogpost</div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Titel</label>
-          <input id="bl-title" placeholder="Post Titel"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Auszug</label>
-          <input id="bl-excerpt" placeholder="Kurze Beschreibung…"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group form-full"><label>Inhalt (Markdown)</label>
-          <textarea id="bl-content" style="min-height:120px" placeholder="## Überschrift\n\nInhalt hier…"></textarea></div>
-      </div>
-      <div class="flex gap-8">
-        <select id="bl-status" style="width:auto">
-          <option value="draft">Draft</option>
-          <option value="published">Veröffentlichen</option>
-        </select>
-        <button class="btn btn-primary" onclick="submitBlog('${siteId}')">Erstellen</button>
-      </div>
-    </div>
-    <div class="mt-16">
-      <div style="font-size:13px;font-weight:700;margin-bottom:12px">Posts (${posts.length})</div>
-      ${posts.length ? blogTable(posts) : emptyState('Keine Posts')}
-    </div>
-  `;
-}
-
-function blogTable(posts) {
-  return `<table class="data-table">
-    <thead><tr><th>Titel</th><th>Slug</th><th>Status</th><th>Erstellt</th></tr></thead>
-    <tbody>${posts.map(p => `
-      <tr>
-        <td style="font-weight:600">${esc(p.title)}</td>
-        <td class="mono" style="color:var(--text3)">${esc(p.slug)}</td>
-        <td><span class="badge ${p.status}">${p.status}</span></td>
-        <td class="mono" style="color:var(--text3)">${fmtDate(p.created_at)}</td>
-      </tr>
-    `).join('')}</tbody>
-  </table>`;
-}
-
-async function submitBlog(siteId) {
-  const data = {
-    site_id: siteId,
-    title:   document.getElementById('bl-title')?.value,
-    excerpt: document.getElementById('bl-excerpt')?.value,
-    content: document.getElementById('bl-content')?.value,
-    status:  document.getElementById('bl-status')?.value,
-  };
-  if (!data.title) { alert('Titel ist erforderlich'); return; }
-  await api('/api/blog', { method: 'POST', body: data });
-  reloadPanel(siteId, 'blog');
-}
-
 // ── WORT-ANFRAGEN ─────────────────────────────────────────────────
 async function renderWordRequests(siteId, panel) {
   const words = await api('/api/words');
@@ -1168,6 +1107,50 @@ async function deleteChangelog(id, siteId) {
 }
 
 // ── BLOG MEHRSPRACHIG ────────────────────────────────────────────
+const BLOG_LANG_MAP = { de:'🇩🇪 DE', en:'🇬🇧 EN', fr:'🇫🇷 FR', es:'🇪🇸 ES' };
+
+function _renderBlogPostList(posts, siteId) {
+  const rows = posts.map(function(p) {
+    const statusBadge = p.status === 'published'
+      ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(52,211,153,.15);color:#34d399;font-weight:700">✓ Live</span>'
+      : '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.07);color:var(--text3)">Entwurf</span>';
+    const langBadge = BLOG_LANG_MAP[p.lang]
+      ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.06);color:var(--text2)">' + BLOG_LANG_MAP[p.lang] + '</span>'
+      : '';
+    const tagBadges = p.tags ? p.tags.split(',').map(function(t) {
+      return '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">' + esc(t.trim()) + '</span>';
+    }).join('') : '';
+    const excerptHtml = p.excerpt
+      ? '<div style="font-size:12px;color:var(--text2);line-height:1.4">' + esc(p.excerpt.slice(0,120)) + (p.excerpt.length > 120 ? '…' : '') + '</div>'
+      : '';
+    const toggleStatus = p.status === 'published' ? 'draft' : 'published';
+    const toggleLabel  = p.status === 'published' ? '↙ Entwurf' : '🌐 Veröff.';
+    const langOptions  = ['de','en','fr','es'].map(function(lc) {
+      return '<option value="' + lc + '" ' + ((p.lang||'de')===lc?'selected':'') + '>' + BLOG_LANG_MAP[lc] + '</option>';
+    }).join('');
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px">'
+      + '<div style="display:flex;align-items:flex-start;gap:12px">'
+      + '<div style="flex:1;min-width:0">'
+      + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
+      + statusBadge + langBadge + tagBadges
+      + '<span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">' + fmtDate(p.created_at) + '</span>'
+      + '</div>'
+      + '<div style="font-weight:700;font-size:13px;margin-bottom:4px">' + esc(p.title) + '</div>'
+      + excerptHtml
+      + '</div>'
+      + '<div style="display:flex;gap:6px;flex-shrink:0;flex-direction:column;align-items:flex-end">'
+      + '<button class="btn btn-ghost btn-sm" onclick="toggleBlogPublish(' + p.id + ',\'' + toggleStatus + '\',\'' + siteId + '\')">'
+      + toggleLabel + '</button>'
+      + '<button class="btn btn-ghost btn-sm" onclick="openBlogEdit(' + p.id + ',\'' + siteId + '\')">\u270f Bearbeiten</button>'
+      + '<select onchange="setBlogLang(' + p.id + ',\'' + siteId + '\',this.value)" title="Sprache" style="padding:3px 6px;font-size:11px;width:auto;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--text2)">'
+      + langOptions + '</select>'
+      + '<button class="btn btn-danger btn-sm" onclick="deleteBlogPost(' + p.id + ',\'' + siteId + ')">&times; Löschen</button>'
+      + '</div></div></div>'
+      + '<div id="bl-edit-' + p.id + '" style="display:none"></div>';
+  });
+  return '<div style="display:flex;flex-direction:column;gap:8px">' + rows.join('') + '</div>';
+}
+
 const BLOG_LANGS = [
   { code: 'de', flag: '\uD83C\uDDE9\uD83C\uDDEA', label: 'Deutsch' },
   { code: 'en', flag: '\uD83C\uDDEC\uD83C\uDDE7', label: 'English' },
@@ -1262,38 +1245,7 @@ async function renderBlog(siteId, panel) {
       <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','blog')">\u21BB Aktualisieren</button>
     </div>
 
-    ${posts.length ? `<div style="display:flex;flex-direction:column;gap:8px">
-      ${posts.map(p => `
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
-          <div style="display:flex;align-items:flex-start;gap:12px">
-            <div style="flex:1;min-width:0">
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
-                ${p.status === 'published'
-                  ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(52,211,153,.15);color:#34d399;font-weight:700">\u2713 Live</span>'
-                  : '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.07);color:var(--text3)">Entwurf</span>'}
-                ${postLangMap[p.lang] ? `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.06);color:var(--text2)">${postLangMap[p.lang]}</span>` : ''}
-                ${p.tags ? p.tags.split(',').map(t => `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">${esc(t.trim())}</span>`).join('') : ''}
-                <span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">${fmtDate(p.created_at)}</span>
-              </div>
-              <div style="font-weight:700;font-size:13px;margin-bottom:4px">${esc(p.title)}</div>
-              ${p.excerpt ? `<div style="font-size:12px;color:var(--text2);line-height:1.4">${esc(p.excerpt.slice(0,120))}${p.excerpt.length > 120 ? '\u2026' : ''}</div>` : ''}
-            </div>
-            <div style="display:flex;gap:6px;flex-shrink:0;flex-direction:column;align-items:flex-end">
-            <button class="btn btn-ghost btn-sm"
-            onclick="toggleBlogPublish(${p.id}, '${p.status === 'published' ? 'draft' : 'published'}', '${siteId}')">
-            ${p.status === 'published' ? '\u2199 Entwurf' : '\uD83C\uDF10 Ver\u00F6ff.'}
-            </button>
-            <button class="btn btn-ghost btn-sm" onclick="openBlogEdit(${p.id},'${siteId}')">✏ Bearbeiten</button>
-            <select onchange="setBlogLang(${p.id},'${siteId}',this.value)" title="Sprache setzen" style="padding:3px 6px;font-size:11px;width:auto;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--text2);cursor:pointer">
-              ${['de','en','fr','es'].map(lc => `<option value="${lc}" ${(p.lang||'de')===lc?'selected':''}>${{de:'\uD83C\uDDE9\uD83C\uDDEA DE',en:'\uD83C\uDDEC\uD83C\uDDE7 EN',fr:'\uD83C\uDDEB\uD83C\uDDF7 FR',es:'\uD83C\uDDEA\uD83C\uDDF8 ES'}[lc]}</option>`).join('')}
-            </select>
-            <button class="btn btn-danger btn-sm"
-                onclick="deleteBlogPost(${p.id}, '${siteId}')">&times; L\u00F6schen</button>
-            </div>
-          </div>
-        </div>
-        <div id="bl-edit-${p.id}" style="display:none"></div>`).join('')}
-    </div>` : emptyState('Noch keine Posts \u2013 erstelle den ersten Blogartikel!')
+    ${posts.length ? _renderBlogPostList(posts, siteId) : emptyState('Noch keine Posts \u2013 erstelle den ersten Blogartikel!')}
   `;
 }
 
