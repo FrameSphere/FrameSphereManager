@@ -1107,7 +1107,7 @@ async function deleteChangelog(id, siteId) {
 }
 
 // ── BLOG MEHRSPRACHIG ────────────────────────────────────────────
-const BLOG_LANG_MAP = { de:'🇩🇪 DE', en:'🇬🇧 EN', fr:'🇫🇷 FR', es:'🇪🇸 ES' };
+const BLOG_LANG_MAP = { de:'🇩🇪 DE', en:'🇬🇧 EN', fr:'🇫🇷 FR', es:'🇪🇸 ES', it:'🇮🇹 IT' };
 
 function _renderBlogPostList(posts, siteId) {
   const rows = posts.map(function(p) {
@@ -1125,7 +1125,7 @@ function _renderBlogPostList(posts, siteId) {
       : '';
     const toggleStatus = p.status === 'published' ? 'draft' : 'published';
     const toggleLabel  = p.status === 'published' ? '↙ Entwurf' : '🌐 Veröff.';
-    const langOptions  = ['de','en','fr','es'].map(function(lc) {
+    const langOptions  = ['de','en','fr','es','it'].map(function(lc) {
       return '<option value="' + lc + '" ' + ((p.lang||'de')===lc?'selected':'') + '>' + BLOG_LANG_MAP[lc] + '</option>';
     }).join('');
     return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px">'
@@ -1156,6 +1156,7 @@ const BLOG_LANGS = [
   { code: 'en', flag: '\uD83C\uDDEC\uD83C\uDDE7', label: 'English' },
   { code: 'fr', flag: '\uD83C\uDDEB\uD83C\uDDF7', label: 'Fran\u00E7ais' },
   { code: 'es', flag: '\uD83C\uDDEA\uD83C\uDDF8', label: 'Espa\u00F1ol' },
+  { code: 'it', flag: '\uD83C\uDDEE\uD83C\uDDF9', label: 'Italiano' },
 ];
 
 async function renderBlog(siteId, panel) {
@@ -1199,12 +1200,12 @@ async function renderBlog(siteId, panel) {
       </div>
       ${i === 0 ? `
       <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
-        <button class="btn btn-ghost btn-sm" id="bl-translate-btn" onclick="translateBlogWithAI()">\uD83E\uDD16 Alle \u00FCbersetzen (DE \u2192 EN / FR / ES)</button>
+        <button class="btn btn-ghost btn-sm" id="bl-translate-btn" onclick="translateBlogWithAI()">\uD83E\uDD16 Alle \u00FCbersetzen (DE \u2192 EN / FR / ES / IT)</button>
         <span id="bl-translate-status" style="font-size:12px;color:var(--text3)"></span>
       </div>` : ''}
     </div>`).join('');
 
-  const postLangMap = { de:'\uD83C\uDDE9\uD83C\uDDEA DE', en:'\uD83C\uDDEC\uD83C\uDDE7 EN', fr:'\uD83C\uDDEB\uD83C\uDDF7 FR', es:'\uD83C\uDDEA\uD83C\uDDF8 ES' };
+  const postLangMap = { de:'\uD83C\uDDE9\uD83C\uDDEA DE', en:'\uD83C\uDDEC\uD83C\uDDE7 EN', fr:'\uD83C\uDDEB\uD83C\uDDF7 FR', es:'\uD83C\uDDEA\uD83C\uDDF8 ES', it:'\uD83C\uDDEE\uD83C\uDDF9 IT' };
 
   panel.innerHTML = `
     <div class="form-card" style="margin-bottom:20px">
@@ -1290,7 +1291,7 @@ window.translateBlogWithAI = async function() {
   status.textContent = ''; status.style.color = 'var(--text3)';
 
   try {
-    const prompt = `Translate this blog post from German to English, French, and Spanish. Return ONLY raw JSON, no markdown, no explanation.\n\nGerman title: ${title}\nGerman excerpt: ${excerpt}\nGerman content: ${content}\n\nReturn exactly this JSON structure (preserve all HTML tags, translate naturally):\n{"en":{"title":"...","excerpt":"...","content":"..."},"fr":{"title":"...","excerpt":"...","content":"..."},"es":{"title":"...","excerpt":"...","content":"..."}}`;
+    const prompt = `Translate this blog post from German to English, French, Spanish, and Italian. Return ONLY raw JSON, no markdown, no explanation.\n\nGerman title: ${title}\nGerman excerpt: ${excerpt}\nGerman content: ${content}\n\nReturn exactly this JSON structure (preserve all HTML tags, translate naturally):\n{"en":{"title":"...","excerpt":"...","content":"..."},"fr":{"title":"...","excerpt":"...","content":"..."},"es":{"title":"...","excerpt":"...","content":"..."},"it":{"title":"...","excerpt":"...","content":"..."}}`;
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1316,7 +1317,7 @@ window.translateBlogWithAI = async function() {
     const text = (data.content?.[0]?.text || '').replace(/```json|```/g, '').trim();
     const translations = JSON.parse(text);
 
-    for (const lang of ['en', 'fr', 'es']) {
+    for (const lang of ['en', 'fr', 'es', 'it']) {
       const t = translations[lang]; if (!t) continue;
       const el = id => document.getElementById(`bl-${id}-${lang}`);
       if (el('title'))   el('title').value   = t.title   || '';
@@ -1427,7 +1428,7 @@ window.openBlogEdit = async function(id, siteId) {
           <input id="ble-tags-${id}" value="${esc(p.tags||'')}"></div>
         <div class="form-group" style="max-width:130px"><label>Sprache</label>
           <select id="ble-lang-${id}">
-            ${['de','en','fr','es'].map(lc => `<option value="${lc}" ${(p.lang||'de')===lc?'selected':''}>${{de:'\uD83C\uDDE9\uD83C\uDDEA DE',en:'\uD83C\uDDEC\uD83C\uDDE7 EN',fr:'\uD83C\uDDEB\uD83C\uDDF7 FR',es:'\uD83C\uDDEA\uD83C\uDDF8 ES'}[lc]}</option>`).join('')}
+            ${['de','en','fr','es','it'].map(lc => `<option value="${lc}" ${(p.lang||'de')===lc?'selected':''}>${{de:'\uD83C\uDDE9\uD83C\uDDEA DE',en:'\uD83C\uDDEC\uD83C\uDDE7 EN',fr:'\uD83C\uDDEB\uD83C\uDDF7 FR',es:'\uD83C\uDDEA\uD83C\uDDF8 ES',it:'\uD83C\uDDEE\uD83C\uDDF9 IT'}[lc]}</option>`).join('')}
           </select></div>
         <div class="form-group" style="max-width:160px"><label>Status</label>
           <select id="ble-status-${id}">

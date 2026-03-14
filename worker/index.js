@@ -260,10 +260,29 @@ async function handleRequest(request, env) {
   if (request.method === 'GET' && path === '/api/blog/published') {
     const db = env.DB;
     const siteId = url.searchParams.get('site_id') || 'frametrain';
-    const result = await db.prepare(
-      'SELECT * FROM blog_posts WHERE site_id=? AND status=\'published\' ORDER BY created_at DESC'
-    ).bind(siteId).all();
+    const lang   = url.searchParams.get('lang');
+    let q = "SELECT * FROM blog_posts WHERE site_id=? AND status='published'";
+    const params = [siteId];
+    if (lang) { q += ' AND lang=?'; params.push(lang); }
+    q += ' ORDER BY created_at DESC';
+    const result = await db.prepare(q).bind(...params).all();
     return json(result.results);
+  }
+
+  // GET /api/blog/post ── Public: single post by slug+lang+site_id
+  if (request.method === 'GET' && path === '/api/blog/post') {
+    const db = env.DB;
+    const siteId = url.searchParams.get('site_id');
+    const lang   = url.searchParams.get('lang');
+    const slug   = url.searchParams.get('slug');
+    if (!siteId || !slug) return err('site_id and slug required', 400);
+    const row = await db.prepare(
+      "SELECT * FROM blog_posts WHERE site_id=? AND slug=? AND status='published' LIMIT 1"
+    ).bind(siteId, slug).first();
+    if (!row) return json({ error: 'Post not found' }, 404);
+    // If lang given, validate it matches
+    if (lang && row.lang && row.lang !== lang) return json({ error: 'Post not found' }, 404);
+    return json(row);
   }
 
   // POST /api/support/submit ── Public: any site submits support tickets
@@ -706,6 +725,10 @@ async function handleRequest(request, env) {
   // ── GET /api/blog ─────────────────────────────────────────────────
   if (request.method === 'GET' && path === '/api/blog') {
     const siteId = url.searchParams.get('site_id');
+    // Ensure columns exist
+    await db.prepare('ALTER TABLE blog_posts ADD COLUMN slug TEXT').run().catch(() => {});
+    await db.prepare("ALTER TABLE blog_posts ADD COLUMN lang TEXT DEFAULT 'de'").run().catch(() => {});
+    await db.prepare('ALTER TABLE blog_posts ADD COLUMN tags TEXT DEFAULT \'\'').run().catch(() => {});
     let q = 'SELECT * FROM blog_posts WHERE 1=1';
     const params = [];
     if (siteId) { q += ' AND site_id=?'; params.push(siteId); }
@@ -717,12 +740,36 @@ async function handleRequest(request, env) {
   // ── POST /api/blog ────────────────────────────────────────────────
   if (request.method === 'POST' && path === '/api/blog') {
     const body = await request.json();
-    const { site_id, title, slug, content, excerpt, status } = body;
+    const { site_id, title, slug, content, excerpt, status, lang, tags } = body;
     if (!site_id || !title) return err('Missing fields');
-    const finalSlug = slug || title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    await db.prepare(
-      'INSERT INTO blog_posts (site_id, title, slug, content, excerpt, status) VALUES (?,?,?,?,?,?)'
-    ).bind(site_id, title, finalSlug, content || null, excerpt || null, status || 'draft').run();
+    await db.prepare('ALTER TABLE blog_posts ADD COLUMN slug TEXT').run().catch(() => {});
+    await db.prepare("ALTER TABLE blog_posts ADD COLUMN lang TEXT DEFAULT 'de'").run().catch(() => {});
+    await db.prepare('ALTER TABLE blog_posts ADD COLUMN tags TEXT DEFAULT \'\'').run().catch(() => {});
+    const finalSlug = slug || makeSlug(title);
+    const r = await db.prepare(
+      'INSERT INTO blog_posts (site_id, title, slug, content, excerpt, status, lang, tags) VALUES (?,?,?,?,?,?,?,?)'
+    ).bind(site_id, title, finalSlug, content || null, excerpt || null, status || 'draft', lang || 'de', tags || '').run();
+    return json({ success: true, id: r.meta.last_row_id });
+  }
+
+  // ── PATCH /api/blog/:id ───────────────────────────────────────────
+  if (request.method === 'PATCH' && segments[1] === 'blog' && segments[2] && !segments[3]) {
+    const body = await request.json().catch(() => ({}));
+    const sets = []; const params = [];
+    if (body.title   !== undefined) { sets.push('title=?');   params.push(body.title);   sets.push('slug=?'); params.push(makeSlug(body.title)); }
+    if (body.content !== undefined) { sets.push('content=?'); params.push(body.content); }
+    if (body.excerpt !== undefined) { sets.push('excerpt=?'); params.push(body.excerpt); }
+    if (body.status  !== undefined) { sets.push('status=?');  params.push(body.status);  }
+    if (body.lang    !== undefined) { sets.push('lang=?');    params.push(body.lang);    }
+    if (body.tags    !== undefined) { sets.push('tags=?');    params.push(body.tags);    }
+    if (!sets.length) return err('Nothing to update');
+    await db.prepare(`UPDATE blog_posts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
+    return json({ success: true });
+  }
+
+  // ── DELETE /api/blog/:id ──────────────────────────────────────────
+  if (request.method === 'DELETE' && segments[1] === 'blog' && segments[2]) {
+    await db.prepare('DELETE FROM blog_posts WHERE id=?').bind(segments[2]).run();
     return json({ success: true });
   }
 
