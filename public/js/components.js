@@ -1283,6 +1283,9 @@ async function renderBlog(siteId, panel) {
                 onclick="toggleBlogPublish(${p.id}, '${p.status === 'published' ? 'draft' : 'published'}', '${siteId}')">
                 ${p.status === 'published' ? '\u2199 Entwurf' : '\uD83C\uDF10 Ver\u00F6ff.'}
               </button>
+              <select onchange="setBlogLang(${p.id},'${siteId}',this.value)" title="Sprache setzen" style="padding:3px 6px;font-size:11px;width:auto;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--text2);cursor:pointer">
+                ${['de','en','fr','es'].map(lc => `<option value="${lc}" ${(p.lang||'de')===lc?'selected':''}>${{de:'\uD83C\uDDE9\uD83C\uDDEA DE',en:'\uD83C\uDDEC\uD83C\uDDE7 EN',fr:'\uD83C\uDDEB\uD83C\uDDF7 FR',es:'\uD83C\uDDEA\uD83C\uDDF8 ES'}[lc]}</option>`).join('')}
+              </select>
               <button class="btn btn-danger btn-sm"
                 onclick="deleteBlogPost(${p.id}, '${siteId}')">&times; L\u00F6schen</button>
             </div>
@@ -1444,3 +1447,9 @@ async function deleteBlogPost(id, siteId) {
   await api(`/api/blog/${id}`, { method: 'DELETE' });
   reloadPanel(siteId, 'blog');
 }
+
+window.setBlogLang = async function(id, siteId, lang) {
+  await api(`/api/blog/${id}`, { method: 'PATCH', body: { lang } });
+  // Update badge in list without full reload
+  reloadPanel(siteId, 'blog');
+};
