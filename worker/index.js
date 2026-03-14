@@ -93,6 +93,14 @@ async function ensureChangelogTable(db) {
   )`).run();
   await db.prepare("ALTER TABLE changelog_entries ADD COLUMN type TEXT DEFAULT 'feature'").run().catch(() => {});
   await db.prepare("ALTER TABLE changelog_entries ADD COLUMN slug TEXT DEFAULT ''").run().catch(() => {});
+  // Backfill slugs for entries that were created before the slug system
+  const noSlug = await db.prepare(
+    "SELECT id, title FROM changelog_entries WHERE slug IS NULL OR slug = ''"
+  ).all().catch(() => ({ results: [] }));
+  for (const row of (noSlug.results || [])) {
+    await db.prepare('UPDATE changelog_entries SET slug=? WHERE id=?')
+      .bind(makeSlug(row.title), row.id).run().catch(() => {});
+  }
 }
 
 // ── Auto-create error_logs table if missing ───────────────────────
