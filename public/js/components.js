@@ -1198,8 +1198,13 @@ html +=       '<span style="font-size:11px;color:' + (liveCount===total?'#34d399
 // Button: Tag-Gruppe in echte Gruppe umwandeln
 if (g.isTagGroup && total > 1) {
   var postIds = JSON.stringify(g.posts.map(function(p){return p.id;}));
-  html += '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgFixGroup(' + postIds + ',\'' + siteId + '\')">\uD83D\uDD17 Gruppe fixieren</button>';
+  html += '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgFixGroup(' + postIds + ',\'' + siteId + '\')">🔗 Gruppe fixieren</button>';
 }
+var allIds = JSON.stringify(g.posts.map(function(p){return p.id;}));
+var allLive = liveCount === total;
+html += '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgPublishGroup(' + allIds + ',\'' + (allLive?'draft':'published') + '\',\'' + siteId + '\')">'
+  + (allLive ? '\u2199 Alle Entwurf' : '\uD83C\uDF10 Alle live') + '</button>';
+html += '<button class="btn btn-danger btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgDeleteGroup(' + allIds + ',\'' + siteId + '\')">&times; Gruppe löschen</button>';
 html +=     '</div>';
 html +=   '</div>';
 html +=   '<span id="' + gid + '_arr" style="font-size:16px;color:var(--text3);flex-shrink:0;padding-top:2px;transition:transform .2s">&#9660;</span>';
@@ -1575,6 +1580,23 @@ window._blgFixGroup = async function(postIds, siteId) {
   var newGid = 'grp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
   for (var i = 0; i < postIds.length; i++) {
     await api('/api/blog/' + postIds[i], { method: 'PATCH', body: { group_id: newGid } });
+  }
+  reloadPanel(siteId, 'blog');
+};
+
+// Gesamte Gruppe veröffentlichen / zu Entwurf machen
+window._blgPublishGroup = async function(postIds, newStatus, siteId) {
+  for (var i = 0; i < postIds.length; i++) {
+    await api('/api/blog/' + postIds[i], { method: 'PATCH', body: { status: newStatus } });
+  }
+  reloadPanel(siteId, 'blog');
+};
+
+// Gesamte Gruppe löschen (alle Sprach-Versionen)
+window._blgDeleteGroup = async function(postIds, siteId) {
+  if (!confirm('Alle ' + postIds.length + ' Sprachversionen dieser Gruppe löschen?')) return;
+  for (var i = 0; i < postIds.length; i++) {
+    await api('/api/blog/' + postIds[i], { method: 'DELETE' });
   }
   reloadPanel(siteId, 'blog');
 };
