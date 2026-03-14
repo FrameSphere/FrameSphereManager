@@ -1109,94 +1109,110 @@ async function deleteChangelog(id, siteId) {
 // ── BLOG MEHRSPRACHIG ────────────────────────────────────────────
 const BLOG_LANG_MAP = { de:'🇩🇪 DE', en:'🇬🇧 EN', fr:'🇫🇷 FR', es:'🇪🇸 ES', it:'🇮🇹 IT' };
 
+// Blog-Gruppen aufklappen/zuklappen
+window._blgToggle = function(id) {
+var box = document.getElementById(id);
+var arr = document.getElementById(id + '_arr');
+if (!box) return;
+var open = box.style.display !== 'none';
+box.style.display = open ? 'none' : 'flex';
+if (arr) arr.textContent = open ? '\u25BC' : '\u25B2';
+};
+// Blog-Post Aktionen (data-attribute Handler)
+window._blgAction = function(btn) {
+var act  = btn.dataset.act;
+var id   = Number(btn.dataset.id);
+var site = btn.dataset.site;
+var st   = btn.dataset.st;
+  if (act === 'pub')    toggleBlogPublish(id, st, site);
+if (act === 'edit')   openBlogEdit(id, site);
+  if (act === 'del')    deleteBlogPost(id, site);
+};
+
 function _renderBlogPostList(posts, siteId) {
-  // ── Gruppiere Posts nach group_id (alle Sprachen eines Artikels teilen dieselbe group_id)
-  // Posts ohne group_id (alte Einträge) bekommen eine eigene Gruppe pro Post
-  const groups = [];
-  const groupMap = {};
-  posts.forEach(function(p) {
-    const key = (p.group_id && p.group_id.trim()) ? p.group_id : ('__solo__' + p.id);
-    if (!groupMap[key]) {
-      groupMap[key] = { key: key, group_id: p.group_id || '', posts: [], date: p.created_at };
-      groups.push(groupMap[key]);
-    }
-    groupMap[key].posts.push(p);
-    // Nutze frühestes Datum für die Gruppe
-    if (p.created_at < groupMap[key].date) groupMap[key].date = p.created_at;
+// Gruppiere nach group_id; alte Posts ohne group_id: je eine Solo-Gruppe
+var groups   = [];
+  var groupMap = {};
+posts.forEach(function(p) {
+var key = (p.group_id && p.group_id.trim()) ? p.group_id : ('__solo__' + p.id);
+if (!groupMap[key]) {
+groupMap[key] = { key: key, posts: [], date: p.created_at };
+groups.push(groupMap[key]);
+}
+groupMap[key].posts.push(p);
+if (p.created_at < groupMap[key].date) groupMap[key].date = p.created_at;
+});
+
+var LANG_ORDER = ['de','en','fr','es','it'];
+var html = '<div style="display:flex;flex-direction:column;gap:8px">';
+
+groups.forEach(function(g, gi) {
+var repPost   = g.posts.find(function(p){ return p.lang==='de'; }) || g.posts[0];
+var title     = esc(repPost.title);
+    var tags      = repPost.tags || '';
+var liveCount = g.posts.filter(function(p){ return p.status==='published'; }).length;
+var total     = g.posts.length;
+var gid       = 'blg' + gi;
+
+// Sprach-Badges
+var badges = '';
+LANG_ORDER.forEach(function(lc) {
+var p = g.posts.find(function(x){ return x.lang===lc; });
+if (!p) {
+  badges += '<span style="font-size:11px;padding:2px 7px;border-radius:5px;background:rgba(255,255,255,.04);color:var(--text3);opacity:.4">' + BLOG_LANG_MAP[lc] + '</span>';
+} else if (p.status === 'published') {
+  badges += '<span style="font-size:11px;padding:2px 7px;border-radius:5px;background:rgba(52,211,153,.15);color:#34d399;font-weight:700">' + BLOG_LANG_MAP[lc] + ' \u2713</span>';
+} else {
+badges += '<span style="font-size:11px;padding:2px 7px;border-radius:5px;background:rgba(255,255,255,.06);color:var(--text3)">' + BLOG_LANG_MAP[lc] + '</span>';
+}
+});
+
+// Tag-Badges
+var tagHtml = '';
+if (tags) tags.split(',').forEach(function(t) {
+tagHtml += '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">' + esc(t.trim()) + '</span>';
+});
+
+    // Gruppen-Header (onclick via _blgToggle)
+html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">';
+html += '<div onclick="_blgToggle(\'' + gid + '\')" style="display:flex;align-items:flex-start;gap:12px;padding:13px 16px;cursor:pointer;user-select:none">';
+html +=   '<div style="flex:1;min-width:0">';
+html +=     '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:6px">';
+html +=       badges;
+html +=       (tagHtml ? '<span style="margin-left:4px">' + tagHtml + '</span>' : '');
+html +=       '<span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">' + fmtDate(g.date) + '</span>';
+html +=     '</div>';
+html +=     '<div style="font-weight:700;font-size:13px;color:var(--text1)">' + title + '</div>';
+html +=     '<div style="font-size:11px;color:var(--text3);margin-top:3px">' + liveCount + '/' + total + ' Sprachen live</div>';
+html +=   '</div>';
+html +=   '<span id="' + gid + '_arr" style="font-size:13px;color:var(--text3);flex-shrink:0;padding-top:3px">\u25BC</span>';
+html += '</div>';
+
+// Ausgeklappte Sprach-Zeilen (standardmäßig geschlossen)
+html += '<div id="' + gid + '" style="display:none;flex-direction:column;gap:6px;padding:0 12px 12px">';
+LANG_ORDER.forEach(function(lc) {
+var p = g.posts.find(function(x){ return x.lang===lc; });
+if (!p) return;
+var isLive = p.status === 'published';
+    var newSt  = isLive ? 'draft' : 'published';
+      var lbl    = isLive ? '\u2199 Entwurf' : '\uD83C\uDF10 Ver\u00F6ff.';
+    html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:7px;background:var(--bg);border:1px solid var(--border)">';
+      html +=   '<span style="min-width:54px;font-size:11px;font-weight:700;color:' + (isLive ? '#34d399' : 'var(--text3)') + '">' + BLOG_LANG_MAP[lc] + '</span>';
+      html +=   '<span style="flex:1;font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.title) + '</span>';
+      html +=   '<div style="display:flex;gap:4px;flex-shrink:0">';
+      html +=     '<button class="btn btn-ghost btn-sm" data-act="pub" data-id="' + p.id + '" data-site="' + siteId + '" data-st="' + newSt + '" onclick="_blgAction(this)">' + lbl + '</button>';
+      html +=     '<button class="btn btn-ghost btn-sm" data-act="edit" data-id="' + p.id + '" data-site="' + siteId + '" onclick="_blgAction(this)">\u270f Edit</button>';
+      html +=     '<button class="btn btn-danger btn-sm" data-act="del" data-id="' + p.id + '" data-site="' + siteId + '" onclick="_blgAction(this)">&times;</button>';
+      html +=   '</div>';
+      html += '</div>';
+      html += '<div id="bl-edit-' + p.id + '" style="display:none"></div>';
+    });
+    html += '</div>'; // end collapsible
+    html += '</div>'; // end group card
   });
 
-  const LANG_ORDER = ['de','en','fr','es','it'];
-
-  const rows = groups.map(function(g) {
-    // Repräsentativer Titel: bevorzuge DE, sonst ersten
-    const repPost = g.posts.find(p => p.lang === 'de') || g.posts[0];
-    const title   = repPost.title;
-    const tags    = repPost.tags || '';
-
-    // Sprachstatus-Badges: alle 5 Sprachen, grün wenn vorhanden+published, grau wenn nur draft, leer wenn fehlt
-    const langBadges = LANG_ORDER.map(function(lc) {
-      const p = g.posts.find(function(x) { return x.lang === lc; });
-      if (!p) {
-        return '<span title="' + lc.toUpperCase() + ' fehlt" style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:3px 8px;border-radius:5px;background:rgba(255,255,255,.04);color:var(--text3);opacity:.5">'
-          + BLOG_LANG_MAP[lc] + '</span>';
-      }
-      const isLive = p.status === 'published';
-      return '<span title="' + lc.toUpperCase() + (isLive ? ' – Live' : ' – Entwurf') + '" style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:3px 8px;border-radius:5px;'
-        + (isLive ? 'background:rgba(52,211,153,.15);color:#34d399;' : 'background:rgba(255,255,255,.06);color:var(--text3);') + '">'
-        + BLOG_LANG_MAP[lc] + (isLive ? ' ✓' : '') + '</span>';
-    }).join('');
-
-    const tagBadges = tags ? tags.split(',').map(function(t) {
-      return '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">' + esc(t.trim()) + '</span>';
-    }).join('') : '';
-
-    const liveCount  = g.posts.filter(function(p) { return p.status === 'published'; }).length;
-    const totalCount = g.posts.length;
-    const groupId    = 'blg-' + g.key.replace(/[^a-z0-9]/gi, '-');
-
-    // Einzelne Post-Zeilen innerhalb der Gruppe (ausgeklappt)
-    const postRows = LANG_ORDER.map(function(lc) {
-      const p = g.posts.find(function(x) { return x.lang === lc; });
-      if (!p) return ''; // Sprache nicht vorhanden
-      const toggleStatus = p.status === 'published' ? 'draft' : 'published';
-      const toggleLabel  = p.status === 'published' ? '↙ Entwurf' : '🌐 Veröff.';
-      const isLive = p.status === 'published';
-      return '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:7px;background:var(--bg);border:1px solid var(--border);flex-wrap:wrap">'
-        + '<span style="min-width:56px;font-size:11px;font-weight:700;' + (isLive ? 'color:#34d399' : 'color:var(--text3)') + '">' + BLOG_LANG_MAP[lc] + '</span>'
-        + '<span style="flex:1;font-size:12px;color:var(--text2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.title) + '</span>'
-        + '<div style="display:flex;gap:5px;flex-shrink:0">'
-        + '<button class="btn btn-ghost btn-sm" onclick="toggleBlogPublish(' + p.id + ',\'' + toggleStatus + '\',\'' + siteId + '\')">'
-        + toggleLabel + '</button>'
-        + '<button class="btn btn-ghost btn-sm" onclick="openBlogEdit(' + p.id + ',\'' + siteId + '\')">✏ Edit</button>'
-        + '<button class="btn btn-danger btn-sm" onclick="deleteBlogPost(' + p.id + ',\'' + siteId + ')">&times;</button>'
-        + '</div>'
-        + '</div>'
-        + '<div id="bl-edit-' + p.id + '" style="display:none"></div>';
-    }).join('');
-
-    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">'
-      // ── Gruppen-Header (klickbar zum Ausklappen)
-      + '<div onclick="document.getElementById(\'' + groupId + '\').style.display=(document.getElementById(\'' + groupId + '\').style.display===\'none\'?\'flex\':\'none\')" '
-      + 'style="display:flex;align-items:flex-start;gap:12px;padding:13px 16px;cursor:pointer;user-select:none">'
-      + '<div style="flex:1;min-width:0">'
-      + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px">'
-      + langBadges
-      + (tagBadges ? '<span style="margin-left:4px">' + tagBadges + '</span>' : '')
-      + '<span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">' + fmtDate(g.date) + '</span>'
-      + '</div>'
-      + '<div style="font-weight:700;font-size:13px;color:var(--text1)">' + esc(title) + '</div>'
-      + '<div style="font-size:11px;color:var(--text3);margin-top:3px">' + liveCount + '/' + totalCount + ' Sprachen live' + (g.group_id ? ' · ' + g.group_id.slice(0,20) : '') + '</div>'
-      + '</div>'
-      + '<span style="font-size:16px;color:var(--text3);flex-shrink:0;padding-top:2px">&#9660;</span>'
-      + '</div>'
-      // ── Ausgeklappte Sprachzeilen (standardmäßig versteckt)
-      + '<div id="' + groupId + '" style="display:none;flex-direction:column;gap:6px;padding:0 12px 12px">'
-      + postRows
-      + '</div>'
-      + '</div>';
-  });
-
-  return '<div style="display:flex;flex-direction:column;gap:8px">' + rows.join('') + '</div>';
+  html += '</div>';
+  return html;
 }
 
 const BLOG_LANGS = [
