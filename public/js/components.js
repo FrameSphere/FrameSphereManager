@@ -1188,6 +1188,15 @@ async function renderBlog(siteId, panel) {
           <label>Tags (komma-getrennt)</label>
           <input id="bl-tags" placeholder="Psychologie, IRT, Traits">
         </div>
+        <div class="form-group" style="max-width:130px">
+          <label>Sprache</label>
+          <select id="bl-lang">
+            <option value="de">🇩🇪 Deutsch</option>
+            <option value="en">🇬🇧 English</option>
+            <option value="fr">🇫🇷 Français</option>
+            <option value="es">🇪🇸 Español</option>
+          </select>
+        </div>
         <div class="form-group" style="max-width:160px">
           <label>Status</label>
           <select id="bl-status">
@@ -1231,6 +1240,7 @@ async function renderBlog(siteId, panel) {
                   ${p.status === 'published'
                     ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(52,211,153,.15);color:#34d399;font-weight:700">✓ Live</span>'
                     : '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.07);color:var(--text3)">Entwurf</span>'}
+                  ${ {de:'🇩🇪',en:'🇬🇧',fr:'🇫🇷',es:'🇪🇸'}[p.lang] ? `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.06);color:var(--text2)">${{de:'🇩🇪 DE',en:'🇬🇧 EN',fr:'🇫🇷 FR',es:'🇪🇸 ES'}[p.lang]}</span>` : '' }
                   ${p.tags ? p.tags.split(',').map(t => `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">${esc(t.trim())}</span>`).join('') : ''}
                   <span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">${fmtDate(p.created_at)}</span>
                 </div>
@@ -1254,13 +1264,14 @@ async function renderBlog(siteId, panel) {
 async function submitBlog(siteId) {
   const title   = document.getElementById('bl-title')?.value?.trim();
   const tags    = document.getElementById('bl-tags')?.value?.trim();
+  const lang    = document.getElementById('bl-lang')?.value || 'de';
   const status  = document.getElementById('bl-status')?.value;
   const excerpt = document.getElementById('bl-excerpt')?.value?.trim();
   const content = document.getElementById('bl-content')?.value?.trim();
   if (!title) { alert('Titel ist erforderlich'); return; }
   await api('/api/blog', {
     method: 'POST',
-    body: { site_id: siteId, title, tags: tags || '', excerpt: excerpt || '', content: content || '', status }
+    body: { site_id: siteId, title, tags: tags || '', lang, excerpt: excerpt || '', content: content || '', status }
   });
   if (status === 'published') {
     await api('/api/notifications', {

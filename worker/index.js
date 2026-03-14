@@ -1006,7 +1006,7 @@ async function handleRequest(request, env) {
       status TEXT DEFAULT 'draft',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
-    for (const col of ['tags TEXT DEFAULT \'\'', 'excerpt TEXT DEFAULT \'\'', 'content TEXT DEFAULT \'\'']) {
+    for (const col of ['tags TEXT DEFAULT \'\'', 'excerpt TEXT DEFAULT \'\'', 'content TEXT DEFAULT \'\'', "lang TEXT DEFAULT 'de'"]) {
       await db.prepare(`ALTER TABLE blog_posts ADD COLUMN ${col}`).run().catch(() => {});
     }
   }
@@ -1015,9 +1015,12 @@ async function handleRequest(request, env) {
   if (request.method === 'GET' && path === '/api/blog/published') {
     await ensureBlogTable(db);
     const siteId = url.searchParams.get('site_id') || '';
-    const result = await db.prepare(
-      "SELECT * FROM blog_posts WHERE site_id=? AND status='published' ORDER BY created_at DESC"
-    ).bind(siteId).all();
+    const lang   = url.searchParams.get('lang') || '';
+    let q = "SELECT * FROM blog_posts WHERE site_id=? AND status='published'";
+    const binds = [siteId];
+    if (lang) { q += ' AND lang=?'; binds.push(lang); }
+    q += ' ORDER BY created_at DESC';
+    const result = await db.prepare(q).bind(...binds).all();
     return json(result.results);
   }
 
@@ -1037,11 +1040,11 @@ async function handleRequest(request, env) {
     if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
     await ensureBlogTable(db);
     const body = await request.json().catch(() => ({}));
-    const { site_id, title, tags, excerpt, content, status } = body;
+    const { site_id, title, tags, excerpt, content, status, lang } = body;
     if (!site_id || !title) return err('site_id und title erforderlich');
     const r = await db.prepare(
-      'INSERT INTO blog_posts (site_id, title, tags, excerpt, content, status) VALUES (?,?,?,?,?,?)'
-    ).bind(site_id, title, tags || '', excerpt || '', content || '', status || 'draft').run();
+      'INSERT INTO blog_posts (site_id, title, tags, excerpt, content, status, lang) VALUES (?,?,?,?,?,?,?)'
+    ).bind(site_id, title, tags || '', excerpt || '', content || '', status || 'draft', lang || 'de').run();
     if (status === 'published') {
       await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
         .bind(site_id, 'info', `📝 Blog: ${title}`, 'Neuer Artikel veröffentlicht auf /blog').run();
@@ -1060,6 +1063,7 @@ async function handleRequest(request, env) {
     if (body.excerpt !== undefined) { sets.push('excerpt=?'); params.push(body.excerpt); }
     if (body.content !== undefined) { sets.push('content=?'); params.push(body.content); }
     if (body.status  !== undefined) { sets.push('status=?');  params.push(body.status); }
+    if (body.lang    !== undefined) { sets.push('lang=?');    params.push(body.lang); }
     if (!sets.length) return err('Nothing to update');
     await db.prepare(`UPDATE blog_posts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
     return json({ success: true });
