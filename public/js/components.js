@@ -1110,44 +1110,92 @@ async function deleteChangelog(id, siteId) {
 const BLOG_LANG_MAP = { de:'🇩🇪 DE', en:'🇬🇧 EN', fr:'🇫🇷 FR', es:'🇪🇸 ES', it:'🇮🇹 IT' };
 
 function _renderBlogPostList(posts, siteId) {
-  const rows = posts.map(function(p) {
-    const statusBadge = p.status === 'published'
-      ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(52,211,153,.15);color:#34d399;font-weight:700">✓ Live</span>'
-      : '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.07);color:var(--text3)">Entwurf</span>';
-    const langBadge = BLOG_LANG_MAP[p.lang]
-      ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.06);color:var(--text2)">' + BLOG_LANG_MAP[p.lang] + '</span>'
-      : '';
-    const tagBadges = p.tags ? p.tags.split(',').map(function(t) {
+  // ── Gruppiere Posts nach group_id (alle Sprachen eines Artikels teilen dieselbe group_id)
+  // Posts ohne group_id (alte Einträge) bekommen eine eigene Gruppe pro Post
+  const groups = [];
+  const groupMap = {};
+  posts.forEach(function(p) {
+    const key = (p.group_id && p.group_id.trim()) ? p.group_id : ('__solo__' + p.id);
+    if (!groupMap[key]) {
+      groupMap[key] = { key: key, group_id: p.group_id || '', posts: [], date: p.created_at };
+      groups.push(groupMap[key]);
+    }
+    groupMap[key].posts.push(p);
+    // Nutze frühestes Datum für die Gruppe
+    if (p.created_at < groupMap[key].date) groupMap[key].date = p.created_at;
+  });
+
+  const LANG_ORDER = ['de','en','fr','es','it'];
+
+  const rows = groups.map(function(g) {
+    // Repräsentativer Titel: bevorzuge DE, sonst ersten
+    const repPost = g.posts.find(p => p.lang === 'de') || g.posts[0];
+    const title   = repPost.title;
+    const tags    = repPost.tags || '';
+
+    // Sprachstatus-Badges: alle 5 Sprachen, grün wenn vorhanden+published, grau wenn nur draft, leer wenn fehlt
+    const langBadges = LANG_ORDER.map(function(lc) {
+      const p = g.posts.find(function(x) { return x.lang === lc; });
+      if (!p) {
+        return '<span title="' + lc.toUpperCase() + ' fehlt" style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:3px 8px;border-radius:5px;background:rgba(255,255,255,.04);color:var(--text3);opacity:.5">'
+          + BLOG_LANG_MAP[lc] + '</span>';
+      }
+      const isLive = p.status === 'published';
+      return '<span title="' + lc.toUpperCase() + (isLive ? ' – Live' : ' – Entwurf') + '" style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:3px 8px;border-radius:5px;'
+        + (isLive ? 'background:rgba(52,211,153,.15);color:#34d399;' : 'background:rgba(255,255,255,.06);color:var(--text3);') + '">'
+        + BLOG_LANG_MAP[lc] + (isLive ? ' ✓' : '') + '</span>';
+    }).join('');
+
+    const tagBadges = tags ? tags.split(',').map(function(t) {
       return '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">' + esc(t.trim()) + '</span>';
     }).join('') : '';
-    const excerptHtml = p.excerpt
-      ? '<div style="font-size:12px;color:var(--text2);line-height:1.4">' + esc(p.excerpt.slice(0,120)) + (p.excerpt.length > 120 ? '…' : '') + '</div>'
-      : '';
-    const toggleStatus = p.status === 'published' ? 'draft' : 'published';
-    const toggleLabel  = p.status === 'published' ? '↙ Entwurf' : '🌐 Veröff.';
-    const langOptions  = ['de','en','fr','es','it'].map(function(lc) {
-      return '<option value="' + lc + '" ' + ((p.lang||'de')===lc?'selected':'') + '>' + BLOG_LANG_MAP[lc] + '</option>';
+
+    const liveCount  = g.posts.filter(function(p) { return p.status === 'published'; }).length;
+    const totalCount = g.posts.length;
+    const groupId    = 'blg-' + g.key.replace(/[^a-z0-9]/gi, '-');
+
+    // Einzelne Post-Zeilen innerhalb der Gruppe (ausgeklappt)
+    const postRows = LANG_ORDER.map(function(lc) {
+      const p = g.posts.find(function(x) { return x.lang === lc; });
+      if (!p) return ''; // Sprache nicht vorhanden
+      const toggleStatus = p.status === 'published' ? 'draft' : 'published';
+      const toggleLabel  = p.status === 'published' ? '↙ Entwurf' : '🌐 Veröff.';
+      const isLive = p.status === 'published';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:7px;background:var(--bg);border:1px solid var(--border);flex-wrap:wrap">'
+        + '<span style="min-width:56px;font-size:11px;font-weight:700;' + (isLive ? 'color:#34d399' : 'color:var(--text3)') + '">' + BLOG_LANG_MAP[lc] + '</span>'
+        + '<span style="flex:1;font-size:12px;color:var(--text2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.title) + '</span>'
+        + '<div style="display:flex;gap:5px;flex-shrink:0">'
+        + '<button class="btn btn-ghost btn-sm" onclick="toggleBlogPublish(' + p.id + ',\'' + toggleStatus + '\',\'' + siteId + '\')">'
+        + toggleLabel + '</button>'
+        + '<button class="btn btn-ghost btn-sm" onclick="openBlogEdit(' + p.id + ',\'' + siteId + '\')">✏ Edit</button>'
+        + '<button class="btn btn-danger btn-sm" onclick="deleteBlogPost(' + p.id + ',\'' + siteId + ')">&times;</button>'
+        + '</div>'
+        + '</div>'
+        + '<div id="bl-edit-' + p.id + '" style="display:none"></div>';
     }).join('');
-    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px">'
-      + '<div style="display:flex;align-items:flex-start;gap:12px">'
+
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">'
+      // ── Gruppen-Header (klickbar zum Ausklappen)
+      + '<div onclick="document.getElementById(\'' + groupId + '\').style.display=(document.getElementById(\'' + groupId + '\').style.display===\'none\'?\'flex\':\'none\')" '
+      + 'style="display:flex;align-items:flex-start;gap:12px;padding:13px 16px;cursor:pointer;user-select:none">'
       + '<div style="flex:1;min-width:0">'
-      + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
-      + statusBadge + langBadge + tagBadges
-      + '<span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">' + fmtDate(p.created_at) + '</span>'
+      + '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:7px">'
+      + langBadges
+      + (tagBadges ? '<span style="margin-left:4px">' + tagBadges + '</span>' : '')
+      + '<span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">' + fmtDate(g.date) + '</span>'
       + '</div>'
-      + '<div style="font-weight:700;font-size:13px;margin-bottom:4px">' + esc(p.title) + '</div>'
-      + excerptHtml
+      + '<div style="font-weight:700;font-size:13px;color:var(--text1)">' + esc(title) + '</div>'
+      + '<div style="font-size:11px;color:var(--text3);margin-top:3px">' + liveCount + '/' + totalCount + ' Sprachen live' + (g.group_id ? ' · ' + g.group_id.slice(0,20) : '') + '</div>'
       + '</div>'
-      + '<div style="display:flex;gap:6px;flex-shrink:0;flex-direction:column;align-items:flex-end">'
-      + '<button class="btn btn-ghost btn-sm" onclick="toggleBlogPublish(' + p.id + ',\'' + toggleStatus + '\',\'' + siteId + '\')">'
-      + toggleLabel + '</button>'
-      + '<button class="btn btn-ghost btn-sm" onclick="openBlogEdit(' + p.id + ',\'' + siteId + '\')">\u270f Bearbeiten</button>'
-      + '<select onchange="setBlogLang(' + p.id + ',\'' + siteId + '\',this.value)" title="Sprache" style="padding:3px 6px;font-size:11px;width:auto;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--text2)">'
-      + langOptions + '</select>'
-      + '<button class="btn btn-danger btn-sm" onclick="deleteBlogPost(' + p.id + ',\'' + siteId + ')">&times; Löschen</button>'
-      + '</div></div></div>'
-      + '<div id="bl-edit-' + p.id + '" style="display:none"></div>';
+      + '<span style="font-size:16px;color:var(--text3);flex-shrink:0;padding-top:2px">&#9660;</span>'
+      + '</div>'
+      // ── Ausgeklappte Sprachzeilen (standardmäßig versteckt)
+      + '<div id="' + groupId + '" style="display:none;flex-direction:column;gap:6px;padding:0 12px 12px">'
+      + postRows
+      + '</div>'
+      + '</div>';
   });
+
   return '<div style="display:flex;flex-direction:column;gap:8px">' + rows.join('') + '</div>';
 }
 
@@ -1351,6 +1399,9 @@ window.submitBlogAllLangs = async function(siteId) {
   );
   if (!toPost.length) { alert('Mindestens eine Sprache muss einen Titel haben.'); return; }
 
+  // Gemeinsame group_id für alle Sprach-Posts dieses Artikels
+  const group_id = 'grp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+
   statusEl.textContent = `Erstelle ${toPost.length} Posts\u2026`;
   statusEl.style.color = 'var(--text3)';
 
@@ -1361,7 +1412,7 @@ window.submitBlogAllLangs = async function(siteId) {
     const content = document.getElementById(`bl-content-${l.code}`)?.value?.trim() || '';
     await api('/api/blog', {
       method: 'POST',
-      body: { site_id: siteId, title, tags, excerpt, content, status, lang: l.code }
+      body: { site_id: siteId, title, tags, excerpt, content, status, lang: l.code, group_id }
     });
     done++;
     statusEl.textContent = `${done}/${toPost.length} erstellt\u2026`;

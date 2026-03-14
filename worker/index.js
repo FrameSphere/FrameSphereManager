@@ -1093,7 +1093,7 @@ async function handleRequest(request, env) {
       status TEXT DEFAULT 'draft',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
-    for (const col of ['tags TEXT DEFAULT \'\'', 'excerpt TEXT DEFAULT \'\'', 'content TEXT DEFAULT \'\'', "lang TEXT DEFAULT 'de'", "slug TEXT DEFAULT ''"]) {
+    for (const col of ['tags TEXT DEFAULT \'\'', 'excerpt TEXT DEFAULT \'\'', 'content TEXT DEFAULT \'\'', "lang TEXT DEFAULT 'de'", "slug TEXT DEFAULT ''", "group_id TEXT DEFAULT ''"]) {
       await db.prepare(`ALTER TABLE blog_posts ADD COLUMN ${col}`).run().catch(() => {});
     }
   }
@@ -1141,12 +1141,12 @@ async function handleRequest(request, env) {
     if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
     await ensureBlogTable(db);
     const body = await request.json().catch(() => ({}));
-    const { site_id, title, tags, excerpt, content, status, lang } = body;
+    const { site_id, title, tags, excerpt, content, status, lang, group_id } = body;
     if (!site_id || !title) return err('site_id und title erforderlich');
     const slug = makeSlug(title);
     const r = await db.prepare(
-      'INSERT INTO blog_posts (site_id, title, slug, tags, excerpt, content, status, lang) VALUES (?,?,?,?,?,?,?,?)'
-    ).bind(site_id, title, slug, tags || '', excerpt || '', content || '', status || 'draft', lang || 'de').run();
+      'INSERT INTO blog_posts (site_id, title, slug, tags, excerpt, content, status, lang, group_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).bind(site_id, title, slug, tags || '', excerpt || '', content || '', status || 'draft', lang || 'de', group_id || '').run();
     if (status === 'published') {
       await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
         .bind(site_id, 'info', `📝 Blog: ${title}`, 'Neuer Artikel veröffentlicht auf /blog').run();
