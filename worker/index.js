@@ -1165,8 +1165,9 @@ async function handleRequest(request, env) {
     if (body.excerpt !== undefined) { sets.push('excerpt=?'); params.push(body.excerpt); }
     if (body.content !== undefined) { sets.push('content=?'); params.push(body.content); }
     if (body.status  !== undefined) { sets.push('status=?');  params.push(body.status); }
-    if (body.lang    !== undefined) { sets.push('lang=?');    params.push(body.lang); }
-    if (body.title   !== undefined) { sets.push('slug=?');    params.push(makeSlug(body.title)); }
+    if (body.lang     !== undefined) { sets.push('lang=?');     params.push(body.lang); }
+    if (body.group_id !== undefined) { sets.push('group_id=?'); params.push(body.group_id); }
+    if (body.title    !== undefined) { sets.push('slug=?');     params.push(makeSlug(body.title)); }
     if (!sets.length) return err('Nothing to update');
     await db.prepare(`UPDATE blog_posts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
     return json({ success: true });

@@ -1111,12 +1111,12 @@ const BLOG_LANG_MAP = { de:'🇩🇪 DE', en:'🇬🇧 EN', fr:'🇫🇷 FR', es
 
 // Blog-Gruppen aufklappen/zuklappen
 window._blgToggle = function(id) {
-var box = document.getElementById(id);
-var arr = document.getElementById(id + '_arr');
-if (!box) return;
-var open = box.style.display !== 'none';
-box.style.display = open ? 'none' : 'flex';
-if (arr) arr.textContent = open ? '\u25BC' : '\u25B2';
+  var box = document.getElementById(id);
+  var arr = document.getElementById(id + '_arr');
+  if (!box) return;
+  var open = box.style.display !== 'none';
+  box.style.display = open ? 'none' : 'flex';
+  if (arr) arr.style.transform = open ? '' : 'rotate(180deg)';
 };
 // Blog-Post Aktionen (data-attribute Handler)
 window._blgAction = function(btn) {
@@ -1130,17 +1130,22 @@ if (act === 'edit')   openBlogEdit(id, site);
 };
 
 function _renderBlogPostList(posts, siteId) {
-// Gruppiere nach group_id; alte Posts ohne group_id: je eine Solo-Gruppe
+// Gruppiere nach group_id; Fallback: erster Tag; sonst Solo
 var groups   = [];
-  var groupMap = {};
+var groupMap = {};
 posts.forEach(function(p) {
-var key = (p.group_id && p.group_id.trim()) ? p.group_id : ('__solo__' + p.id);
-if (!groupMap[key]) {
-groupMap[key] = { key: key, posts: [], date: p.created_at };
-groups.push(groupMap[key]);
-}
-groupMap[key].posts.push(p);
-if (p.created_at < groupMap[key].date) groupMap[key].date = p.created_at;
+  var gid = (p.group_id && p.group_id.trim()) ? p.group_id : null;
+  // Fallback: gruppiere nach erstem Tag wenn kein group_id
+  if (!gid) {
+    var firstTag = (p.tags || '').split(',')[0].trim();
+    gid = firstTag ? ('__tag__' + firstTag) : ('__solo__' + p.id);
+  }
+  if (!groupMap[gid]) {
+    groupMap[gid] = { key: gid, posts: [], date: p.created_at, isTagGroup: gid.startsWith('__tag__') };
+    groups.push(groupMap[gid]);
+  }
+  groupMap[gid].posts.push(p);
+  if (p.created_at < groupMap[gid].date) groupMap[gid].date = p.created_at;
 });
 
 var LANG_ORDER = ['de','en','fr','es','it'];
@@ -1174,18 +1179,30 @@ tagHtml += '<span style="font-size:10px;padding:2px 7px;border-radius:4px;backgr
 });
 
     // Gruppen-Header (onclick via _blgToggle)
-html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">';
-html += '<div onclick="_blgToggle(\'' + gid + '\')" style="display:flex;align-items:flex-start;gap:12px;padding:13px 16px;cursor:pointer;user-select:none">';
+    var borderColor = liveCount === total ? 'rgba(52,211,153,.3)' : 'var(--border)';
+html += '<div style="background:var(--surface);border:1px solid ' + borderColor + ';border-radius:10px;overflow:hidden">';
+html += '<div onclick="_blgToggle(\'' + gid + '\')" style="display:flex;align-items:flex-start;gap:12px;padding:13px 16px;cursor:pointer;user-select:none;transition:background .15s" onmouseover="this.style.background=\'rgba(255,255,255,.03)\'" onmouseout="this.style.background=\'\'">';
 html +=   '<div style="flex:1;min-width:0">';
 html +=     '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-bottom:6px">';
 html +=       badges;
 html +=       (tagHtml ? '<span style="margin-left:4px">' + tagHtml + '</span>' : '');
+// Warnung wenn Tag-Gruppe (noch kein echtes group_id)
+if (g.isTagGroup && total > 1) {
+  html += '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(251,191,36,.15);color:#fbbf24;margin-left:4px">Tag-Gruppe</span>';
+}
 html +=       '<span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">' + fmtDate(g.date) + '</span>';
 html +=     '</div>';
 html +=     '<div style="font-weight:700;font-size:13px;color:var(--text1)">' + title + '</div>';
-html +=     '<div style="font-size:11px;color:var(--text3);margin-top:3px">' + liveCount + '/' + total + ' Sprachen live</div>';
+html +=     '<div style="display:flex;align-items:center;gap:10px;margin-top:3px">';
+html +=       '<span style="font-size:11px;color:' + (liveCount===total?'#34d399':'var(--text3)') + '">' + liveCount + '/' + total + ' Sprachen live</span>';
+// Button: Tag-Gruppe in echte Gruppe umwandeln
+if (g.isTagGroup && total > 1) {
+  var postIds = JSON.stringify(g.posts.map(function(p){return p.id;}));
+  html += '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgFixGroup(' + postIds + ',\'' + siteId + '\')">\uD83D\uDD17 Gruppe fixieren</button>';
+}
+html +=     '</div>';
 html +=   '</div>';
-html +=   '<span id="' + gid + '_arr" style="font-size:13px;color:var(--text3);flex-shrink:0;padding-top:3px">\u25BC</span>';
+html +=   '<span id="' + gid + '_arr" style="font-size:16px;color:var(--text3);flex-shrink:0;padding-top:2px;transition:transform .2s">&#9660;</span>';
 html += '</div>';
 
 // Ausgeklappte Sprach-Zeilen (standardmäßig geschlossen)
@@ -1550,6 +1567,14 @@ window.saveBlogEdit = async function(id, siteId) {
 
 window.setBlogLang = async function(id, siteId, lang) {
   await api(`/api/blog/${id}`, { method: 'PATCH', body: { lang } });
-  // Update badge in list without full reload
+  reloadPanel(siteId, 'blog');
+};
+
+// Tag-Gruppe in echte group_id-Gruppe umwandeln
+window._blgFixGroup = async function(postIds, siteId) {
+  var newGid = 'grp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+  for (var i = 0; i < postIds.length; i++) {
+    await api('/api/blog/' + postIds[i], { method: 'PATCH', body: { group_id: newGid } });
+  }
   reloadPanel(siteId, 'blog');
 };
