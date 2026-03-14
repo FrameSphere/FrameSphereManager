@@ -92,6 +92,7 @@ async function ensureChangelogTable(db) {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`).run();
   await db.prepare("ALTER TABLE changelog_entries ADD COLUMN type TEXT DEFAULT 'feature'").run().catch(() => {});
+  await db.prepare("ALTER TABLE changelog_entries ADD COLUMN slug TEXT DEFAULT ''").run().catch(() => {});
 }
 
 // ── Auto-create error_logs table if missing ───────────────────────
@@ -254,6 +255,20 @@ async function handleRequest(request, env) {
       'SELECT * FROM changelog_entries WHERE site_id=? AND published=1 ORDER BY created_at DESC'
     ).bind(siteId).all();
     return json(result.results);
+  }
+
+  // GET /api/changelog/entry ── Public: single entry by slug+site_id
+  if (request.method === 'GET' && path === '/api/changelog/entry') {
+    const db = env.DB;
+    await ensureChangelogTable(db);
+    const siteId = url.searchParams.get('site_id');
+    const slug   = url.searchParams.get('slug');
+    if (!siteId || !slug) return err('site_id and slug required', 400);
+    const row = await db.prepare(
+      "SELECT * FROM changelog_entries WHERE site_id=? AND slug=? AND published=1 LIMIT 1"
+    ).bind(siteId, slug).first();
+    if (!row) return json({ error: 'Entry not found' }, 404);
+    return json(row);
   }
 
   // GET /api/blog/published ── Public: published blog posts
@@ -700,18 +715,26 @@ async function handleRequest(request, env) {
     const { site_id, version, title, description, type, published } = body;
     if (!site_id || !title) return err('Missing fields');
     const ver = version || new Date().toISOString().slice(0, 10);
+    const slug = makeSlug(title);
     await db.prepare(
-      'INSERT INTO changelog_entries (site_id, version, title, description, type, published) VALUES (?,?,?,?,?,?)'
-    ).bind(site_id, ver, title, description || null, type || 'feature', published ? 1 : 0).run();
+      'INSERT INTO changelog_entries (site_id, version, title, slug, description, type, published) VALUES (?,?,?,?,?,?,?)'
+    ).bind(site_id, ver, title, slug, description || null, type || 'feature', published ? 1 : 0).run();
     return json({ success: true });
   }
 
-  // ── PATCH /api/changelog/:id (toggle published) ──────────────────
+  // ── PATCH /api/changelog/:id (toggle published / update fields) ──
   if (request.method === 'PATCH' && segments[1] === 'changelog' && segments[2]) {
     await ensureChangelogTable(db);
     const body = await request.json().catch(() => ({}));
-    if (body.published !== undefined) {
-      await db.prepare('UPDATE changelog_entries SET published=? WHERE id=?').bind(body.published ? 1 : 0, segments[2]).run();
+    const sets = []; const params = [];
+    if (body.published !== undefined) { sets.push('published=?'); params.push(body.published ? 1 : 0); }
+    if (body.title     !== undefined) { sets.push('title=?'); params.push(body.title); sets.push('slug=?'); params.push(makeSlug(body.title)); }
+    if (body.description !== undefined) { sets.push('description=?'); params.push(body.description); }
+    if (body.type      !== undefined) { sets.push('type=?'); params.push(body.type); }
+    if (body.version   !== undefined) { sets.push('version=?'); params.push(body.version); }
+    if (sets.length) {
+      params.push(segments[2]);
+      await db.prepare(`UPDATE changelog_entries SET ${sets.join(',')} WHERE id=?`).bind(...params).run();
     }
     return json({ success: true });
   }
