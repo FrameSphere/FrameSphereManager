@@ -1018,13 +1018,7 @@ async function renderChangelog(siteId, panel) {
           <input type="checkbox" id="cl-publish" style="width:16px;height:16px" onchange="document.getElementById('cl-schedule-wrap').style.display='none';document.getElementById('cl-schedule-check').checked=false">
           Sofort veröffentlichen
         </label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
-          <input type="checkbox" id="cl-schedule-check" style="width:16px;height:16px" onchange="document.getElementById('cl-schedule-wrap').style.display=this.checked?'flex':'none';if(this.checked)document.getElementById('cl-publish').checked=false">
-          \u23F0 Geplant ver\u00F6ffentlichen
-        </label>
-        <div id="cl-schedule-wrap" style="display:none;align-items:center;gap:8px">
-          <input type="datetime-local" id="cl-publish-at" style="font-size:13px">
-        </div>
+        <button id="cl-schedule-btn" class="btn btn-ghost btn-sm" style="font-size:13px" onclick="_openClScheduleModal()">\u23F0 Zeitplan</button>
         <button class="btn btn-primary" onclick="submitChangelog('${siteId}')">Eintrag erstellen</button>
       </div>
     </div>
@@ -1072,14 +1066,11 @@ async function renderChangelog(siteId, panel) {
 
 async function submitChangelog(siteId) {
   const title      = document.getElementById('cl-title')?.value?.trim();
-  const type       = document.getElementById('cl-desc') ? document.getElementById('cl-type')?.value : 'feature';
+  const type       = document.getElementById('cl-type')?.value;
   const desc       = document.getElementById('cl-desc')?.value?.trim();
   const publish    = document.getElementById('cl-publish')?.checked ? 1 : 0;
-  const scheduled  = document.getElementById('cl-schedule-check')?.checked;
-  const publishAt  = scheduled ? document.getElementById('cl-publish-at')?.value : null;
+  const publishAtISO = window._clScheduleISO || null;
   if (!title) { alert('Titel ist erforderlich'); return; }
-  if (scheduled && !publishAt) { alert('Bitte Datum und Uhrzeit angeben.'); return; }
-  const publishAtISO = publishAt ? new Date(publishAt).toISOString() : null;
   await api('/api/changelog', {
     method: 'POST',
     body: { site_id: siteId, version: new Date().toISOString().slice(0,10), title, description: desc, type, published: publish, publish_at: publishAtISO }
@@ -1116,6 +1107,104 @@ async function deleteChangelog(id, siteId) {
   await api(`/api/changelog/${id}`, { method: 'DELETE' });
   reloadPanel(siteId, 'changelog');
 }
+
+// ── Zeitplan-Modal (wiederverwendbar) ────────────────────────────
+function _fmtSchedule(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  return d.toLocaleString('de-DE', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+}
+
+window._openScheduleModal = function(opts) {
+  var old = document.getElementById('_sched-modal');
+  if (old) old.remove();
+
+  var initDt = (opts.currentISO && opts.currentISO.trim())
+    ? new Date(opts.currentISO)
+    : new Date(Date.now() + 86400000);
+  if (!opts.currentISO) initDt.setHours(9, 0, 0, 0);
+
+  var pad = function(n){ return String(n).padStart(2,'0'); };
+  var localStr = initDt.getFullYear()+'-'+pad(initDt.getMonth()+1)+'-'+pad(initDt.getDate())+'T'+pad(initDt.getHours())+':'+pad(initDt.getMinutes());
+
+  var modal = document.createElement('div');
+  modal.id = '_sched-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);backdrop-filter:blur(3px)';
+
+  modal.innerHTML =
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 28px;width:340px;max-width:calc(100vw - 40px);box-shadow:0 20px 60px rgba(0,0,0,.5)">' +
+      '<div style="font-weight:700;font-size:14px;margin-bottom:18px;color:var(--text1)">⏰ Zeitplan festlegen</div>' +
+      '<div style="margin-bottom:14px">' +
+        '<label style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:6px">Datum &amp; Uhrzeit</label>' +
+        '<input type="datetime-local" id="_sched-dt" value="' + localStr + '" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text1);font-size:14px;font-family:inherit">' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:20px">' +
+        '<button onclick="_schedQuick(1,9,0)" class="btn btn-ghost btn-sm" style="font-size:11px">Morgen 9:00</button>' +
+        '<button onclick="_schedQuick(2,9,0)" class="btn btn-ghost btn-sm" style="font-size:11px">Übermorgen 9:00</button>' +
+        '<button onclick="_schedQuick(7,9,0)" class="btn btn-ghost btn-sm" style="font-size:11px">+ 1 Woche</button>' +
+        '<button onclick="_schedQuick(30,9,0)" class="btn btn-ghost btn-sm" style="font-size:11px">+ 1 Monat</button>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;align-items:center">' +
+        (opts.onClear ? '<button onclick="_schedClear()" class="btn btn-ghost btn-sm" style="font-size:12px;color:var(--text3)">× Zeitplan entfernen</button>' : '') +
+        '<div style="flex:1"></div>' +
+        '<button onclick="_schedCancel()" class="btn btn-ghost" style="font-size:13px">Abbrechen</button>' +
+        '<button onclick="_schedConfirm()" class="btn btn-primary" style="font-size:13px">⏰ Planen</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if (e.target === modal) _schedCancel(); });
+
+  window._schedQuick = function(days, h, m) {
+    var d = new Date(Date.now() + days * 86400000); d.setHours(h, m, 0, 0);
+    document.getElementById('_sched-dt').value = d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+  };
+  window._schedCancel  = function(){ var m=document.getElementById('_sched-modal'); if(m) m.remove(); };
+  window._schedClear   = function(){ document.getElementById('_sched-modal').remove(); if(opts.onClear) opts.onClear(); };
+  window._schedConfirm = function(){
+    var val = document.getElementById('_sched-dt')?.value;
+    if (!val) { alert('Bitte Datum und Uhrzeit wählen.'); return; }
+    var d = new Date(val);
+    if (isNaN(d.getTime())) { alert('Ungültiges Datum.'); return; }
+    document.getElementById('_sched-modal').remove();
+    if (opts.onConfirm) opts.onConfirm(d.toISOString());
+  };
+};
+
+// Helper: Blog-Neu-Schedule-Modal öffnen (referenziert bl-schedule-btn)
+window._openBlogScheduleModal = function() {
+  _openScheduleModal({
+    currentISO: window._blgNewScheduleISO,
+    onConfirm: function(iso) {
+      window._blgNewScheduleISO = iso;
+      var btn = document.getElementById('bl-schedule-btn');
+      if (btn) { btn.textContent = '⏰ ' + _fmtSchedule(iso); btn.style.color = '#fbbf24'; btn.style.borderColor = 'rgba(251,191,36,.35)'; }
+    },
+    onClear: function() {
+      window._blgNewScheduleISO = null;
+      var btn = document.getElementById('bl-schedule-btn');
+      if (btn) { btn.textContent = '⏰ Zeitplan wählen'; btn.style.color = ''; btn.style.borderColor = ''; }
+    }
+  });
+};
+
+// Helper: Changelog-Schedule-Modal öffnen
+window._openClScheduleModal = function() {
+  _openScheduleModal({
+    currentISO: window._clScheduleISO,
+    onConfirm: function(iso) {
+      window._clScheduleISO = iso;
+      var btn = document.getElementById('cl-schedule-btn');
+      if (btn) { btn.textContent = '⏰ ' + _fmtSchedule(iso); btn.style.color = '#fbbf24'; btn.style.borderColor = 'rgba(251,191,36,.35)'; }
+      var pub = document.getElementById('cl-publish'); if (pub) pub.checked = false;
+    },
+    onClear: function() {
+      window._clScheduleISO = null;
+      var btn = document.getElementById('cl-schedule-btn');
+      if (btn) { btn.textContent = '⏰ Zeitplan'; btn.style.color = ''; btn.style.borderColor = ''; }
+    }
+  });
+};
 
 // ── BLOG MEHRSPRACHIG ────────────────────────────────────────────
 const BLOG_LANG_MAP = { de:'🇩🇪 DE', en:'🇬🇧 EN', fr:'🇫🇷 FR', es:'🇪🇸 ES', it:'🇮🇹 IT' };
@@ -1211,9 +1300,13 @@ if (g.isTagGroup && total > 1) {
   var postIds = JSON.stringify(g.posts.map(function(p){return p.id;}));
   html += '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgFixGroup(' + postIds + ',\'' + siteId + '\')">🔗 Gruppe fixieren</button>';
 }
-var allIds = JSON.stringify(g.posts.map(function(p){return p.id;}));
-var allLive = liveCount === total;
-html += '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgScheduleGroup(' + allIds + ',\'' + siteId + '\')">\u23F0 Planen</button>';
+var allIds   = JSON.stringify(g.posts.map(function(p){return p.id;}));
+var allLive  = liveCount === total;
+var schedISO = g.posts.reduce(function(f,p){ return f||(p.publish_at&&p.publish_at.trim()?p.publish_at:null); }, null);
+var schedLbl = schedISO ? ('\u23f0 ' + _fmtSchedule(schedISO)) : '\u23f0 Planen';
+var schedSt  = schedISO ? 'font-size:10px;padding:2px 8px;color:#fbbf24;border-color:rgba(251,191,36,.35)' : 'font-size:10px;padding:2px 8px';
+var schedArg = schedISO ? JSON.stringify(schedISO) : 'null';
+html += '<button class="btn btn-ghost btn-sm" style="' + schedSt + '" onclick="event.stopPropagation();_blgScheduleGroup(' + allIds + ',\'' + siteId + '\',' + schedArg + ')">' + schedLbl + '</button>';
 html += '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgPublishGroup(' + allIds + ',\'' + (allLive?'draft':'published') + '\',\'' + siteId + '\')">'
   + (allLive ? '\u2199 Alle Entwurf' : '\uD83C\uDF10 Alle live') + '</button>';
 html += '<button class="btn btn-danger btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgDeleteGroup(' + allIds + ',\'' + siteId + '\')">&times; Gruppe löschen</button>';
@@ -1316,15 +1409,14 @@ async function renderBlog(siteId, panel) {
         </div>
         <div class="form-group" style="max-width:190px">
           <label>Status (f\u00FCr alle Sprachen)</label>
-          <select id="bl-status" onchange="document.getElementById('bl-schedule-row').style.display=this.value==='scheduled'?'flex':'none'">
+          <select id="bl-status">
             <option value="draft">\uD83D\uDCDD Entwurf</option>
             <option value="published">\uD83C\uDF10 Sofort ver\u00F6ffentlichen</option>
-            <option value="scheduled">\u23F0 Geplant ver\u00F6ffentlichen</option>
           </select>
         </div>
-        <div id="bl-schedule-row" class="form-group" style="display:none;max-width:260px">
-          <label>\u23F0 Ver\u00F6ffentlichen am</label>
-          <input type="datetime-local" id="bl-publish-at" style="font-size:13px">
+        <div class="form-group" style="max-width:220px">
+          <label>\u23F0 Zeitplan (optional)</label>
+          <button id="bl-schedule-btn" class="btn btn-ghost" style="width:100%;justify-content:flex-start;font-size:13px" onclick="_openBlogScheduleModal()">\u23F0 Zeitplan w\u00e4hlen</button>
         </div>
       </div>
 
@@ -1445,13 +1537,10 @@ window.translateBlogWithAI = async function() {
 };
 
 window.submitBlogAllLangs = async function(siteId) {
-  const tags      = document.getElementById('bl-tags')?.value?.trim() || '';
-  const rawStatus = document.getElementById('bl-status')?.value || 'draft';
-  const publishAt = rawStatus === 'scheduled' ? document.getElementById('bl-publish-at')?.value : null;
-  if (rawStatus === 'scheduled' && !publishAt) { alert('Bitte Datum und Uhrzeit angeben.'); return; }
-  // Wenn geplant: als Entwurf speichern mit publish_at gesetzt
-  const status    = rawStatus === 'scheduled' ? 'draft' : rawStatus;
-  const statusEl  = document.getElementById('bl-submit-status');
+  const tags         = document.getElementById('bl-tags')?.value?.trim() || '';
+  const status       = document.getElementById('bl-status')?.value || 'draft';
+  const publishAtISO = window._blgNewScheduleISO || null;
+  const statusEl     = document.getElementById('bl-submit-status');
 
   const toPost = BLOG_LANGS.filter(l =>
     !!document.getElementById(`bl-title-${l.code}`)?.value?.trim()
@@ -1463,9 +1552,6 @@ window.submitBlogAllLangs = async function(siteId) {
 
   statusEl.textContent = `Erstelle ${toPost.length} Posts\u2026`;
   statusEl.style.color = 'var(--text3)';
-
-  // publish_at: datetime-local liefert lokale Zeit → in UTC-ISO umwandeln
-  const publishAtISO = publishAt ? new Date(publishAt).toISOString() : null;
 
   let done = 0;
   for (const l of toPost) {
@@ -1608,16 +1694,23 @@ window._blgFixGroup = async function(postIds, siteId) {
   reloadPanel(siteId, 'blog');
 };
 
-// Geplante Veröffentlichung für eine Gruppe setzen
-window._blgScheduleGroup = async function(postIds, siteId) {
-  var val = prompt('Veröffentlichen am (YYYY-MM-DDTHH:MM):\nBeispiel: ' + new Date(Date.now() + 86400000).toISOString().slice(0,16));
-  if (!val) return;
-  var iso = new Date(val).toISOString();
-  if (isNaN(new Date(val).getTime())) { alert('Ungültiges Datum.'); return; }
-  for (var i = 0; i < postIds.length; i++) {
-    await api('/api/blog/' + postIds[i], { method: 'PATCH', body: { status: 'draft', publish_at: iso } });
-  }
-  reloadPanel(siteId, 'blog');
+// Geplante Veröffentlichung für eine Gruppe setzen – via Modal
+window._blgScheduleGroup = function(postIds, siteId, currentISO) {
+  _openScheduleModal({
+    currentISO: currentISO || null,
+    onConfirm: async function(iso) {
+      for (var i = 0; i < postIds.length; i++) {
+        await api('/api/blog/' + postIds[i], { method: 'PATCH', body: { status: 'draft', publish_at: iso } });
+      }
+      reloadPanel(siteId, 'blog');
+    },
+    onClear: async function() {
+      for (var i = 0; i < postIds.length; i++) {
+        await api('/api/blog/' + postIds[i], { method: 'PATCH', body: { publish_at: null } });
+      }
+      reloadPanel(siteId, 'blog');
+    }
+  });
 };
 
 // Gesamte Gruppe veröffentlichen / zu Entwurf machen
