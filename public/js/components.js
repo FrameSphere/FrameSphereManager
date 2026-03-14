@@ -1015,9 +1015,16 @@ async function renderChangelog(siteId, panel) {
       </div>
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
-          <input type="checkbox" id="cl-publish" style="width:16px;height:16px">
+          <input type="checkbox" id="cl-publish" style="width:16px;height:16px" onchange="document.getElementById('cl-schedule-wrap').style.display='none';document.getElementById('cl-schedule-check').checked=false">
           Sofort veröffentlichen
         </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="cl-schedule-check" style="width:16px;height:16px" onchange="document.getElementById('cl-schedule-wrap').style.display=this.checked?'flex':'none';if(this.checked)document.getElementById('cl-publish').checked=false">
+          \u23F0 Geplant ver\u00F6ffentlichen
+        </label>
+        <div id="cl-schedule-wrap" style="display:none;align-items:center;gap:8px">
+          <input type="datetime-local" id="cl-publish-at" style="font-size:13px">
+        </div>
         <button class="btn btn-primary" onclick="submitChangelog('${siteId}')">Eintrag erstellen</button>
       </div>
     </div>
@@ -1064,14 +1071,18 @@ async function renderChangelog(siteId, panel) {
 }
 
 async function submitChangelog(siteId) {
-  const title   = document.getElementById('cl-title')?.value?.trim();
-  const type    = document.getElementById('cl-type')?.value;
-  const desc    = document.getElementById('cl-desc')?.value?.trim();
-  const publish = document.getElementById('cl-publish')?.checked ? 1 : 0;
+  const title      = document.getElementById('cl-title')?.value?.trim();
+  const type       = document.getElementById('cl-desc') ? document.getElementById('cl-type')?.value : 'feature';
+  const desc       = document.getElementById('cl-desc')?.value?.trim();
+  const publish    = document.getElementById('cl-publish')?.checked ? 1 : 0;
+  const scheduled  = document.getElementById('cl-schedule-check')?.checked;
+  const publishAt  = scheduled ? document.getElementById('cl-publish-at')?.value : null;
   if (!title) { alert('Titel ist erforderlich'); return; }
+  if (scheduled && !publishAt) { alert('Bitte Datum und Uhrzeit angeben.'); return; }
+  const publishAtISO = publishAt ? new Date(publishAt).toISOString() : null;
   await api('/api/changelog', {
     method: 'POST',
-    body: { site_id: siteId, version: new Date().toISOString().slice(0,10), title, description: desc, type, published: publish }
+    body: { site_id: siteId, version: new Date().toISOString().slice(0,10), title, description: desc, type, published: publish, publish_at: publishAtISO }
   });
   if (publish) {
     await api('/api/notifications', {
@@ -1202,6 +1213,7 @@ if (g.isTagGroup && total > 1) {
 }
 var allIds = JSON.stringify(g.posts.map(function(p){return p.id;}));
 var allLive = liveCount === total;
+html += '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgScheduleGroup(' + allIds + ',\'' + siteId + '\')">\u23F0 Planen</button>';
 html += '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgPublishGroup(' + allIds + ',\'' + (allLive?'draft':'published') + '\',\'' + siteId + '\')">'
   + (allLive ? '\u2199 Alle Entwurf' : '\uD83C\uDF10 Alle live') + '</button>';
 html += '<button class="btn btn-danger btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgDeleteGroup(' + allIds + ',\'' + siteId + '\')">&times; Gruppe löschen</button>';
@@ -1304,10 +1316,15 @@ async function renderBlog(siteId, panel) {
         </div>
         <div class="form-group" style="max-width:190px">
           <label>Status (f\u00FCr alle Sprachen)</label>
-          <select id="bl-status">
+          <select id="bl-status" onchange="document.getElementById('bl-schedule-row').style.display=this.value==='scheduled'?'flex':'none'">
             <option value="draft">\uD83D\uDCDD Entwurf</option>
-            <option value="published">\uD83C\uDF10 Ver\u00F6ffentlichen</option>
+            <option value="published">\uD83C\uDF10 Sofort ver\u00F6ffentlichen</option>
+            <option value="scheduled">\u23F0 Geplant ver\u00F6ffentlichen</option>
           </select>
+        </div>
+        <div id="bl-schedule-row" class="form-group" style="display:none;max-width:260px">
+          <label>\u23F0 Ver\u00F6ffentlichen am</label>
+          <input type="datetime-local" id="bl-publish-at" style="font-size:13px">
         </div>
       </div>
 
@@ -1428,9 +1445,13 @@ window.translateBlogWithAI = async function() {
 };
 
 window.submitBlogAllLangs = async function(siteId) {
-  const tags     = document.getElementById('bl-tags')?.value?.trim() || '';
-  const status   = document.getElementById('bl-status')?.value || 'draft';
-  const statusEl = document.getElementById('bl-submit-status');
+  const tags      = document.getElementById('bl-tags')?.value?.trim() || '';
+  const rawStatus = document.getElementById('bl-status')?.value || 'draft';
+  const publishAt = rawStatus === 'scheduled' ? document.getElementById('bl-publish-at')?.value : null;
+  if (rawStatus === 'scheduled' && !publishAt) { alert('Bitte Datum und Uhrzeit angeben.'); return; }
+  // Wenn geplant: als Entwurf speichern mit publish_at gesetzt
+  const status    = rawStatus === 'scheduled' ? 'draft' : rawStatus;
+  const statusEl  = document.getElementById('bl-submit-status');
 
   const toPost = BLOG_LANGS.filter(l =>
     !!document.getElementById(`bl-title-${l.code}`)?.value?.trim()
@@ -1443,6 +1464,9 @@ window.submitBlogAllLangs = async function(siteId) {
   statusEl.textContent = `Erstelle ${toPost.length} Posts\u2026`;
   statusEl.style.color = 'var(--text3)';
 
+  // publish_at: datetime-local liefert lokale Zeit → in UTC-ISO umwandeln
+  const publishAtISO = publishAt ? new Date(publishAt).toISOString() : null;
+
   let done = 0;
   for (const l of toPost) {
     const title   = document.getElementById(`bl-title-${l.code}`)?.value?.trim();
@@ -1450,7 +1474,7 @@ window.submitBlogAllLangs = async function(siteId) {
     const content = document.getElementById(`bl-content-${l.code}`)?.value?.trim() || '';
     await api('/api/blog', {
       method: 'POST',
-      body: { site_id: siteId, title, tags, excerpt, content, status, lang: l.code, group_id }
+      body: { site_id: siteId, title, tags, excerpt, content, status, lang: l.code, group_id, publish_at: publishAtISO }
     });
     done++;
     statusEl.textContent = `${done}/${toPost.length} erstellt\u2026`;
@@ -1580,6 +1604,18 @@ window._blgFixGroup = async function(postIds, siteId) {
   var newGid = 'grp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
   for (var i = 0; i < postIds.length; i++) {
     await api('/api/blog/' + postIds[i], { method: 'PATCH', body: { group_id: newGid } });
+  }
+  reloadPanel(siteId, 'blog');
+};
+
+// Geplante Veröffentlichung für eine Gruppe setzen
+window._blgScheduleGroup = async function(postIds, siteId) {
+  var val = prompt('Veröffentlichen am (YYYY-MM-DDTHH:MM):\nBeispiel: ' + new Date(Date.now() + 86400000).toISOString().slice(0,16));
+  if (!val) return;
+  var iso = new Date(val).toISOString();
+  if (isNaN(new Date(val).getTime())) { alert('Ungültiges Datum.'); return; }
+  for (var i = 0; i < postIds.length; i++) {
+    await api('/api/blog/' + postIds[i], { method: 'PATCH', body: { status: 'draft', publish_at: iso } });
   }
   reloadPanel(siteId, 'blog');
 };

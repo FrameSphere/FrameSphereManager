@@ -18,6 +18,9 @@ binding = "RSDB"
 database_name = "rechtschreibe-api-db"
 database_id = "e774513c-23fe-48ab-a936-2e04df167ff6"
 
+[triggers]
+crons = ["*/5 * * * *"]
+
 [vars]
 ENVIRONMENT = "production"
 # DASHBOARD_PASSWORD wird als Secret gesetzt, NICHT hier im File!

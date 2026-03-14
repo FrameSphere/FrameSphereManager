@@ -93,6 +93,7 @@ async function ensureChangelogTable(db) {
   )`).run();
   await db.prepare("ALTER TABLE changelog_entries ADD COLUMN type TEXT DEFAULT 'feature'").run().catch(() => {});
   await db.prepare("ALTER TABLE changelog_entries ADD COLUMN slug TEXT DEFAULT ''").run().catch(() => {});
+  await db.prepare("ALTER TABLE changelog_entries ADD COLUMN publish_at TEXT DEFAULT NULL").run().catch(() => {});
   // Backfill slugs for entries that were created before the slug system
   const noSlug = await db.prepare(
     "SELECT id, title FROM changelog_entries WHERE slug IS NULL OR slug = ''"
@@ -735,11 +736,12 @@ async function handleRequest(request, env) {
     await ensureChangelogTable(db);
     const body = await request.json().catch(() => ({}));
     const sets = []; const params = [];
-    if (body.published !== undefined) { sets.push('published=?'); params.push(body.published ? 1 : 0); }
-    if (body.title     !== undefined) { sets.push('title=?'); params.push(body.title); sets.push('slug=?'); params.push(makeSlug(body.title)); }
-    if (body.description !== undefined) { sets.push('description=?'); params.push(body.description); }
-    if (body.type      !== undefined) { sets.push('type=?'); params.push(body.type); }
-    if (body.version   !== undefined) { sets.push('version=?'); params.push(body.version); }
+    if (body.published  !== undefined) { sets.push('published=?');  params.push(body.published ? 1 : 0); }
+    if (body.title      !== undefined) { sets.push('title=?'); params.push(body.title); sets.push('slug=?'); params.push(makeSlug(body.title)); }
+    if (body.description!== undefined) { sets.push('description=?'); params.push(body.description); }
+    if (body.type       !== undefined) { sets.push('type=?'); params.push(body.type); }
+    if (body.version    !== undefined) { sets.push('version=?'); params.push(body.version); }
+    if (body.publish_at !== undefined) { sets.push('publish_at=?'); params.push(body.publish_at || null); }
     if (sets.length) {
       params.push(segments[2]);
       await db.prepare(`UPDATE changelog_entries SET ${sets.join(',')} WHERE id=?`).bind(...params).run();
@@ -1093,7 +1095,7 @@ async function handleRequest(request, env) {
       status TEXT DEFAULT 'draft',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
-    for (const col of ['tags TEXT DEFAULT \'\'', 'excerpt TEXT DEFAULT \'\'', 'content TEXT DEFAULT \'\'', "lang TEXT DEFAULT 'de'", "slug TEXT DEFAULT ''", "group_id TEXT DEFAULT ''"]) {
+    for (const col of ['tags TEXT DEFAULT \'\'', 'excerpt TEXT DEFAULT \'\'', 'content TEXT DEFAULT \'\'', "lang TEXT DEFAULT 'de'", "slug TEXT DEFAULT ''", "group_id TEXT DEFAULT ''", "publish_at TEXT DEFAULT NULL"]) {
       await db.prepare(`ALTER TABLE blog_posts ADD COLUMN ${col}`).run().catch(() => {});
     }
   }
@@ -1166,8 +1168,9 @@ async function handleRequest(request, env) {
     if (body.content !== undefined) { sets.push('content=?'); params.push(body.content); }
     if (body.status  !== undefined) { sets.push('status=?');  params.push(body.status); }
     if (body.lang     !== undefined) { sets.push('lang=?');     params.push(body.lang); }
-    if (body.group_id !== undefined) { sets.push('group_id=?'); params.push(body.group_id); }
-    if (body.title    !== undefined) { sets.push('slug=?');     params.push(makeSlug(body.title)); }
+    if (body.group_id  !== undefined) { sets.push('group_id=?');  params.push(body.group_id); }
+    if (body.publish_at !== undefined) { sets.push('publish_at=?'); params.push(body.publish_at || null); }
+    if (body.title      !== undefined) { sets.push('slug=?');       params.push(makeSlug(body.title)); }
     if (!sets.length) return err('Nothing to update');
     await db.prepare(`UPDATE blog_posts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
     return json({ success: true });
@@ -1721,6 +1724,31 @@ async function handleRequest(request, env) {
   return err('Not found', 404);
 }
 
+async function runScheduledPublish(env) {
+  const db  = env.DB;
+  const now = new Date().toISOString();
+
+  // Blog: publish_at <= now AND status = draft
+  const blogDue = await db.prepare(
+    "SELECT id, site_id, title FROM blog_posts WHERE status='draft' AND publish_at IS NOT NULL AND publish_at != '' AND publish_at <= ?"
+  ).bind(now).all();
+  for (const post of (blogDue.results || [])) {
+    await db.prepare("UPDATE blog_posts SET status='published', publish_at=NULL WHERE id=?").bind(post.id).run();
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind(post.site_id, 'info', `\uD83D\uDCDD Blog live: ${post.title}`, 'Geplant veröffentlicht').run().catch(()=>{});
+  }
+
+  // Changelog: publish_at <= now AND published = 0
+  const clDue = await db.prepare(
+    "SELECT id, site_id, title FROM changelog_entries WHERE published=0 AND publish_at IS NOT NULL AND publish_at != '' AND publish_at <= ?"
+  ).bind(now).all().catch(()=>({ results: [] }));
+  for (const entry of (clDue.results || [])) {
+    await db.prepare("UPDATE changelog_entries SET published=1, publish_at=NULL WHERE id=?").bind(entry.id).run();
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind(entry.site_id, 'info', `\uD83D\uDCCB Changelog live: ${entry.title}`, 'Geplant veröffentlicht').run().catch(()=>{});
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -1731,5 +1759,8 @@ export default {
         headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
       });
     }
+  },
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runScheduledPublish(env));
   },
 };
