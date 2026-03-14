@@ -1167,122 +1167,262 @@ async function deleteChangelog(id, siteId) {
   reloadPanel(siteId, 'changelog');
 }
 
-// ── BLOG (verwaltet im HQ, angezeigt auf /blog) ───────────────────
+// ── BLOG MEHRSPRACHIG ────────────────────────────────────────────
+const BLOG_LANGS = [
+  { code: 'de', flag: '\uD83C\uDDE9\uD83C\uDDEA', label: 'Deutsch' },
+  { code: 'en', flag: '\uD83C\uDDEC\uD83C\uDDE7', label: 'English' },
+  { code: 'fr', flag: '\uD83C\uDDEB\uD83C\uDDF7', label: 'Fran\u00E7ais' },
+  { code: 'es', flag: '\uD83C\uDDEA\uD83C\uDDF8', label: 'Espa\u00F1ol' },
+];
+
 async function renderBlog(siteId, panel) {
   const posts = await api(`/api/blog?site_id=${siteId}`);
   if (!posts) { panel.innerHTML = errState(); return; }
-
   const pubCount = posts.filter(p => p.status === 'published').length;
 
-  panel.innerHTML = `
-    <div class="form-card" style="margin-bottom:20px">
-      <div class="form-card-title">📝 Neuen Blogpost erstellen</div>
+  const langTabs = BLOG_LANGS.map((l, i) => `
+    <button onclick="switchBlogLang('${l.code}')" id="bl-tab-${l.code}" style="
+      padding:7px 16px;border-radius:8px 8px 0 0;cursor:pointer;font-family:inherit;
+      border:1px solid ${i===0?'var(--border)':'transparent'};
+      border-bottom:${i===0?'1px solid var(--surface)':'none'};
+      background:${i===0?'var(--surface)':'transparent'};
+      color:${i===0?'var(--text1)':'var(--text3)'};
+      font-size:13px;font-weight:600;margin-bottom:-1px;transition:all .15s">
+      ${l.flag} ${l.code.toUpperCase()}
+      <span id="bl-dot-${l.code}" style="display:none;width:6px;height:6px;background:#34d399;border-radius:50%;margin-left:5px;vertical-align:middle"></span>
+    </button>`).join('');
+
+  const langPanels = BLOG_LANGS.map((l, i) => `
+    <div id="bl-panel-${l.code}" style="display:${i===0?'block':'none'};background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 8px 8px 8px;padding:16px">
       <div class="form-row">
         <div class="form-group form-full">
-          <label>Titel</label>
-          <input id="bl-title" placeholder="z.B. Die Wissenschaft hinter Persönlichkeitstests">
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group" style="max-width:220px">
-          <label>Tags (komma-getrennt)</label>
-          <input id="bl-tags" placeholder="Psychologie, IRT, Traits">
-        </div>
-        <div class="form-group" style="max-width:130px">
-          <label>Sprache</label>
-          <select id="bl-lang">
-            <option value="de">🇩🇪 Deutsch</option>
-            <option value="en">🇬🇧 English</option>
-            <option value="fr">🇫🇷 Français</option>
-            <option value="es">🇪🇸 Español</option>
-          </select>
-        </div>
-        <div class="form-group" style="max-width:160px">
-          <label>Status</label>
-          <select id="bl-status">
-            <option value="draft">📝 Entwurf</option>
-            <option value="published">🌐 Veröffentlichen</option>
-          </select>
+          <label>${l.flag} Titel (${l.label})</label>
+          <input id="bl-title-${l.code}" placeholder="Titel auf ${l.label}\u2026" oninput="updateBlogDot('${l.code}')">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group form-full">
-          <label>Auszug (kurze Vorschau)</label>
-          <input id="bl-excerpt" placeholder="Worum geht es in diesem Artikel?">
+          <label>Auszug</label>
+          <input id="bl-excerpt-${l.code}" placeholder="Kurze Vorschau\u2026">
         </div>
       </div>
       <div class="form-row">
         <div class="form-group form-full">
           <label>Inhalt (HTML erlaubt)</label>
-          <textarea id="bl-content" rows="8"
-            placeholder="&lt;p&gt;Einleitung...&lt;/p&gt;\n&lt;h2&gt;Abschnitt&lt;/h2&gt;\n&lt;p&gt;Text...&lt;/p&gt;"
-            style="font-family:'Space Mono',monospace;font-size:12px"></textarea>
+          <textarea id="bl-content-${l.code}" rows="7"
+            style="font-family:'Space Mono',monospace;font-size:12px"
+            placeholder="&lt;p&gt;Einleitung...&lt;/p&gt;\n&lt;h2&gt;Abschnitt&lt;/h2&gt;"></textarea>
         </div>
       </div>
-      <button class="btn btn-primary" onclick="submitBlog('${siteId}')">Post erstellen</button>
+      ${i === 0 ? `
+      <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" id="bl-translate-btn" onclick="translateBlogWithAI()">\uD83E\uDD16 Alle \u00FCbersetzen (DE \u2192 EN / FR / ES)</button>
+        <span id="bl-translate-status" style="font-size:12px;color:var(--text3)"></span>
+      </div>` : ''}
+    </div>`).join('');
+
+  const postLangMap = { de:'\uD83C\uDDE9\uD83C\uDDEA DE', en:'\uD83C\uDDEC\uD83C\uDDE7 EN', fr:'\uD83C\uDDEB\uD83C\uDDF7 FR', es:'\uD83C\uDDEA\uD83C\uDDF8 ES' };
+
+  panel.innerHTML = `
+    <div class="form-card" style="margin-bottom:20px">
+      <div class="form-card-title">\uD83D\uDCDD Neuen Blogpost erstellen \u2013 Mehrsprachig</div>
+
+      <div class="form-row">
+        <div class="form-group" style="max-width:320px">
+          <label>Tags (komma-getrennt, f\u00FCr alle Sprachen)</label>
+          <input id="bl-tags" placeholder="Psychologie, IRT, Traits">
+        </div>
+        <div class="form-group" style="max-width:190px">
+          <label>Status (f\u00FCr alle Sprachen)</label>
+          <select id="bl-status">
+            <option value="draft">\uD83D\uDCDD Entwurf</option>
+            <option value="published">\uD83C\uDF10 Ver\u00F6ffentlichen</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-top:16px">
+        <div style="display:flex;gap:0;border-bottom:1px solid var(--border)">${langTabs}</div>
+        ${langPanels}
+      </div>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-top:16px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="submitBlogAllLangs('${siteId}')">
+          \u2713 Alle ausgef\u00FCllten Sprachen erstellen
+        </button>
+        <span id="bl-submit-status" style="font-size:12px;color:var(--text3)"></span>
+      </div>
     </div>
 
     <div class="actions-bar" style="margin-bottom:8px">
       <div style="font-size:13px;font-weight:700">Posts (${posts.length})
-        <span style="color:var(--text3);font-weight:400;font-size:11px;margin-left:8px">${pubCount} veröffentlicht</span>
+        <span style="color:var(--text3);font-weight:400;font-size:11px;margin-left:8px">${pubCount} ver\u00F6ffentlicht</span>
       </div>
       <div class="flex-1"></div>
-      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','blog')">↻ Aktualisieren</button>
+      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','blog')">\u21BB Aktualisieren</button>
     </div>
 
-    ${posts.length ? `
-      <div style="display:flex;flex-direction:column;gap:8px">
-        ${posts.map(p => `
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
-            <div style="display:flex;align-items:flex-start;gap:12px">
-              <div style="flex:1;min-width:0">
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
-                  ${p.status === 'published'
-                    ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(52,211,153,.15);color:#34d399;font-weight:700">✓ Live</span>'
-                    : '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.07);color:var(--text3)">Entwurf</span>'}
-                  ${ {de:'🇩🇪',en:'🇬🇧',fr:'🇫🇷',es:'🇪🇸'}[p.lang] ? `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.06);color:var(--text2)">${{de:'🇩🇪 DE',en:'🇬🇧 EN',fr:'🇫🇷 FR',es:'🇪🇸 ES'}[p.lang]}</span>` : '' }
-                  ${p.tags ? p.tags.split(',').map(t => `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">${esc(t.trim())}</span>`).join('') : ''}
-                  <span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">${fmtDate(p.created_at)}</span>
-                </div>
-                <div style="font-weight:700;font-size:13px;margin-bottom:4px">${esc(p.title)}</div>
-                ${p.excerpt ? `<div style="font-size:12px;color:var(--text2);line-height:1.4">${esc(p.excerpt.slice(0,120))}${p.excerpt.length > 120 ? '…' : ''}</div>` : ''}
+    ${posts.length ? `<div style="display:flex;flex-direction:column;gap:8px">
+      ${posts.map(p => `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+          <div style="display:flex;align-items:flex-start;gap:12px">
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+                ${p.status === 'published'
+                  ? '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(52,211,153,.15);color:#34d399;font-weight:700">\u2713 Live</span>'
+                  : '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.07);color:var(--text3)">Entwurf</span>'}
+                ${postLangMap[p.lang] ? `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(255,255,255,.06);color:var(--text2)">${postLangMap[p.lang]}</span>` : ''}
+                ${p.tags ? p.tags.split(',').map(t => `<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">${esc(t.trim())}</span>`).join('') : ''}
+                <span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">${fmtDate(p.created_at)}</span>
               </div>
-              <div style="display:flex;gap:6px;flex-shrink:0;flex-direction:column;align-items:flex-end">
-                <button class="btn btn-ghost btn-sm"
-                  onclick="toggleBlogPublish(${p.id}, '${p.status === 'published' ? 'draft' : 'published'}', '${siteId}')">
-                  ${p.status === 'published' ? '↙ Entwurf' : '🌐 Veröff.'}
-                </button>
-                <button class="btn btn-danger btn-sm"
-                  onclick="deleteBlogPost(${p.id}, '${siteId}')">× Löschen</button>
-              </div>
+              <div style="font-weight:700;font-size:13px;margin-bottom:4px">${esc(p.title)}</div>
+              ${p.excerpt ? `<div style="font-size:12px;color:var(--text2);line-height:1.4">${esc(p.excerpt.slice(0,120))}${p.excerpt.length > 120 ? '\u2026' : ''}</div>` : ''}
             </div>
-          </div>`).join('')}
-      </div>` : emptyState('Noch keine Posts – erstelle den ersten Blogartikel!')}
+            <div style="display:flex;gap:6px;flex-shrink:0;flex-direction:column;align-items:flex-end">
+              <button class="btn btn-ghost btn-sm"
+                onclick="toggleBlogPublish(${p.id}, '${p.status === 'published' ? 'draft' : 'published'}', '${siteId}')">
+                ${p.status === 'published' ? '\u2199 Entwurf' : '\uD83C\uDF10 Ver\u00F6ff.'}
+              </button>
+              <button class="btn btn-danger btn-sm"
+                onclick="deleteBlogPost(${p.id}, '${siteId}')">&times; L\u00F6schen</button>
+            </div>
+          </div>
+        </div>`).join('')}
+    </div>` : emptyState('Noch keine Posts \u2013 erstelle den ersten Blogartikel!')}
   `;
 }
 
-async function submitBlog(siteId) {
-  const title   = document.getElementById('bl-title')?.value?.trim();
-  const tags    = document.getElementById('bl-tags')?.value?.trim();
-  const lang    = document.getElementById('bl-lang')?.value || 'de';
-  const status  = document.getElementById('bl-status')?.value;
-  const excerpt = document.getElementById('bl-excerpt')?.value?.trim();
-  const content = document.getElementById('bl-content')?.value?.trim();
-  if (!title) { alert('Titel ist erforderlich'); return; }
-  await api('/api/blog', {
-    method: 'POST',
-    body: { site_id: siteId, title, tags: tags || '', lang, excerpt: excerpt || '', content: content || '', status }
+window.switchBlogLang = function(code) {
+  BLOG_LANGS.forEach(l => {
+    const active = l.code === code;
+    const p = document.getElementById(`bl-panel-${l.code}`);
+    const t = document.getElementById(`bl-tab-${l.code}`);
+    if (p) p.style.display = active ? 'block' : 'none';
+    if (t) {
+      t.style.background   = active ? 'var(--surface)' : 'transparent';
+      t.style.color        = active ? 'var(--text1)'   : 'var(--text3)';
+      t.style.border       = active ? '1px solid var(--border)' : '1px solid transparent';
+      t.style.borderBottom = active ? '1px solid var(--surface)' : 'none';
+    }
   });
-  if (status === 'published') {
-    await api('/api/notifications', {
-      method: 'POST',
-      body: { site_id: siteId, type: 'info', title: `📝 Blog: ${title}`, message: 'Neuer Artikel veröffentlicht auf /blog' }
-    });
+};
+
+window.updateBlogDot = function(code) {
+  const has = !!document.getElementById(`bl-title-${code}`)?.value?.trim();
+  const dot = document.getElementById(`bl-dot-${code}`);
+  if (dot) dot.style.display = has ? 'inline-block' : 'none';
+};
+
+window.translateBlogWithAI = async function() {
+  const title   = document.getElementById('bl-title-de')?.value?.trim();
+  const excerpt = document.getElementById('bl-excerpt-de')?.value?.trim() || '';
+  const content = document.getElementById('bl-content-de')?.value?.trim() || '';
+  if (!title) { alert('Bitte zuerst den deutschen Titel ausf\u00FCllen.'); return; }
+
+  let apiKey = localStorage.getItem('anthropic_api_key');
+  if (!apiKey) {
+    apiKey = prompt('Anthropic API Key eingeben (wird einmalig in localStorage gespeichert):');
+    if (!apiKey?.trim()) return;
+    localStorage.setItem('anthropic_api_key', apiKey.trim());
+    apiKey = apiKey.trim();
   }
-  ['bl-title','bl-tags','bl-excerpt','bl-content'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-  document.getElementById('bl-status').value = 'draft';
-  reloadPanel(siteId, 'blog');
-}
+
+  const btn    = document.getElementById('bl-translate-btn');
+  const status = document.getElementById('bl-translate-status');
+  btn.disabled = true; btn.textContent = '\u23F3 Wird \u00FCbersetzt\u2026';
+  status.textContent = ''; status.style.color = 'var(--text3)';
+
+  try {
+    const prompt = `Translate this blog post from German to English, French, and Spanish. Return ONLY raw JSON, no markdown, no explanation.\n\nGerman title: ${title}\nGerman excerpt: ${excerpt}\nGerman content: ${content}\n\nReturn exactly this JSON structure (preserve all HTML tags, translate naturally):\n{"en":{"title":"...","excerpt":"...","content":"..."},"fr":{"title":"...","excerpt":"...","content":"..."},"es":{"title":"...","excerpt":"...","content":"..."}}`;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e.error?.message || `HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    const text = (data.content?.[0]?.text || '').replace(/```json|```/g, '').trim();
+    const translations = JSON.parse(text);
+
+    for (const lang of ['en', 'fr', 'es']) {
+      const t = translations[lang]; if (!t) continue;
+      const el = id => document.getElementById(`bl-${id}-${lang}`);
+      if (el('title'))   el('title').value   = t.title   || '';
+      if (el('excerpt')) el('excerpt').value = t.excerpt || '';
+      if (el('content')) el('content').value = t.content || '';
+      window.updateBlogDot(lang);
+    }
+
+    status.textContent = '\u2713 \u00DCbersetzungen eingef\u00FCgt!';
+    status.style.color = '#34d399';
+  } catch(e) {
+    status.textContent = `Fehler: ${e.message}`;
+    status.style.color = 'var(--red)';
+    if (String(e.message).includes('401') || String(e.message).includes('auth')) {
+      localStorage.removeItem('anthropic_api_key');
+      status.textContent += ' \u2013 API Key gel\u00F6scht, bitte erneut versuchen.';
+    }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '\uD83E\uDD16 Alle \u00FCbersetzen (DE \u2192 EN / FR / ES)';
+  }
+};
+
+window.submitBlogAllLangs = async function(siteId) {
+  const tags     = document.getElementById('bl-tags')?.value?.trim() || '';
+  const status   = document.getElementById('bl-status')?.value || 'draft';
+  const statusEl = document.getElementById('bl-submit-status');
+
+  const toPost = BLOG_LANGS.filter(l =>
+    !!document.getElementById(`bl-title-${l.code}`)?.value?.trim()
+  );
+  if (!toPost.length) { alert('Mindestens eine Sprache muss einen Titel haben.'); return; }
+
+  statusEl.textContent = `Erstelle ${toPost.length} Posts\u2026`;
+  statusEl.style.color = 'var(--text3)';
+
+  let done = 0;
+  for (const l of toPost) {
+    const title   = document.getElementById(`bl-title-${l.code}`)?.value?.trim();
+    const excerpt = document.getElementById(`bl-excerpt-${l.code}`)?.value?.trim() || '';
+    const content = document.getElementById(`bl-content-${l.code}`)?.value?.trim() || '';
+    await api('/api/blog', {
+      method: 'POST',
+      body: { site_id: siteId, title, tags, excerpt, content, status, lang: l.code }
+    });
+    done++;
+    statusEl.textContent = `${done}/${toPost.length} erstellt\u2026`;
+  }
+
+  if (status === 'published') {
+    await api('/api/notifications', { method: 'POST', body: {
+      site_id: siteId, type: 'info',
+      title: `\uD83D\uDCDD Blog: ${done} Posts live`,
+      message: `Ver\u00F6ffentlicht in: ${toPost.map(l => l.code.toUpperCase()).join(', ')}`
+    }});
+  }
+
+  statusEl.textContent = `\u2713 ${done} Posts erstellt!`;
+  statusEl.style.color = '#34d399';
+  setTimeout(() => reloadPanel(siteId, 'blog'), 1200);
+};
+
+async function submitBlog(siteId) { await window.submitBlogAllLangs(siteId); }
 
 async function toggleBlogPublish(id, newStatus, siteId) {
   await api(`/api/blog/${id}`, { method: 'PATCH', body: { status: newStatus } });
@@ -1292,7 +1432,7 @@ async function toggleBlogPublish(id, newStatus, siteId) {
     if (post) {
       await api('/api/notifications', {
         method: 'POST',
-        body: { site_id: siteId, type: 'info', title: `📝 Blog live: ${post.title}`, message: 'Veröffentlicht auf /blog' }
+        body: { site_id: siteId, type: 'info', title: `\uD83D\uDCDD Blog live: ${post.title}`, message: 'Ver\u00F6ffentlicht auf /blog' }
       });
     }
   }
@@ -1300,7 +1440,7 @@ async function toggleBlogPublish(id, newStatus, siteId) {
 }
 
 async function deleteBlogPost(id, siteId) {
-  if (!confirm('Blogpost wirklich löschen?')) return;
+  if (!confirm('Blogpost wirklich l\u00F6schen?')) return;
   await api(`/api/blog/${id}`, { method: 'DELETE' });
   reloadPanel(siteId, 'blog');
 }
