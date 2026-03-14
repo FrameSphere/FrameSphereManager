@@ -1279,19 +1279,21 @@ async function renderBlog(siteId, panel) {
               ${p.excerpt ? `<div style="font-size:12px;color:var(--text2);line-height:1.4">${esc(p.excerpt.slice(0,120))}${p.excerpt.length > 120 ? '\u2026' : ''}</div>` : ''}
             </div>
             <div style="display:flex;gap:6px;flex-shrink:0;flex-direction:column;align-items:flex-end">
-              <button class="btn btn-ghost btn-sm"
-                onclick="toggleBlogPublish(${p.id}, '${p.status === 'published' ? 'draft' : 'published'}', '${siteId}')">
-                ${p.status === 'published' ? '\u2199 Entwurf' : '\uD83C\uDF10 Ver\u00F6ff.'}
-              </button>
-              <select onchange="setBlogLang(${p.id},'${siteId}',this.value)" title="Sprache setzen" style="padding:3px 6px;font-size:11px;width:auto;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--text2);cursor:pointer">
-                ${['de','en','fr','es'].map(lc => `<option value="${lc}" ${(p.lang||'de')===lc?'selected':''}>${{de:'\uD83C\uDDE9\uD83C\uDDEA DE',en:'\uD83C\uDDEC\uD83C\uDDE7 EN',fr:'\uD83C\uDDEB\uD83C\uDDF7 FR',es:'\uD83C\uDDEA\uD83C\uDDF8 ES'}[lc]}</option>`).join('')}
-              </select>
-              <button class="btn btn-danger btn-sm"
+            <button class="btn btn-ghost btn-sm"
+            onclick="toggleBlogPublish(${p.id}, '${p.status === 'published' ? 'draft' : 'published'}', '${siteId}')">
+            ${p.status === 'published' ? '\u2199 Entwurf' : '\uD83C\uDF10 Ver\u00F6ff.'}
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="openBlogEdit(${p.id},'${siteId}')">✏ Bearbeiten</button>
+            <select onchange="setBlogLang(${p.id},'${siteId}',this.value)" title="Sprache setzen" style="padding:3px 6px;font-size:11px;width:auto;border-radius:6px;background:var(--bg);border:1px solid var(--border);color:var(--text2);cursor:pointer">
+              ${['de','en','fr','es'].map(lc => `<option value="${lc}" ${(p.lang||'de')===lc?'selected':''}>${{de:'\uD83C\uDDE9\uD83C\uDDEA DE',en:'\uD83C\uDDEC\uD83C\uDDE7 EN',fr:'\uD83C\uDDEB\uD83C\uDDF7 FR',es:'\uD83C\uDDEA\uD83C\uDDF8 ES'}[lc]}</option>`).join('')}
+            </select>
+            <button class="btn btn-danger btn-sm"
                 onclick="deleteBlogPost(${p.id}, '${siteId}')">&times; L\u00F6schen</button>
             </div>
           </div>
-        </div>`).join('')}
-    </div>` : emptyState('Noch keine Posts \u2013 erstelle den ersten Blogartikel!')}
+        </div>
+        <div id="bl-edit-${p.id}" style="display:none"></div>`).join('')}
+    </div>` : emptyState('Noch keine Posts \u2013 erstelle den ersten Blogartikel!')
   `;
 }
 
@@ -1447,6 +1449,84 @@ async function deleteBlogPost(id, siteId) {
   await api(`/api/blog/${id}`, { method: 'DELETE' });
   reloadPanel(siteId, 'blog');
 }
+
+window.openBlogEdit = async function(id, siteId) {
+  const box = document.getElementById(`bl-edit-${id}`);
+  if (!box) return;
+  // Toggle: close if already open
+  if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+
+  box.innerHTML = '<div style="padding:12px;color:var(--text3);font-size:12px">L\u00E4dt\u2026</div>';
+  box.style.display = 'block';
+
+  const posts = await api(`/api/blog?site_id=${siteId}`);
+  const p = posts?.find(x => x.id === id);
+  if (!p) { box.innerHTML = '<div style="padding:12px;color:var(--red)">Fehler beim Laden.</div>'; return; }
+
+  box.innerHTML = `
+    <div style="margin-top:12px;padding:16px;background:var(--bg);border:1px solid var(--border);border-radius:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:12px">✏ Bearbeiten \u2013 ${esc(p.title)}</div>
+      <div class="form-row">
+        <div class="form-group form-full"><label>Titel</label>
+          <input id="ble-title-${id}" value="${esc(p.title)}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="max-width:320px"><label>Tags</label>
+          <input id="ble-tags-${id}" value="${esc(p.tags||'')}"></div>
+        <div class="form-group" style="max-width:130px"><label>Sprache</label>
+          <select id="ble-lang-${id}">
+            ${['de','en','fr','es'].map(lc => `<option value="${lc}" ${(p.lang||'de')===lc?'selected':''}>${{de:'\uD83C\uDDE9\uD83C\uDDEA DE',en:'\uD83C\uDDEC\uD83C\uDDE7 EN',fr:'\uD83C\uDDEB\uD83C\uDDF7 FR',es:'\uD83C\uDDEA\uD83C\uDDF8 ES'}[lc]}</option>`).join('')}
+          </select></div>
+        <div class="form-group" style="max-width:160px"><label>Status</label>
+          <select id="ble-status-${id}">
+            <option value="draft" ${p.status==='draft'?'selected':''}>\uD83D\uDCDD Entwurf</option>
+            <option value="published" ${p.status==='published'?'selected':''}> \uD83C\uDF10 Ver\u00F6ffentlicht</option>
+          </select></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group form-full"><label>Auszug</label>
+          <input id="ble-excerpt-${id}" value="${esc(p.excerpt||'')}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group form-full"><label>Inhalt (HTML)</label>
+          <textarea id="ble-content-${id}" rows="10"
+            style="font-family:'Space Mono',monospace;font-size:12px">${esc(p.content||'')}</textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="saveBlogEdit(${id},'${siteId}')">\u2713 Speichern</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('bl-edit-${id}').style.display='none'">Abbrechen</button>
+        <span id="ble-status-msg-${id}" style="font-size:12px;color:var(--text3)"></span>
+      </div>
+    </div>`;
+};
+
+window.saveBlogEdit = async function(id, siteId) {
+  const g = s => document.getElementById(`ble-${s}-${id}`)?.value?.trim();
+  const msg = document.getElementById(`ble-status-msg-${id}`);
+  const title = g('title');
+  if (!title) { alert('Titel ist erforderlich'); return; }
+
+  msg.textContent = 'Speichert\u2026'; msg.style.color = 'var(--text3)';
+
+  const res = await api(`/api/blog/${id}`, {
+    method: 'PATCH',
+    body: {
+      title,
+      tags:    g('tags'),
+      lang:    document.getElementById(`ble-lang-${id}`)?.value,
+      status:  document.getElementById(`ble-status-${id}`)?.value,
+      excerpt: g('excerpt'),
+      content: document.getElementById(`ble-content-${id}`)?.value,
+    }
+  });
+
+  if (res?.success) {
+    msg.textContent = '\u2713 Gespeichert!'; msg.style.color = '#34d399';
+    setTimeout(() => reloadPanel(siteId, 'blog'), 900);
+  } else {
+    msg.textContent = 'Fehler beim Speichern.'; msg.style.color = 'var(--red)';
+  }
+};
 
 window.setBlogLang = async function(id, siteId, lang) {
   await api(`/api/blog/${id}`, { method: 'PATCH', body: { lang } });
