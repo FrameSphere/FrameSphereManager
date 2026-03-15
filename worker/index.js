@@ -748,7 +748,7 @@ async function handleRequest(request, env) {
     if (body.type       !== undefined) { sets.push('type=?'); params.push(body.type); }
     if (body.version    !== undefined) { sets.push('version=?'); params.push(body.version); }
     if (body.publish_at !== undefined) { sets.push('publish_at=?'); params.push(body.publish_at || null); }
-    if (body.published === 1) { sets.push('published_at=COALESCE(published_at,?)'); params.push(new Date().toISOString()); }
+    if (body.published === 1) { sets.push('published_at=?'); params.push(new Date().toISOString()); }
     if (sets.length) {
       params.push(segments[2]);
       await db.prepare(`UPDATE changelog_entries SET ${sets.join(',')} WHERE id=?`).bind(...params).run();
@@ -1099,7 +1099,7 @@ async function handleRequest(request, env) {
     if (body.lang       !== undefined) { sets.push('lang=?');       params.push(body.lang); }
     if (body.group_id   !== undefined) { sets.push('group_id=?');   params.push(body.group_id); }
     if (body.publish_at !== undefined) { sets.push('publish_at=?'); params.push(body.publish_at || null); }
-    if (body.status === 'published') { sets.push('published_at=COALESCE(published_at,?)'); params.push(new Date().toISOString()); }
+    if (body.status === 'published') { sets.push('published_at=?'); params.push(new Date().toISOString()); }
     if (!sets.length) return err('Nothing to update');
     await db.prepare(`UPDATE blog_posts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
     return json({ success: true });
@@ -1620,7 +1620,7 @@ async function runScheduledPublish(env) {
     "SELECT id, site_id, title FROM blog_posts WHERE status='draft' AND publish_at IS NOT NULL AND publish_at != '' AND publish_at <= ?"
   ).bind(now).all();
   for (const post of (blogDue.results || [])) {
-    await db.prepare("UPDATE blog_posts SET status='published', publish_at=NULL, published_at=COALESCE(published_at,?) WHERE id=?").bind(new Date().toISOString(), post.id).run();
+    await db.prepare("UPDATE blog_posts SET status='published', publish_at=NULL, published_at=? WHERE id=?").bind(new Date().toISOString(), post.id).run();
     await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
       .bind(post.site_id, 'info', `\uD83D\uDCDD Blog live: ${post.title}`, 'Geplant veröffentlicht').run().catch(()=>{});
   }
@@ -1630,7 +1630,7 @@ async function runScheduledPublish(env) {
     "SELECT id, site_id, title FROM changelog_entries WHERE published=0 AND publish_at IS NOT NULL AND publish_at != '' AND publish_at <= ?"
   ).bind(now).all().catch(()=>({ results: [] }));
   for (const entry of (clDue.results || [])) {
-    await db.prepare("UPDATE changelog_entries SET published=1, publish_at=NULL, published_at=COALESCE(published_at,?) WHERE id=?").bind(new Date().toISOString(), entry.id).run();
+    await db.prepare("UPDATE changelog_entries SET published=1, publish_at=NULL, published_at=? WHERE id=?").bind(new Date().toISOString(), entry.id).run();
     await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
       .bind(entry.site_id, 'info', `\uD83D\uDCCB Changelog live: ${entry.title}`, 'Geplant veröffentlicht').run().catch(()=>{});
   }
