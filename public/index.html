@@ -212,6 +212,18 @@
         <div class="db-greeting-right" id="db-status-pills">
           <!-- pills injected -->
         </div>
+        <button id="content-check-btn" onclick="openContentCheck()"
+          style="display:flex;align-items:center;gap:7px;padding:7px 14px;border-radius:9px;
+            border:1px solid var(--border);background:var(--surface);color:var(--text2);
+            cursor:pointer;font-size:11px;font-weight:700;font-family:inherit;
+            transition:border-color .15s,background .15s;position:relative"
+          onmouseover="this.style.borderColor='rgba(255,255,255,.2)'" onmouseout="this.style.borderColor='var(--border)'">
+          <i data-lucide="calendar-check" style="width:13px;height:13px"></i>
+          Content-Check
+          <span id="content-check-badge" style="display:none;position:absolute;top:-5px;right:-5px;
+            width:10px;height:10px;background:var(--red);border-radius:50%;
+            border:2px solid var(--bg)"></span>
+        </button>
       </div>
 
       <!-- KPI Strip -->
@@ -755,6 +767,250 @@ function fmtBig(v) {
   return Math.round(v).toString();
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  Content Readiness Check
+// ═══════════════════════════════════════════════════════════════════
+
+// Lokales Datum YYYY-MM-DD ohne UTC-Versatz
+function localDay(offsetDays = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  d.setHours(12, 0, 0, 0);
+  return d.getFullYear() + '-'
+    + String(d.getMonth() + 1).padStart(2,'0') + '-'
+    + String(d.getDate()).padStart(2,'0');
+}
+
+// Sites die wir checken — { id, blog?, changelog?, wdt? }
+const CONTENT_CHECK_SITES = [
+  { id: 'traitora',     blog: true  },
+  { id: 'brawlmystery', blog: true,  changelog: true },
+  { id: 'wordify',      blog: true,  wdt: true },
+  { id: 'fileflyr',     changelog: true },
+  { id: 'framespell',   blog: true,  changelog: true },
+];
+const WDT_LANGS = ['de','en','fr','es','it'];
+
+let _ccData = null; // cached result
+
+async function runContentCheck() {
+  const days = [localDay(0), localDay(1), localDay(2)];
+
+  // Parallel fetches
+  const blogSites = CONTENT_CHECK_SITES.filter(s => s.blog).map(s => s.id);
+  const clSites   = CONTENT_CHECK_SITES.filter(s => s.changelog).map(s => s.id);
+
+  const [blogResults, clResults, wdtWords] = await Promise.all([
+    Promise.all(blogSites.map(id =>
+      api(`/api/blog?site_id=${id}`).then(r => ({ id, posts: r || [] }))
+    )),
+    Promise.all(clSites.map(id =>
+      api(`/api/changelog?site_id=${id}`).then(r => ({ id, entries: r || [] }))
+    )),
+    api('/api/daily-words').then(r => r || []),
+  ]);
+
+  // Index blog posts by site + date
+  const blogByDay = {}; // siteId -> Set of dates
+  blogResults.forEach(({ id, posts }) => {
+    blogByDay[id] = new Set();
+    posts.forEach(p => {
+      // published_at, or publish_at (scheduled), or created_at for published
+      const date = (p.status === 'published' && p.published_at)
+        ? p.published_at.slice(0,10)
+        : (p.publish_at ? p.publish_at.slice(0,10) : null);
+      if (date) blogByDay[id].add(date);
+    });
+  });
+
+  // Index changelog by site + date
+  const clByDay = {}; // siteId -> Set of dates
+  clResults.forEach(({ id, entries }) => {
+    clByDay[id] = new Set();
+    entries.forEach(e => {
+      const date = e.published_at
+        ? e.published_at.slice(0,10)
+        : (e.publish_at ? e.publish_at.slice(0,10) : null);
+      if (date) clByDay[id].add(date);
+    });
+  });
+
+  // Index WdT by date+lang
+  const wdtByDayLang = {}; // 'date|lang' -> true
+  wdtWords.forEach(w => { wdtByDayLang[w.date + '|' + w.language] = true; });
+
+  // Build result matrix
+  const results = CONTENT_CHECK_SITES.map(site => {
+    const siteMeta = getSiteById(site.id);
+    const dayChecks = days.map(date => {
+      const checks = [];
+      if (site.blog) {
+        const ok = !!(blogByDay[site.id] && blogByDay[site.id].has(date));
+        checks.push({ type: 'blog', label: 'Blog', ok });
+      }
+      if (site.changelog) {
+        const ok = !!(clByDay[site.id] && clByDay[site.id].has(date));
+        checks.push({ type: 'changelog', label: 'Changelog', ok });
+      }
+      if (site.wdt) {
+        const missingLangs = WDT_LANGS.filter(l => !wdtByDayLang[date + '|' + l]);
+        const ok = missingLangs.length === 0;
+        checks.push({ type: 'wdt', label: 'WdT', ok, detail: ok ? null : missingLangs.join(', ') });
+      }
+      const allOk = checks.every(c => c.ok);
+      return { date, checks, allOk };
+    });
+    const siteOk = dayChecks.every(d => d.allOk);
+    return { site, siteMeta, dayChecks, siteOk };
+  });
+
+  _ccData = { days, results };
+
+  // Update badge
+  const anyMissing = results.some(r => !r.siteOk);
+  const badge = document.getElementById('content-check-badge');
+  if (badge) badge.style.display = anyMissing ? 'block' : 'none';
+  const btn = document.getElementById('content-check-btn');
+  if (btn && anyMissing) {
+    btn.style.borderColor = 'rgba(239,68,68,.4)';
+    btn.style.color = 'var(--red)';
+  } else if (btn) {
+    btn.style.borderColor = 'rgba(34,197,94,.35)';
+    btn.style.color = '#22c55e';
+  }
+
+  return _ccData;
+}
+
+function openContentCheck() {
+  // Build or show modal, then load data
+  let overlay = document.getElementById('_cc-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = '_cc-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.65);backdrop-filter:blur(4px)';
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.style.display = 'none'; });
+    document.body.appendChild(overlay);
+  }
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;
+      width:min(780px,96vw);max-height:88vh;overflow:hidden;display:flex;flex-direction:column;
+      box-shadow:0 24px 80px rgba(0,0,0,.6)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 24px 14px;flex-shrink:0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:10px">
+          <i data-lucide="calendar-check" style="width:16px;height:16px;color:#a78bfa"></i>
+          <span style="font-size:15px;font-weight:800">Content-Check</span>
+          <span style="font-size:11px;color:var(--text3);font-family:'Space Mono',monospace">nächste 3 Tage</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button onclick="_ccReload()" class="btn btn-ghost btn-sm">↻ Aktualisieren</button>
+          <button onclick="document.getElementById('_cc-overlay').style.display='none'" style="width:28px;height:28px;border-radius:6px;border:none;background:none;cursor:pointer;font-size:16px;color:var(--text3);display:flex;align-items:center;justify-content:center" onmouseover="this.style.background='rgba(255,255,255,.08)'" onmouseout="this.style.background='none'">✕</button>
+        </div>
+      </div>
+      <div id="_cc-body" style="overflow-y:auto;padding:20px 24px;flex:1">
+        <div style="text-align:center;padding:40px;color:var(--text3);font-size:13px">Lade…</div>
+      </div>
+    </div>
+  `;
+  refreshIcons();
+  _ccRender();
+}
+
+async function _ccRender() {
+  const body = document.getElementById('_cc-body');
+  if (!body) return;
+  const data = await runContentCheck();
+  _ccPaint(data);
+}
+
+window._ccReload = async function() {
+  _ccData = null;
+  const body = document.getElementById('_cc-body');
+  if (body) body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);font-size:13px">Lade…</div>';
+  const data = await runContentCheck();
+  _ccPaint(data);
+};
+
+function _ccPaint(data) {
+  const body = document.getElementById('_cc-body');
+  if (!body || !data) return;
+
+  const { days, results } = data;
+  const DAY_LABELS = ['Heute', 'Morgen', 'Übermorgen'];
+  const totalMissing = results.reduce((s, r) => s + r.dayChecks.reduce((ss, d) => ss + (d.allOk ? 0 : 1), 0), 0);
+
+  const summaryColor = totalMissing === 0 ? '#22c55e' : 'var(--red)';
+  const summaryIcon  = totalMissing === 0 ? 'check-circle-2' : 'alert-circle';
+  const summaryText  = totalMissing === 0
+    ? 'Alles bereit — alle Inhalte für die nächsten 3 Tage sind vorhanden.'
+    : `${totalMissing} Lücke${totalMissing>1?'n':''} gefunden — fehlende Inhalte sind unten markiert.`;
+
+  let html = `
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:10px;
+      background:${totalMissing===0?'rgba(34,197,94,.07)':'rgba(239,68,68,.07)'};
+      border:1px solid ${totalMissing===0?'rgba(34,197,94,.2)':'rgba(239,68,68,.2)'};
+      margin-bottom:20px">
+      <i data-lucide="${summaryIcon}" style="width:16px;height:16px;color:${summaryColor};flex-shrink:0"></i>
+      <span style="font-size:12px;font-weight:600;color:${summaryColor}">${summaryText}</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:8px 12px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Site</th>
+          ${days.map((d, i) => `<th style="text-align:center;padding:8px 12px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">${DAY_LABELS[i]}<br><span style="font-size:9px;opacity:.7;font-weight:400">${d}</span></th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  results.forEach((r, ri) => {
+    const site = r.siteMeta;
+    const rowBg = ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.02)';
+    html += `<tr style="background:${rowBg}">
+      <td style="padding:12px 12px;border-bottom:1px solid rgba(35,46,66,.5)">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:22px;height:22px;border-radius:6px;background:${site.color}22;border:1px solid ${site.color}44;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <i data-lucide="${site.icon}" style="width:11px;height:11px;color:${site.color}"></i>
+          </div>
+          <span style="font-size:12px;font-weight:700">${site.name}</span>
+        </div>
+      </td>`;
+
+    r.dayChecks.forEach(day => {
+      const cellBg = day.allOk ? '' : 'rgba(239,68,68,.04)';
+      html += `<td style="padding:10px 12px;text-align:center;border-bottom:1px solid rgba(35,46,66,.5);background:${cellBg}">`;
+      html += '<div style="display:flex;flex-direction:column;gap:4px;align-items:center">';
+      day.checks.forEach(c => {
+        const TYPE_ICONS = { blog:'book-open', changelog:'list', wdt:'calendar' };
+        const TYPE_COLORS = { blog:'#60a5fa', changelog:'#a78bfa', wdt:'#34d399' };
+        const col = c.ok ? TYPE_COLORS[c.type] || '#60a5fa' : 'var(--red)';
+        const bg  = c.ok ? `rgba(${c.type==='blog'?'96,165,250':c.type==='changelog'?'167,139,250':'52,211,153'},.12)` : 'rgba(239,68,68,.12)';
+        const border = c.ok ? `rgba(${c.type==='blog'?'96,165,250':c.type==='changelog'?'167,139,250':'52,211,153'},.25)` : 'rgba(239,68,68,.25)';
+        const icon = c.ok ? 'check' : 'x';
+        const title = c.ok ? c.label + ' ✓' : c.label + (c.detail ? ': ' + c.detail : ' fehlt');
+        html += `<span title="${title}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;background:${bg};border:1px solid ${border};font-size:10px;font-weight:700;color:${col};font-family:'Space Mono',monospace;white-space:nowrap">`;
+        html += `<i data-lucide="${icon}" style="width:9px;height:9px"></i>${c.label}`;
+        if (!c.ok && c.detail) html += `<span style="opacity:.75">&nbsp;(${c.detail})</span>`;
+        html += '</span>';
+      });
+      html += '</div></td>';
+    });
+    html += '</tr>';
+  });
+
+  html += `</tbody></table>
+    <div style="margin-top:16px;padding:10px 14px;background:rgba(255,255,255,.03);border-radius:8px;border:1px solid var(--border);font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;line-height:1.8">
+      <i data-lucide="book-open" style="width:9px;height:9px"></i> Blog &nbsp;·&nbsp;
+      <i data-lucide="list" style="width:9px;height:9px"></i> Changelog &nbsp;·&nbsp;
+      <i data-lucide="calendar" style="width:9px;height:9px"></i> Wort des Tages (DE/EN/FR/ES/IT)
+    </div>
+  `;
+
+  body.innerHTML = html;
+  refreshIcons();
+}
+
 // ─── Boot ────────────────────────────────────────────────────────────
 injectLoginScreen();
 checkAuth(() => {
@@ -763,6 +1019,7 @@ checkAuth(() => {
   loadInternalData();
   loadRevenueWidget();
   loadGscWidget();
+  runContentCheck(); // Badge im Hintergrund setzen
   refreshIcons();
 });
 
@@ -772,6 +1029,7 @@ window.initAfterLogin = () => {
   loadInternalData();
   loadRevenueWidget();
   loadGscWidget();
+  runContentCheck();
   refreshIcons();
 };
 
