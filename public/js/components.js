@@ -970,6 +970,223 @@ function _startLivePolling(siteId) {
   }, 45 * 1000);
 }
 
+// ── WORT DES TAGES ──────────────────────────────────────────────
+async function renderWortDesTages(siteId, panel) {
+  const words = await api('/api/daily-words');
+  if (!words) { panel.innerHTML = errState(); return; }
+
+  const LANGS = [
+    { code: 'de', flag: '🇩🇪', label: 'Deutsch' },
+    { code: 'en', flag: '🇬🇧', label: 'English' },
+    { code: 'fr', flag: '🇫🇷', label: 'Français' },
+    { code: 'es', flag: '🇪🇸', label: 'Español' },
+    { code: 'it', flag: '🇮🇹', label: 'Italiano' },
+  ];
+
+  // Existing words als Map: date+lang -> word
+  const existing = {};
+  words.forEach(w => { existing[`${w.date}|${w.language}`] = w.word; });
+
+  // Nächster freier Tag pro Sprache
+  function nextFreeDate(lang) {
+    const today = new Date(); today.setHours(0,0,0,0);
+    let d = new Date(today);
+    for (let i = 0; i < 365; i++) {
+      const key = d.toISOString().slice(0,10) + '|' + lang;
+      if (!existing[key]) return d.toISOString().slice(0,10);
+      d.setDate(d.getDate() + 1);
+    }
+    return new Date(Date.now() + 366*86400000).toISOString().slice(0,10);
+  }
+
+  // Gruppiere Einträge nach Datum
+  const byDate = {};
+  words.forEach(w => {
+    if (!byDate[w.date]) byDate[w.date] = {};
+    byDate[w.date][w.language] = w.word;
+  });
+  const sortedDates = Object.keys(byDate).sort().reverse().slice(0, 30);
+
+  const langTabs = LANGS.map((l, i) =>
+    `<button onclick="_wdtTab('${l.code}')" id="wdt-tab-${l.code}" style="
+      padding:6px 14px;border-radius:8px 8px 0 0;cursor:pointer;font-family:inherit;
+      border:1px solid ${i===0?'var(--border)':'transparent'};
+      border-bottom:${i===0?'1px solid var(--surface)':'none'};
+      background:${i===0?'var(--surface)':'transparent'};
+      color:${i===0?'var(--text1)':'var(--text3)'};
+      font-size:13px;font-weight:600;margin-bottom:-1px;transition:all .15s">
+      ${l.flag} ${l.code.toUpperCase()}
+    </button>`
+  ).join('');
+
+  const langPanels = LANGS.map((l, i) => {
+    const nextDate = nextFreeDate(l.code);
+    return `<div id="wdt-panel-${l.code}" style="display:${i===0?'block':'none'};
+      background:var(--surface);border:1px solid var(--border);border-top:none;
+      border-radius:0 8px 8px 8px;padding:16px">
+
+      <div style="margin-bottom:14px">
+        <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">
+          Nächster freier Tag: <span style="color:var(--text1);font-family:'Space Mono',monospace">${nextDate}</span>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+        <div style="flex:1;min-width:200px">
+          <label style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:5px">📋 Bulk-Import (ein Wort pro Zeile oder Komma-getrennt)</label>
+          <textarea id="wdt-bulk-${l.code}" rows="6" placeholder="WORT1
+WORT2
+WORT3
+...
+or: WORT1, WORT2, WORT3"
+            style="width:100%;font-family:'Space Mono',monospace;font-size:13px;text-transform:uppercase;letter-spacing:.05em"
+            oninput="_wdtPreview('${l.code}')"></textarea>
+        </div>
+        <div style="flex:1;min-width:180px">
+          <label style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:5px">📅 Startdatum</label>
+          <input type="date" id="wdt-startdate-${l.code}" value="${nextDate}"
+            oninput="_wdtPreview('${l.code}')"
+            style="width:100%;margin-bottom:10px">
+          <div id="wdt-preview-${l.code}" style="font-size:11px;color:var(--text3);line-height:1.7;font-family:'Space Mono',monospace"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn btn-primary" onclick="_wdtSaveBulk('${l.code}')">
+          ✓ Alle speichern
+        </button>
+        <span id="wdt-status-${l.code}" style="font-size:12px;color:var(--text3)"></span>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Tabelle der letzten 30 Tage
+  const tableRows = sortedDates.map(date => {
+    const cells = LANGS.map(l => {
+      const w = byDate[date][l.code];
+      return `<td style="font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:${w?'var(--text1)':'var(--text3)'}">${w || '–'}</td>`;
+    }).join('');
+    const today = new Date().toISOString().slice(0,10);
+    const isToday = date === today;
+    return `<tr style="${isToday?'background:rgba(34,197,94,.05)':''}">
+      <td class="mono" style="color:${isToday?'#34d399':'var(--text3)'};font-weight:${isToday?'700':'400'}">
+        ${date}${isToday?' <span style="font-size:9px;background:rgba(34,197,94,.2);color:#34d399;padding:1px 5px;border-radius:3px">HEUTE</span>':''}
+      </td>
+      ${cells}
+    </tr>`;
+  }).join('');
+
+  panel.innerHTML = `
+    <div class="form-card" style="margin-bottom:20px">
+      <div class="form-card-title">📅 Wörter eintragen</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:14px">
+        Pro Sprache eine Liste einfügen — jedes Wort wird automatisch dem nächsten freien Tag zugewiesen.
+      </div>
+      <div style="display:flex;gap:0;border-bottom:1px solid var(--border)">${langTabs}</div>
+      ${langPanels}
+    </div>
+
+    <div class="actions-bar" style="margin-bottom:8px">
+      <div style="font-size:13px;font-weight:700">Einträge (letzte 30 Tage)</div>
+      <div class="flex-1"></div>
+      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','wortdestages')">↻ Aktualisieren</button>
+    </div>
+
+    ${sortedDates.length ? `
+    <div style="overflow-x:auto">
+      <table class="data-table">
+        <thead><tr>
+          <th>Datum</th>
+          ${LANGS.map(l => `<th>${l.flag} ${l.code.toUpperCase()}</th>`).join('')}
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>` : emptyState('Noch keine Wörter eingetragen')}
+  `;
+
+  // JS-Funktionen für Tabs + Preview + Save
+  window._wdtTab = function(code) {
+    const langs = ['de','en','fr','es','it'];
+    langs.forEach(l => {
+      const p = document.getElementById('wdt-panel-' + l);
+      const t = document.getElementById('wdt-tab-' + l);
+      const active = l === code;
+      if (p) p.style.display = active ? 'block' : 'none';
+      if (t) {
+        t.style.background   = active ? 'var(--surface)' : 'transparent';
+        t.style.color        = active ? 'var(--text1)'   : 'var(--text3)';
+        t.style.border       = active ? '1px solid var(--border)' : '1px solid transparent';
+        t.style.borderBottom = active ? '1px solid var(--surface)' : 'none';
+      }
+    });
+  };
+
+  window._wdtPreview = function(lang) {
+    const raw   = document.getElementById('wdt-bulk-' + lang)?.value || '';
+    const start = document.getElementById('wdt-startdate-' + lang)?.value;
+    const words = raw.split(/[\n,]+/).map(w => w.trim().toUpperCase()).filter(Boolean);
+    const prev  = document.getElementById('wdt-preview-' + lang);
+    if (!prev) return;
+    if (!words.length || !start) { prev.textContent = ''; return; }
+    const lines = [];
+    let d = new Date(start + 'T00:00:00');
+    words.slice(0, 14).forEach(w => {
+      lines.push(d.toISOString().slice(0,10) + '  →  ' + w);
+      d.setDate(d.getDate() + 1);
+    });
+    if (words.length > 14) lines.push('… +' + (words.length - 14) + ' weitere');
+    prev.innerHTML = lines.map(l => `<div>${l}</div>`).join('');
+  };
+
+  window._wdtSaveBulk = async function(lang) {
+    const raw   = document.getElementById('wdt-bulk-' + lang)?.value || '';
+    const start = document.getElementById('wdt-startdate-' + lang)?.value;
+    const statusEl = document.getElementById('wdt-status-' + lang);
+    const words = raw.split(/[\n,]+/).map(w => w.trim().toUpperCase()).filter(Boolean);
+    if (!words.length) { alert('Bitte mindestens ein Wort eingeben.'); return; }
+    if (!start) { alert('Bitte Startdatum wählen.'); return; }
+
+    statusEl.textContent = 'Speichert…'; statusEl.style.color = 'var(--text3)';
+
+    let d = new Date(start + 'T00:00:00');
+    let saved = 0;
+    for (const word of words) {
+      const date = d.toISOString().slice(0,10);
+      await api('/api/daily-words', { method: 'POST', body: { date, language: lang, word } });
+      saved++;
+      statusEl.textContent = `${saved}/${words.length} gespeichert…`;
+      d.setDate(d.getDate() + 1);
+    }
+
+    statusEl.textContent = `✓ ${saved} Wörter gespeichert!`;
+    statusEl.style.color = '#34d399';
+    document.getElementById('wdt-bulk-' + lang).value = '';
+    document.getElementById('wdt-preview-' + lang).textContent = '';
+    setTimeout(() => reloadPanel(siteId, 'wortdestages'), 1000);
+  };
+}
+
+async function renderKontakt(siteId, panel) {
+  const msgs = await api(`/api/contact?site_id=${siteId}`);
+  if (!msgs) { panel.innerHTML = errState(); return; }
+  panel.innerHTML = `
+    <div class="actions-bar">
+      <div style="font-size:13px;font-weight:700">Nachrichten (${msgs.length})</div>
+      <div class="flex-1"></div>
+      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','kontakt')">↻ Aktualisieren</button>
+    </div>
+    ${msgs.length ? `<table class="data-table">
+      <thead><tr><th>Name</th><th>Nachricht</th><th>Sprache</th><th>Datum</th></tr></thead>
+      <tbody>${msgs.map(m => `<tr>
+        <td style="font-weight:700">${esc(m.name || 'Anonym')}</td>
+        <td style="max-width:300px;font-size:12px">${esc(m.message)}</td>
+        <td class="mono">${esc(m.language || '–')}</td>
+        <td class="mono" style="color:var(--text3)">${fmtDate(m.created_at)}</td>
+      </tr>`).join('')}</tbody>
+    </table>` : emptyState('Keine Nachrichten')}
+  `;
+}
+
 // ── CHANGELOG (Öffentlich auf /changelog, verwaltet im HQ) ───────────────
 async function renderChangelog(siteId, panel) {
   const entries = await api(`/api/changelog?site_id=${siteId}`);

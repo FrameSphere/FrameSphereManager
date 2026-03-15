@@ -1055,6 +1055,18 @@ async function handleRequest(request, env) {
     ).run().catch(() => {});
   }
 
+  // GET /api/blog/group – public: alle Sprachversionen einer Gruppe
+  if (request.method === 'GET' && path === '/api/blog/group') {
+    await ensureBlogTable(db);
+    const siteId  = url.searchParams.get('site_id') || '';
+    const groupId = url.searchParams.get('group_id') || '';
+    if (!groupId) return err('group_id erforderlich');
+    const result = await db.prepare(
+      "SELECT id, lang, slug, title FROM blog_posts WHERE site_id=? AND group_id=? AND status='published'"
+    ).bind(siteId, groupId).all();
+    return json(result.results);
+  }
+
   // GET /api/blog – authenticated
   if (request.method === 'GET' && path === '/api/blog') {
     if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
