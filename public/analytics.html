@@ -130,6 +130,7 @@ let _overview  = null;
 let _errors    = null;
 let _rlData    = null;
 let _cfData    = null;
+let _cfSiteRaw = {};   // hostname → CF zone data
 let _selectedSite = null;
 
 function setRange(r, btn) {
@@ -236,27 +237,25 @@ async function loadAll() {
     _cfData = await api('/api/cf-analytics', { headers: { 'CF-Token': cfTok } });
   }
 
-  // Per-site analytics: CF Web Analytics wenn Token vorhanden, sonst D1-Fallback
+  // CF Site Analytics — immer wenn Token da ist
   const cfTokForSites = localStorage.getItem('cf_api_token');
+  _siteData = {};
   if (cfTokForSites) {
     const cfSiteData = await api(`/api/cf-site-analytics?range=${_range}`, {
       headers: { 'CF-Token': cfTokForSites }
     });
-    _siteData = {};
     SITES.forEach(s => {
       let hostname = '';
       try { hostname = new URL(s.url).hostname; } catch(_) {}
       const cfEntry = cfSiteData?.[hostname];
       _siteData[s.id] = cfEntry
-        ? { by_day: cfEntry.by_day, by_type: [] }
-        : { by_day: [], by_type: [] };
+        ? { by_day: cfEntry.by_day.map(r => ({ day: r.day, views: r.visits, requests: r.requests })), by_type: [], cf: cfEntry }
+        : { by_day: [], by_type: [], cf: null };
     });
+    _cfSiteRaw = cfSiteData || {};
   } else {
-    const siteAnalytics = await Promise.all(
-      SITES.map(s => api(`/api/analytics?site_id=${s.id}&days=${days}`).then(d => ({ id: s.id, d })))
-    );
-    _siteData = {};
-    siteAnalytics.forEach(({ id, d }) => { _siteData[id] = d; });
+    SITES.forEach(s => { _siteData[s.id] = { by_day: [], by_type: [] }; });
+    _cfSiteRaw = {};
   }
 
   if (icon) icon.classList.remove('spinning');
@@ -316,6 +315,7 @@ function render() {
       <button class="an-tab${_activeTab==='tickets'?' active':''}"    onclick="switchTab('tickets')">Tickets</button>
       <button class="an-tab${_activeTab==='ratelimit'?' active':''}"  onclick="switchTab('ratelimit')">Ratelimit API</button>
       <button class="an-tab${_activeTab==='cloudflare'?' active':''}" onclick="switchTab('cloudflare')">Cloudflare</button>
+      <button class="an-tab${_activeTab==='blogstats'?' active':''}" onclick="switchTab('blogstats')">📝 Blog &amp; Feedback</button>
     </div>
 
     <div id="tab-content"></div>

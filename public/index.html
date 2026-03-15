@@ -1085,6 +1085,32 @@ window.initAfterLogin = () => {
 setInterval(() => {
   if (document.getElementById('db-scroll')) loadInternalData();
 }, 60000);
+
+// ── Eigenen Browser vom Tracking ausschließen ──
+window._trackingExcludeToggle = function() {
+  const current = localStorage.getItem('_ba_exclude') === '1';
+  if (current) {
+    localStorage.removeItem('_ba_exclude');
+    document.getElementById('_track-exclude-btn').textContent = '\uD83D\uDC41 Mich vom Tracking ausschlie\u00dFen';
+    document.getElementById('_track-exclude-btn').style.color = '';
+    document.getElementById('_track-exclude-btn').style.borderColor = '';
+    showToast('Tracking wieder aktiv \u2014 deine Besuche werden gez\u00e4hlt.');
+  } else {
+    localStorage.setItem('_ba_exclude', '1');
+    document.getElementById('_track-exclude-btn').textContent = '\u2713 Vom Tracking ausgeschlossen';
+    document.getElementById('_track-exclude-btn').style.color = '#34d399';
+    document.getElementById('_track-exclude-btn').style.borderColor = 'rgba(52,211,153,.3)';
+    showToast('Dieser Browser wird nicht mehr getrackt.');
+  }
+};
+
+function showToast(msg) {
+  var t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 18px;font-size:12px;color:var(--text1);z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.4);white-space:nowrap';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
 </script>
 </body>
 </html>
