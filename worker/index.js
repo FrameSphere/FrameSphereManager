@@ -958,10 +958,18 @@ async function handleRequest(request, env) {
           const d  = await r.json();
           const gs = d?.data?.viewer?.accounts?.[0]?.rumPageloadEventsAdaptiveGroups || [];
           if (gs.length > 0) {
+            const by_day = gs
+              .map(g => ({
+                day:    g.dimensions?.date || '',
+                views:  g.sum?.pageViews  || 0,
+                visits: g.sum?.visits     || 0,
+              }))
+              .filter(x => x.day);
             result[host] = {
-              by_day: gs
-                .map(g => ({ day: g.dimensions?.date || '', views: g.sum?.pageViews || g.sum?.visits || 0 }))
-                .filter(x => x.day),
+              by_day,
+              total_views:  by_day.reduce((a, r) => a + r.views,  0),
+              total_visits: by_day.reduce((a, r) => a + r.visits, 0),
+              total_req:    0,
             };
           }
         } catch(_) {}
@@ -1892,70 +1900,6 @@ async function handleRequest(request, env) {
         cpuP50:      Math.round((inv.quantiles?.cpuTimeP50 || 0) / 1000),
         cpuP99:      Math.round((inv.quantiles?.cpuTimeP99 || 0) / 1000),
       });
-    } catch(e) { return err('CF GraphQL error: ' + e.message, 502); }
-  }
-
-  // ── CF SITE ANALYTICS (Pageviews per Zone/Domain) ───────────────
-  if (path === '/api/cf-site-analytics' && request.method === 'GET') {
-    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
-    const cfToken   = request.headers.get('CF-Token') || '';
-    const rangeParam = url.searchParams.get('range') || '7d';
-    const days = rangeParam === '30d' ? 30 : 7;
-    const accountId = '75ab77c2ccd4045de59e99835480bc53';
-    if (!cfToken) return err('CF-Token header missing', 400);
-
-    const since = new Date(Date.now() - days * 86400000).toISOString().slice(0,10);
-    const until = new Date().toISOString().slice(0,10);
-
-    // Use httpRequests1dGroups for zone-level traffic
-    // First get zones for this account
-    try {
-      const zonesRes = await fetch(`https://api.cloudflare.com/client/v4/zones?account.id=${accountId}&per_page=50`, {
-        headers: { 'Authorization': `Bearer ${cfToken}` }
-      });
-      const zonesData = await zonesRes.json();
-      const zones = (zonesData.result || []).filter(z => z.status === 'active');
-
-      if (!zones.length) return json({});
-
-      const result = {};
-
-      // Batch GraphQL query for all zones
-      const zonesQuery = zones.map((z, i) => `
-        z${i}: zone(zoneTag: "${z.id}") {
-          httpRequests1dGroups(
-            limit: ${days + 2}
-            filter: { date_geq: "${since}", date_leq: "${until}" }
-            orderBy: [date_ASC]
-          ) {
-            dimensions { date }
-            sum { pageViews requests uniques bytes }
-          }
-        }`).join('\n');
-
-      const gqlRes = await fetch('https://api.cloudflare.com/client/v4/graphql', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${cfToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: `{ viewer { ${zonesQuery} } }` })
-      });
-      const gqlData = await gqlRes.json();
-      const viewer = gqlData?.data?.viewer || {};
-
-      zones.forEach((z, i) => {
-        const rows = viewer[`z${i}`]?.httpRequests1dGroups || [];
-        const total_views  = rows.reduce((s, r) => s + (r.sum?.pageViews || 0), 0);
-        const total_visits = rows.reduce((s, r) => s + (r.sum?.uniques   || 0), 0);
-        const total_req    = rows.reduce((s, r) => s + (r.sum?.requests  || 0), 0);
-        const by_day = rows.map(r => ({
-          day:    r.dimensions?.date || '',
-          views:  r.sum?.pageViews  || 0,
-          visits: r.sum?.uniques    || 0,
-          requests: r.sum?.requests || 0,
-        }));
-        result[z.name] = { total_views, total_visits, total_req, by_day };
-      });
-
-      return json(result);
     } catch(e) { return err('CF GraphQL error: ' + e.message, 502); }
   }
 

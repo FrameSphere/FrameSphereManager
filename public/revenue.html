@@ -581,27 +581,35 @@ function initRevenue() {
   const saved = localStorage.getItem(RV_CLIENT_ID_KEY);
   if (saved) document.getElementById('rv-client-id').value = saved;
 
-  // Handle OAuth redirect (implicit flow returns token in hash)
-  const hash = new URLSearchParams(window.location.hash.slice(1));
+  // Handle OAuth redirect (implicit flow returns token or error in hash)
+  const hash  = new URLSearchParams(window.location.hash.slice(1));
   const token = hash.get('access_token');
   const exp   = hash.get('expires_in');
+  const oauthErr = hash.get('error');
   if (token) {
     const expAt = Date.now() + parseInt(exp || '3600') * 1000;
     sessionStorage.setItem(RV_TOKEN_KEY,     token);
     sessionStorage.setItem(RV_TOKEN_EXP_KEY, String(expAt));
+    // Store login_hint for future silent re-auth
     history.replaceState(null, '', window.location.pathname);
     activateRvToken(token, expAt);
     return;
   }
+  if (oauthErr) {
+    // Silent auth failed (interaction_required / login_required) → show setup
+    history.replaceState(null, '', window.location.pathname);
+    showSetup(true);
+    return;
+  }
 
-  // Restore session token
-  const st  = sessionStorage.getItem(RV_TOKEN_KEY);
-  const se  = parseInt(sessionStorage.getItem(RV_TOKEN_EXP_KEY) || '0');
+  // Restore valid session token
+  const st = sessionStorage.getItem(RV_TOKEN_KEY);
+  const se = parseInt(sessionStorage.getItem(RV_TOKEN_EXP_KEY) || '0');
   if (st && Date.now() < se - 60000) { activateRvToken(st, se); return; }
 
-  // Auto-connect if client ID is saved, else show setup
   if (saved) {
-    rvConnect();
+    // Client ID known → silent re-auth (no UI if already logged in to Google)
+    rvAutoConnect(saved);
   } else {
     showSetup(true);
   }
@@ -618,8 +626,27 @@ function rvConnect() {
     + `&redirect_uri=${encodeURIComponent(redir)}`
     + `&response_type=token`
     + `&scope=${encodeURIComponent(RV_SCOPE)}`
+    + `&prompt=consent`
     + `&include_granted_scopes=true`;
   window.location.href = url;
+}
+
+// Automatischer silent re-auth beim Seitenaufruf (prompt=none = kein Google-UI)
+function rvAutoConnect(cid) {
+  const setup = document.getElementById('rv-setup');
+  setup.style.display = 'flex';
+  setup.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:14px;color:var(--text3);font-family:'Space Mono',monospace;font-size:12px">
+    <div class="rv-spinner" style="width:24px;height:24px;border-width:2.5px"></div>
+    Verbinde mit Google AdSense…
+  </div>`;
+  const redir = window.location.origin + window.location.pathname;
+  window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?'
+    + `client_id=${encodeURIComponent(cid)}`
+    + `&redirect_uri=${encodeURIComponent(redir)}`
+    + `&response_type=token`
+    + `&scope=${encodeURIComponent(RV_SCOPE)}`
+    + `&prompt=none`
+    + `&include_granted_scopes=true`;
 }
 
 function activateRvToken(token, expAt) {

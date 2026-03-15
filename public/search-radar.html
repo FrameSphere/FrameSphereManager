@@ -432,17 +432,23 @@ function initSearchRadar() {
   const savedId = localStorage.getItem(GSC_CLIENT_ID_KEY);
   if (savedId) document.getElementById('sr-client-id').value = savedId;
 
-  // Check if returning from OAuth redirect (token in hash)
+  // Check if returning from OAuth redirect (token or error in hash)
   const hash = new URLSearchParams(window.location.hash.slice(1));
-  const token   = hash.get('access_token');
+  const token     = hash.get('access_token');
   const expiresIn = hash.get('expires_in');
+  const oauthErr  = hash.get('error');
   if (token) {
     const exp = Date.now() + parseInt(expiresIn || '3600') * 1000;
     sessionStorage.setItem(GSC_TOKEN_KEY,     token);
     sessionStorage.setItem(GSC_TOKEN_EXP_KEY, exp.toString());
-    // Clean hash from URL
     history.replaceState(null, '', window.location.pathname);
     activateToken(token, exp);
+    return;
+  }
+  if (oauthErr) {
+    // Silent auth failed → show setup so user can connect manually
+    history.replaceState(null, '', window.location.pathname);
+    showSetup(true);
     return;
   }
 
@@ -454,9 +460,9 @@ function initSearchRadar() {
     return;
   }
 
-  // No valid token — auto-connect if client ID is saved, else show setup
+  // No valid token
   if (savedId) {
-    connectGoogle();
+    srAutoConnect(savedId); // silent re-auth
   } else {
     showSetup(true);
   }
@@ -472,13 +478,31 @@ function connectGoogle() {
   }
   localStorage.setItem(GSC_CLIENT_ID_KEY, clientId);
   const redirectUri = window.location.origin + window.location.pathname;
-  const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' +
+  window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' +
     `client_id=${encodeURIComponent(clientId)}&` +
     `redirect_uri=${encodeURIComponent(redirectUri)}&` +
     `response_type=token&` +
     `scope=${encodeURIComponent(GSC_SCOPE)}&` +
+    `prompt=consent&` +
     `include_granted_scopes=true`;
-  window.location.href = authUrl;
+}
+
+// Automatischer silent re-auth beim Seitenaufruf (prompt=none = kein Google-UI)
+function srAutoConnect(clientId) {
+  const setup = document.getElementById('sr-setup');
+  setup.style.display = 'flex';
+  setup.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:14px;color:var(--text3);font-family:'Space Mono',monospace;font-size:12px">
+    <div class="sr-spinner" style="width:24px;height:24px;border-width:2.5px"></div>
+    Verbinde mit Google Search Console…
+  </div>`;
+  const redirectUri = window.location.origin + window.location.pathname;
+  window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' +
+    `client_id=${encodeURIComponent(clientId)}&` +
+    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+    `response_type=token&` +
+    `scope=${encodeURIComponent(GSC_SCOPE)}&` +
+    `prompt=none&` +
+    `include_granted_scopes=true`;
 }
 
 function activateToken(token, exp) {
