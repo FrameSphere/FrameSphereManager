@@ -987,6 +987,13 @@ async function renderWortDesTages(siteId, panel) {
   const existing = {};
   words.forEach(w => { existing[`${w.date}|${w.language}`] = w.word; });
 
+  // Bereits verwendete Wörter pro Sprache speichern (für Duplikat-Check)
+  window._wdtUsedWords = {};
+  words.forEach(w => {
+    if (!window._wdtUsedWords[w.language]) window._wdtUsedWords[w.language] = new Set();
+    window._wdtUsedWords[w.language].add(w.word.toUpperCase());
+  });
+
   // Nächster freier Tag pro Sprache
   function nextFreeDate(lang) {
     const today = new Date(); today.setHours(0,0,0,0);
@@ -1997,10 +2004,13 @@ window._wdtPreviewValidated = function(lang) {
   var d = new Date(start + 'T00:00:00');
   words.slice(0, 14).forEach(function(w) {
     const badLen   = w.length !== 5;
-    const notInWl  = !badLen && wl && !wl.has(w);
-    const color    = badLen ? '#f87171' : notInWl ? '#fbbf24' : 'var(--text2)';
+    const usedAgain = !badLen && window._wdtUsedWords && window._wdtUsedWords[lang] && window._wdtUsedWords[lang].has(w);
+    const notInWl  = !badLen && !usedAgain && wl && !wl.has(w);
+    const color    = badLen ? '#f87171' : usedAgain ? '#f87171' : notInWl ? '#fbbf24' : 'var(--text2)';
     const badge    = badLen
       ? '<span style="font-size:9px;background:rgba(239,68,68,.2);color:#f87171;padding:1px 5px;border-radius:3px;margin-left:6px">✗ ' + w.length + ' Buchstaben</span>'
+      : usedAgain
+        ? '<span style="font-size:9px;background:rgba(239,68,68,.2);color:#f87171;padding:1px 5px;border-radius:3px;margin-left:6px">🔄 schon benutzt</span>'
       : notInWl
         ? '<span style="font-size:9px;background:rgba(251,191,36,.2);color:#fbbf24;padding:1px 5px;border-radius:3px;margin-left:6px">⚠ nicht in Liste</span>'
         : '<span style="font-size:9px;background:rgba(34,197,94,.2);color:#34d399;padding:1px 5px;border-radius:3px;margin-left:6px">✓</span>';
@@ -2032,7 +2042,40 @@ window._wdtSaveBulkValidated = async function(lang, siteId) {
     return;
   }
 
-  // Validierung 2: in Wortliste
+  // Validierung 2: bereits als Wort des Tages verwendet?
+  const usedSet = window._wdtUsedWords && window._wdtUsedWords[lang];
+  if (usedSet) {
+    const duplicates = words.filter(function(w){ return usedSet.has(w); });
+    if (duplicates.length) {
+      const formatted = duplicates.map(function(w){ return "'" + w + "'"; }).join(', ');
+      const proceed = await new Promise(function(resolve) {
+        var old = document.getElementById('_wdt-dup-modal');
+        if (old) old.remove();
+        const modal = document.createElement('div');
+        modal.id = '_wdt-dup-modal';
+        modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(3px)';
+        modal.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 28px;width:480px;max-width:calc(100vw - 40px);box-shadow:0 20px 60px rgba(0,0,0,.5)">' +
+          '<div style="font-weight:700;font-size:14px;margin-bottom:6px;color:var(--text1)">🔄 ' + duplicates.length + ' Wort' + (duplicates.length > 1 ? 'örter wurden' : ' wurde') + ' bereits verwendet</div>' +
+          '<div style="font-size:12px;color:var(--text3);margin-bottom:14px">Diese Wörter waren schon einmal Wort des Tages für ' + lang.toUpperCase() + ':</div>' +
+          '<div style="position:relative;margin-bottom:18px">' +
+            '<textarea id="_wdt-dup-txt" readonly rows="3" style="width:100%;font-family:\'Space Mono\',monospace;font-size:12px;background:var(--bg);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 12px;color:#f87171;resize:vertical">' + formatted + '</textarea>' +
+            '<button onclick="(function(){var t=document.getElementById(\'_wdt-dup-txt\');t.select();navigator.clipboard.writeText(t.value).then(function(){var b=document.getElementById(\'_wdt-dup-copy\');b.textContent=\'✓ Kopiert!\';b.style.color=\'#34d399\';setTimeout(function(){b.textContent=\'📋\';b.style.color=\'\';},2000);});})()" id="_wdt-dup-copy" class="btn btn-ghost btn-sm" style="position:absolute;top:8px;right:8px;font-size:11px">📋</button>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+            '<button id="_wdt-dup-cancel" class="btn btn-ghost">Abbrechen</button>' +
+            '<button id="_wdt-dup-proceed" class="btn btn-primary">Trotzdem speichern</button>' +
+          '</div>' +
+        '</div>';
+        document.body.appendChild(modal);
+        document.getElementById('_wdt-dup-cancel').onclick  = function(){ modal.remove(); resolve(false); };
+        document.getElementById('_wdt-dup-proceed').onclick = function(){ modal.remove(); resolve(true); };
+        modal.addEventListener('click', function(e){ if (e.target === modal){ modal.remove(); resolve(false); } });
+      });
+      if (!proceed) { statusEl.textContent = ''; return; }
+    }
+  }
+
+  // Validierung 3: in Wortliste
   statusEl.textContent = 'Prüfe Wortliste…'; statusEl.style.color = 'var(--text3)';
   const wl = await window._wdtLoadWordlist(lang);
   if (wl) {
