@@ -792,8 +792,31 @@ const WDT_LANGS = ['de','en','fr','es','it'];
 
 let _ccData = null; // cached result
 
+// Hilfsfunktion: Tageschecks für eine Liste von Tagen berechnen
+function _buildDayChecks(site, days, blogByDay, clByDay, wdtByDayLang) {
+  return days.map(date => {
+    const checks = [];
+    if (site.blog) {
+      const ok = !!(blogByDay[site.id] && blogByDay[site.id].has(date));
+      checks.push({ type: 'blog', label: 'Blog', ok });
+    }
+    if (site.changelog) {
+      const ok = !!(clByDay[site.id] && clByDay[site.id].has(date));
+      checks.push({ type: 'changelog', label: 'Changelog', ok });
+    }
+    if (site.wdt) {
+      const missingLangs = WDT_LANGS.filter(l => !wdtByDayLang[date + '|' + l]);
+      const ok = missingLangs.length === 0;
+      checks.push({ type: 'wdt', label: 'WdT', ok, detail: ok ? null : missingLangs.join(', ') });
+    }
+    const allOk = checks.every(c => c.ok);
+    return { date, checks, allOk };
+  });
+}
+
 async function runContentCheck() {
-  const days = [localDay(0), localDay(1), localDay(2)];
+  const days3 = [localDay(0), localDay(1), localDay(2)];
+  const days7 = [0,1,2,3,4,5,6].map(i => localDay(i));
 
   // Parallel fetches
   const blogSites = CONTENT_CHECK_SITES.filter(s => s.blog).map(s => s.id);
@@ -838,35 +861,25 @@ async function runContentCheck() {
   const wdtByDayLang = {}; // 'date|lang' -> true
   wdtWords.forEach(w => { wdtByDayLang[w.date + '|' + w.language] = true; });
 
-  // Build result matrix
-  const results = CONTENT_CHECK_SITES.map(site => {
-    const siteMeta = getSiteById(site.id);
-    const dayChecks = days.map(date => {
-      const checks = [];
-      if (site.blog) {
-        const ok = !!(blogByDay[site.id] && blogByDay[site.id].has(date));
-        checks.push({ type: 'blog', label: 'Blog', ok });
-      }
-      if (site.changelog) {
-        const ok = !!(clByDay[site.id] && clByDay[site.id].has(date));
-        checks.push({ type: 'changelog', label: 'Changelog', ok });
-      }
-      if (site.wdt) {
-        const missingLangs = WDT_LANGS.filter(l => !wdtByDayLang[date + '|' + l]);
-        const ok = missingLangs.length === 0;
-        checks.push({ type: 'wdt', label: 'WdT', ok, detail: ok ? null : missingLangs.join(', ') });
-      }
-      const allOk = checks.every(c => c.ok);
-      return { date, checks, allOk };
-    });
-    const siteOk = dayChecks.every(d => d.allOk);
+  // Build result matrix — 3-day (for badge) + 7-day (for expanded view)
+  const results3 = CONTENT_CHECK_SITES.map(site => {
+    const siteMeta  = getSiteById(site.id);
+    const dayChecks = _buildDayChecks(site, days3, blogByDay, clByDay, wdtByDayLang);
+    const siteOk    = dayChecks.every(d => d.allOk);
     return { site, siteMeta, dayChecks, siteOk };
   });
 
-  _ccData = { days, results };
+  const results7 = CONTENT_CHECK_SITES.map(site => {
+    const siteMeta  = getSiteById(site.id);
+    const dayChecks = _buildDayChecks(site, days7, blogByDay, clByDay, wdtByDayLang);
+    const siteOk    = dayChecks.every(d => d.allOk);
+    return { site, siteMeta, dayChecks, siteOk };
+  });
 
-  // Update badge
-  const anyMissing = results.some(r => !r.siteOk);
+  _ccData = { days3, days7, results3, results7 };
+
+  // Update badge — nur auf 3-Tage-Basis
+  const anyMissing = results3.some(r => !r.siteOk);
   const badge = document.getElementById('content-check-badge');
   if (badge) badge.style.display = anyMissing ? 'block' : 'none';
   const btn = document.getElementById('content-check-btn');
@@ -931,14 +944,26 @@ window._ccReload = async function() {
   _ccPaint(data);
 };
 
-function _ccPaint(data) {
+let _ccExpanded = false; // 3 vs 7 Tage Toggle-State
+
+function _ccPaint(data, expanded) {
   const body = document.getElementById('_cc-body');
   if (!body || !data) return;
+  if (expanded !== undefined) _ccExpanded = expanded;
 
-  const { days, results } = data;
+  const { days3, days7, results3, results7 } = data;
+  const days   = _ccExpanded ? days7   : days3;
+  const results = _ccExpanded ? results7 : results3;
+
+  // Spalten-Labels: erste 3 Tage haben Namen, Rest nur Datum
   const DAY_LABELS = ['Heute', 'Morgen', 'Übermorgen'];
-  const totalMissing = results.reduce((s, r) => s + r.dayChecks.reduce((ss, d) => ss + (d.allOk ? 0 : 1), 0), 0);
+  function dayLabel(i, date) {
+    if (i < 3) return `${DAY_LABELS[i]}<br><span style="font-size:9px;opacity:.7;font-weight:400">${date}</span>`;
+    return `<span style="font-size:10px;opacity:.85">${date}</span>`;
+  }
 
+  // Summary basiert immer nur auf 3 Tagen
+  const totalMissing = results3.reduce((s, r) => s + r.dayChecks.reduce((ss, d) => ss + (d.allOk ? 0 : 1), 0), 0);
   const summaryColor = totalMissing === 0 ? '#22c55e' : 'var(--red)';
   const summaryIcon  = totalMissing === 0 ? 'check-circle-2' : 'alert-circle';
   const summaryText  = totalMissing === 0
@@ -949,15 +974,25 @@ function _ccPaint(data) {
     <div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:10px;
       background:${totalMissing===0?'rgba(34,197,94,.07)':'rgba(239,68,68,.07)'};
       border:1px solid ${totalMissing===0?'rgba(34,197,94,.2)':'rgba(239,68,68,.2)'};
-      margin-bottom:20px">
+      margin-bottom:16px">
       <i data-lucide="${summaryIcon}" style="width:16px;height:16px;color:${summaryColor};flex-shrink:0"></i>
-      <span style="font-size:12px;font-weight:600;color:${summaryColor}">${summaryText}</span>
+      <span style="font-size:12px;font-weight:600;color:${summaryColor};flex:1">${summaryText}</span>
+      <button onclick="_ccToggleExpand()" style="
+        display:inline-flex;align-items:center;gap:6px;padding:5px 12px;
+        border-radius:7px;border:1px solid var(--border);background:var(--surface);
+        color:var(--text2);cursor:pointer;font-size:11px;font-weight:700;
+        font-family:inherit;transition:border-color .12s;flex-shrink:0"
+        onmouseover="this.style.borderColor='rgba(255,255,255,.2)'" onmouseout="this.style.borderColor='var(--border)'">
+        <i data-lucide="${_ccExpanded ? 'chevrons-left' : 'chevrons-right'}" style="width:12px;height:12px"></i>
+        ${_ccExpanded ? '3 Tage' : '7 Tage anzeigen'}
+      </button>
     </div>
-    <table style="width:100%;border-collapse:collapse">
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;min-width:${_ccExpanded?'680px':'auto'}">
       <thead>
         <tr>
-          <th style="text-align:left;padding:8px 12px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Site</th>
-          ${days.map((d, i) => `<th style="text-align:center;padding:8px 12px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">${DAY_LABELS[i]}<br><span style="font-size:9px;opacity:.7;font-weight:400">${d}</span></th>`).join('')}
+          <th style="text-align:left;padding:8px 12px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border);min-width:120px">Site</th>
+          ${days.map((d, i) => `<th style="text-align:center;padding:8px ${_ccExpanded?'8':'12'}px;font-size:${i>=3?'9':'10'}px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${i>=3?'rgba(255,255,255,.35)':'var(--text3)'};font-family:'Space Mono',monospace;border-bottom:1px solid var(--border);${i>=3?'border-left:1px dashed rgba(255,255,255,.06)':''};white-space:nowrap">${dayLabel(i, d)}</th>`).join('')}
         </tr>
       </thead>
       <tbody>
@@ -976,19 +1011,26 @@ function _ccPaint(data) {
         </div>
       </td>`;
 
-    r.dayChecks.forEach(day => {
-      const cellBg = day.allOk ? '' : 'rgba(239,68,68,.04)';
-      html += `<td style="padding:10px 12px;text-align:center;border-bottom:1px solid rgba(35,46,66,.5);background:${cellBg}">`;
+    r.dayChecks.forEach((day, di) => {
+      const isExtra = di >= 3;
+      const cellBg = !day.allOk ? (isExtra ? 'rgba(245,158,11,.04)' : 'rgba(239,68,68,.04)') : '';
+      const cellBorder = isExtra ? 'border-left:1px dashed rgba(255,255,255,.06)' : '';
+      html += `<td style="padding:10px ${_ccExpanded?'8':'12'}px;text-align:center;border-bottom:1px solid rgba(35,46,66,.5);background:${cellBg};${cellBorder}">`;
       html += '<div style="display:flex;flex-direction:column;gap:4px;align-items:center">';
       day.checks.forEach(c => {
-        const TYPE_ICONS = { blog:'book-open', changelog:'list', wdt:'calendar' };
         const TYPE_COLORS = { blog:'#60a5fa', changelog:'#a78bfa', wdt:'#34d399' };
-        const col = c.ok ? TYPE_COLORS[c.type] || '#60a5fa' : 'var(--red)';
-        const bg  = c.ok ? `rgba(${c.type==='blog'?'96,165,250':c.type==='changelog'?'167,139,250':'52,211,153'},.12)` : 'rgba(239,68,68,.12)';
-        const border = c.ok ? `rgba(${c.type==='blog'?'96,165,250':c.type==='changelog'?'167,139,250':'52,211,153'},.25)` : 'rgba(239,68,68,.25)';
-        const icon = c.ok ? 'check' : 'x';
-        const title = c.ok ? c.label + ' ✓' : c.label + (c.detail ? ': ' + c.detail : ' fehlt');
-        html += `<span title="${title}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;background:${bg};border:1px solid ${border};font-size:10px;font-weight:700;color:${col};font-family:'Space Mono',monospace;white-space:nowrap">`;
+        // Extra-Tage: fehlend = amber statt rot (nur Info, kein Alarm)
+        const col = c.ok
+          ? TYPE_COLORS[c.type] || '#60a5fa'
+          : isExtra ? '#f59e0b' : 'var(--red)';
+        const bgAlpha = c.ok
+          ? `rgba(${c.type==='blog'?'96,165,250':c.type==='changelog'?'167,139,250':'52,211,153'},.12)`
+          : isExtra ? 'rgba(245,158,11,.10)' : 'rgba(239,68,68,.12)';
+        const bdAlpha = c.ok
+          ? `rgba(${c.type==='blog'?'96,165,250':c.type==='changelog'?'167,139,250':'52,211,153'},.25)`
+          : isExtra ? 'rgba(245,158,11,.25)' : 'rgba(239,68,68,.25)';
+        const icon = c.ok ? 'check' : (isExtra ? 'minus' : 'x');
+        html += `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px ${_ccExpanded?'5':'8'}px;border-radius:6px;background:${bgAlpha};border:1px solid ${bdAlpha};font-size:10px;font-weight:700;color:${col};font-family:'Space Mono',monospace;white-space:nowrap">`;
         html += `<i data-lucide="${icon}" style="width:9px;height:9px"></i>${c.label}`;
         if (!c.ok && c.detail) html += `<span style="opacity:.75">&nbsp;(${c.detail})</span>`;
         html += '</span>';
@@ -998,17 +1040,24 @@ function _ccPaint(data) {
     html += '</tr>';
   });
 
-  html += `</tbody></table>
-    <div style="margin-top:16px;padding:10px 14px;background:rgba(255,255,255,.03);border-radius:8px;border:1px solid var(--border);font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;line-height:1.8">
-      <i data-lucide="book-open" style="width:9px;height:9px"></i> Blog &nbsp;·&nbsp;
-      <i data-lucide="list" style="width:9px;height:9px"></i> Changelog &nbsp;·&nbsp;
-      <i data-lucide="calendar" style="width:9px;height:9px"></i> Wort des Tages (DE/EN/FR/ES/IT)
+  html += `</tbody></table></div>
+    <div style="margin-top:14px;padding:10px 14px;background:rgba(255,255,255,.03);border-radius:8px;border:1px solid var(--border);font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;line-height:1.8;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span><i data-lucide="book-open" style="width:9px;height:9px"></i> Blog</span>
+      <span>·</span>
+      <span><i data-lucide="list" style="width:9px;height:9px"></i> Changelog</span>
+      <span>·</span>
+      <span><i data-lucide="calendar" style="width:9px;height:9px"></i> WdT (DE/EN/FR/ES/IT)</span>
+      ${_ccExpanded ? '<span style="margin-left:auto;color:rgba(255,255,255,.2)">Tage 4–7: amber = fehlend (nur Info)</span>' : ''}
     </div>
   `;
 
   body.innerHTML = html;
   refreshIcons();
 }
+
+window._ccToggleExpand = function() {
+  if (_ccData) _ccPaint(_ccData, !_ccExpanded);
+};
 
 // ─── Boot ────────────────────────────────────────────────────────────
 injectLoginScreen();
