@@ -2038,12 +2038,34 @@ window._wdtSaveBulkValidated = async function(lang, siteId) {
   if (wl) {
     const missing = words.filter(function(w){ return !wl.has(w); });
     if (missing.length) {
-      const proceed = confirm(
-        missing.length + ' Wort' + (missing.length > 1 ? 'örter sind' : ' ist') +
-        ' nicht in der Wordify-Liste (' + lang.toUpperCase() + '):\n\n' +
-        missing.slice(0, 15).join(', ') + (missing.length > 15 ? ' …' : '') +
-        '\n\nDiese Wörter können im Spiel nicht gelöst werden.\nTrotzdem speichern?'
-      );
+      // Modal mit Kopier-Funktion anzeigen
+      const proceed = await new Promise(function(resolve) {
+        var old = document.getElementById('_wdt-missing-modal');
+        if (old) old.remove();
+        const formatted = missing.map(function(w){ return "'" + w + "'"; }).join(', ');
+        const modal = document.createElement('div');
+        modal.id = '_wdt-missing-modal';
+        modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);backdrop-filter:blur(3px)';
+        modal.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 28px;width:520px;max-width:calc(100vw - 40px);box-shadow:0 20px 60px rgba(0,0,0,.5);max-height:80vh;overflow-y:auto">' +
+          '<div style="font-weight:700;font-size:14px;margin-bottom:6px;color:var(--text1)">⚠️ ' + missing.length + ' Wort' + (missing.length > 1 ? 'örter nicht' : ' nicht') + ' in der ' + lang.toUpperCase() + '-Liste</div>' +
+          '<div style="font-size:12px;color:var(--text3);margin-bottom:16px">Diese Wörter können im Spiel nicht gelöst werden. Du kannst sie hier kopieren und in die <code style="background:rgba(255,255,255,.08);padding:1px 5px;border-radius:3px">words/words_' + lang + '.js</code> Datei einfügen.</div>' +
+          '<div style="position:relative;margin-bottom:16px">' +
+            '<textarea id="_wdt-missing-txt" readonly rows="4" style="width:100%;font-family:\'Space Mono\',monospace;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text1);resize:vertical">' + formatted + '</textarea>' +
+            '<button onclick="(function(){var t=document.getElementById(\'_wdt-missing-txt\');t.select();navigator.clipboard.writeText(t.value).then(function(){var b=document.getElementById(\'_wdt-copy-btn\');b.textContent=\'✓ Kopiert!\';b.style.color=\'#34d399\';setTimeout(function(){b.textContent=\'📋 Kopieren\';b.style.color=\'\';},2000);});})()" id="_wdt-copy-btn" class="btn btn-ghost btn-sm" style="position:absolute;top:8px;right:8px;font-size:11px">📋 Kopieren</button>' +
+          '</div>' +
+          '<div style="font-size:11px;color:var(--text3);margin-bottom:18px;padding:8px 12px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:6px">' +
+            '💡 In <code style="background:rgba(255,255,255,.08);padding:1px 4px;border-radius:3px">words/words_' + lang + '.js</code> einfügen — alphabetisch einsortieren, dann git push.' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;justify-content:flex-end">' +
+            '<button id="_wdt-cancel-btn" class="btn btn-ghost">Abbrechen</button>' +
+            '<button id="_wdt-proceed-btn" class="btn btn-primary">Trotzdem speichern</button>' +
+          '</div>' +
+        '</div>';
+        document.body.appendChild(modal);
+        document.getElementById('_wdt-cancel-btn').onclick  = function(){ modal.remove(); resolve(false); };
+        document.getElementById('_wdt-proceed-btn').onclick = function(){ modal.remove(); resolve(true); };
+        modal.addEventListener('click', function(e){ if (e.target === modal){ modal.remove(); resolve(false); } });
+      });
       if (!proceed) { statusEl.textContent = ''; return; }
     }
   }
