@@ -1607,6 +1607,221 @@ const BLOG_LANGS = [
   { code: 'it', flag: '\uD83C\uDDEE\uD83C\uDDF9', label: 'Italiano' },
 ];
 
+function _renderFeedbackTable(posts, feedback) {
+  if (!feedback.length) {
+    return `<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
+      Noch kein Feedback eingegangen. Sobald User den Widget nutzen erscheinen hier die Daten.
+    </div>`;
+  }
+
+  const LANGS = ['de','en','fr','es','it'];
+  const FLAGS = { de:'\uD83C\uDDE9\uD83C\uDDEA', en:'\uD83C\uDDEC\uD83C\uDDE7', fr:'\uD83C\uDDEB\uD83C\uDDF7', es:'\uD83C\uDDEA\uD83C\uDDF8', it:'\uD83C\uDDEE\uD83C\uDDF9' };
+
+  // Post-Map: id -> title (DE preferred)
+  const postTitles = {};
+  posts.forEach(p => {
+    if (!postTitles[p.id] || p.lang === 'de') postTitles[p.id] = p.title;
+  });
+
+  // Feedback gruppiert nach post_id
+  const byPost = {};
+  feedback.forEach(f => {
+    const pid = f.post_id;
+    if (!byPost[pid]) byPost[pid] = { post_id: pid, slug: f.post_slug, langs: {}, yes: 0, no: 0, total: 0 };
+    byPost[pid].langs[f.lang] = { yes: Number(f.yes), no: Number(f.no), total: Number(f.total) };
+    byPost[pid].yes   += Number(f.yes);
+    byPost[pid].no    += Number(f.no);
+    byPost[pid].total += Number(f.total);
+  });
+
+  // Sortiert nach Gesamtanzahl desc
+  const rows = Object.values(byPost).sort((a, b) => b.total - a.total);
+
+  function fbCell(d) {
+    if (!d || d.total === 0) return '<td style="text-align:center;padding:8px;color:var(--text3);font-size:11px">&ndash;</td>';
+    const pct = Math.round(d.yes / d.total * 100);
+    const col = pct >= 70 ? '#34d399' : pct >= 40 ? '#fbbf24' : '#f87171';
+    return `<td style="text-align:center;padding:8px">
+      <span style="font-size:11px;font-family:'Space Mono',monospace;color:${col}" title="${d.yes} Ja / ${d.no} Nein">
+        ${pct}%<br><span style="font-size:9px;opacity:.6">(${d.total})</span>
+      </span>
+    </td>`;
+  }
+
+  function overallBadge(r) {
+    if (r.total === 0) return '';
+    const pct = Math.round(r.yes / r.total * 100);
+    const col = pct >= 70 ? '#34d399' : pct >= 40 ? '#fbbf24' : '#f87171';
+    const icon = pct >= 70 ? '\uD83D\uDC4D' : pct >= 40 ? '\u26A0\uFE0F' : '\uD83D\uDC4E';
+    return `<span style="font-size:11px;font-weight:700;color:${col};font-family:'Space Mono',monospace">${icon} ${pct}% <span style="opacity:.6;font-weight:400">(${r.total})</span></span>`;
+  }
+
+  const tableRows = rows.map((r, i) => {
+    const title = postTitles[r.post_id] || r.slug || 'Post #' + r.post_id;
+    const bg = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.02)';
+    return `<tr style="background:${bg}">
+      <td style="padding:8px 12px;font-size:12px;font-weight:600;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(title)}">${esc(title)}</td>
+      <td style="text-align:center;padding:8px 12px">${overallBadge(r)}</td>
+      ${LANGS.map(l => fbCell(r.langs[l])).join('')}
+    </tr>`;
+  }).join('');
+
+  return `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;font-weight:700">�\uDC4D Feedback-Analyse</span>
+        <span style="font-size:11px;color:var(--text3)">${rows.length} Posts mit Feedback &middot; ${feedback.reduce((s,f)=>s+Number(f.total),0)} Stimmen gesamt</span>
+      </div>
+      <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:8px 12px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace">Post</th>
+            <th style="text-align:center;padding:8px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace">Gesamt</th>
+            ${LANGS.map(l => `<th style="text-align:center;padding:8px;font-size:10px;font-weight:700;color:var(--text3);font-family:'Space Mono',monospace">${FLAGS[l]} ${l.toUpperCase()}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+      </div>
+    </div>`;
+}
+
+window._blgToggleFeedback = function(siteId) {
+  const panel = document.getElementById('bl-feedback-panel');
+  const btn   = document.getElementById('bl-feedback-btn');
+  if (!panel) return;
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  if (btn) {
+    btn.style.background     = open ? '' : 'rgba(96,165,250,.1)';
+    btn.style.borderColor    = open ? '' : 'rgba(96,165,250,.3)';
+    btn.style.color          = open ? '' : '#60a5fa';
+  }
+};
+
+// ── Feedback-Tabelle ───────────────────────────────────────────────────
+function _renderFeedbackTable(posts, feedbackRows) {
+  if (!feedbackRows.length) {
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px;text-align:center;color:var(--text3);font-size:12px">
+      <div style="font-size:28px;margin-bottom:8px">👍</div>
+      Noch kein Feedback gesammelt — der Widget erscheint wenn User 60% des Artikels gelesen haben.
+    </div>`;
+  }
+
+  // Aggregiere pro post_id (alle Sprachen zusammen)
+  const byPost = {};
+  feedbackRows.forEach(f => {
+    if (!byPost[f.post_id]) byPost[f.post_id] = { yes:0, no:0, total:0, langs:{} };
+    byPost[f.post_id].yes   += Number(f.yes);
+    byPost[f.post_id].no    += Number(f.no);
+    byPost[f.post_id].total += Number(f.total);
+    byPost[f.post_id].langs[f.lang] = { yes: Number(f.yes), no: Number(f.no), total: Number(f.total) };
+  });
+
+  // Sortiere: meiste Votes zuerst
+  const sorted = Object.entries(byPost)
+    .sort((a, b) => b[1].total - a[1].total);
+
+  // Sprachen die vorkommen
+  const allLangs = ['de','en','fr','es','it'].filter(l =>
+    feedbackRows.some(f => f.lang === l)
+  );
+
+  function pctBadge(yes, total) {
+    if (!total) return '<span style="color:var(--text3);font-size:11px">-</span>';
+    const pct = Math.round(yes / total * 100);
+    const col = pct >= 70 ? '#34d399' : pct >= 40 ? '#fbbf24' : '#f87171';
+    const bg  = pct >= 70 ? 'rgba(52,211,153,.1)' : pct >= 40 ? 'rgba(251,191,36,.1)' : 'rgba(239,68,68,.1)';
+    const icon = pct >= 70 ? '\uD83D\uDC4D' : pct >= 40 ? '\u26A0' : '\uD83D\uDC4E';
+    return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:5px;background:${bg};color:${col};font-size:11px;font-weight:700;font-family:'Space Mono',monospace">${icon} ${pct}%<span style="opacity:.6;font-size:10px;margin-left:2px">(${total})</span></span>`;
+  }
+
+  // Gesamtzahlen
+  const totalYes   = feedbackRows.reduce((s,f) => s + Number(f.yes), 0);
+  const totalNo    = feedbackRows.reduce((s,f) => s + Number(f.no), 0);
+  const totalVotes = totalYes + totalNo;
+  const overallPct = totalVotes ? Math.round(totalYes / totalVotes * 100) : 0;
+  const overallCol = overallPct >= 70 ? '#34d399' : overallPct >= 40 ? '#fbbf24' : '#f87171';
+
+  let html = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+      <!-- Header -->
+      <div style="display:flex;align-items:center;gap:16px;padding:14px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:13px;font-weight:700">👍 Feedback-Analyse</span>
+          <span style="font-size:11px;color:var(--text3)">${totalVotes} Stimmen gesamt</span>
+        </div>
+        <div style="display:flex;gap:16px;margin-left:auto;flex-wrap:wrap">
+          <div style="text-align:center">
+            <div style="font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace">Gesamt</div>
+            <div style="font-size:20px;font-weight:800;color:${overallCol}">${overallPct}%</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace">👍 Ja</div>
+            <div style="font-size:20px;font-weight:800;color:#34d399">${totalYes}</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace">👎 Nein</div>
+            <div style="font-size:20px;font-weight:800;color:#f87171">${totalNo}</div>
+          </div>
+        </div>
+      </div>
+      <!-- Tabelle -->
+      <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="background:rgba(255,255,255,.02)">
+            <th style="text-align:left;padding:10px 18px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Post</th>
+            <th style="text-align:center;padding:10px 12px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Gesamt</th>
+            ${allLangs.map(l => `<th style="text-align:center;padding:10px 10px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">${{'de':'🇩🇪','en':'🇬🇧','fr':'🇫🇷','es':'🇪🇸','it':'🇮🇹'}[l]||l.toUpperCase()}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>`;
+
+  sorted.forEach(([postId, data], ri) => {
+    // Post-Titel finden
+    const post = posts.find(p => p.id == postId);
+    const title = post ? post.title : `Post #${postId}`;
+    const slug  = post ? post.slug  : '';
+    const rowBg = ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.015)';
+    const overallPct2 = data.total ? Math.round(data.yes / data.total * 100) : 0;
+
+    html += `<tr style="background:${rowBg};transition:background .12s" onmouseover="this.style.background='rgba(255,255,255,.03)'" onmouseout="this.style.background='${rowBg}'">
+      <td style="padding:10px 18px;border-bottom:1px solid rgba(35,46,66,.4);max-width:260px">
+        <div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(title)}">${esc(title)}</div>
+        ${slug ? `<div style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:2px">${slug}</div>` : ''}
+      </td>
+      <td style="padding:10px 12px;text-align:center;border-bottom:1px solid rgba(35,46,66,.4)">${pctBadge(data.yes, data.total)}</td>
+      ${allLangs.map(l => {
+        const ld = data.langs[l];
+        return `<td style="padding:10px 10px;text-align:center;border-bottom:1px solid rgba(35,46,66,.4)">${ld ? pctBadge(ld.yes, ld.total) : '<span style="color:var(--text3);font-size:11px">–</span>'}</td>`;
+      }).join('')}
+    </tr>`;
+  });
+
+  html += `</tbody></table></div>
+    <div style="padding:10px 18px;font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;border-top:1px solid var(--border)">
+      👍 = >=70% hilfreich &nbsp;·&nbsp; ⚠ = 40-69% &nbsp;·&nbsp; 👎 = <40% &nbsp;·&nbsp; Votes werden intern gesammelt, sind nicht öffentlich sichtbar
+    </div>
+  </div>`;
+
+  return html;
+}
+
+window._blgToggleFeedback = function(siteId) {
+  const panel = document.getElementById('bl-feedback-panel');
+  const btn   = document.getElementById('bl-feedback-btn');
+  if (!panel) return;
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  if (btn) {
+    btn.style.background     = open ? '' : 'rgba(99,102,241,.15)';
+    btn.style.borderColor    = open ? '' : 'rgba(99,102,241,.4)';
+    btn.style.color          = open ? '' : '#818cf8';
+  }
+};
+
 async function renderBlog(siteId, panel) {
   const [posts, feedback] = await Promise.all([
     api(`/api/blog?site_id=${siteId}`),
@@ -1707,7 +1922,12 @@ async function renderBlog(siteId, panel) {
         <span style="color:var(--text3);font-weight:400;font-size:11px;margin-left:8px">${pubCount} ver\u00F6ffentlicht</span>
       </div>
       <div class="flex-1"></div>
+      <button class="btn btn-ghost btn-sm" id="bl-feedback-btn" onclick="_blgToggleFeedback('${siteId}')">👍 Feedback-Analyse</button>
       <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','blog')">\u21BB Aktualisieren</button>
+    </div>
+
+    <div id="bl-feedback-panel" style="display:none;margin-bottom:16px">
+      ${_renderFeedbackTable(posts, feedback || [])}
     </div>
 
     ${posts.length ? _renderBlogPostList(posts, siteId) : emptyState('Noch keine Posts \u2013 erstelle den ersten Blogartikel!')}
