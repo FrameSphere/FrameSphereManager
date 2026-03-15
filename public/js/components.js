@@ -995,15 +995,19 @@ async function renderWortDesTages(siteId, panel) {
   });
 
   // Nächster freier Tag pro Sprache
+  function localDateStr(d) {
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
   function nextFreeDate(lang) {
-    const today = new Date(); today.setHours(0,0,0,0);
+    const today = new Date(); today.setHours(12,0,0,0);
     let d = new Date(today);
     for (let i = 0; i < 365; i++) {
-      const key = d.toISOString().slice(0,10) + '|' + lang;
-      if (!existing[key]) return d.toISOString().slice(0,10);
+      const key = localDateStr(d) + '|' + lang;
+      if (!existing[key]) return localDateStr(d);
       d.setDate(d.getDate() + 1);
     }
-    return new Date(Date.now() + 366*86400000).toISOString().slice(0,10);
+    const far = new Date(Date.now() + 366*86400000);
+    return localDateStr(far);
   }
 
   // Gruppiere Einträge nach Datum
@@ -2001,7 +2005,7 @@ window._wdtPreviewValidated = function(lang) {
   if (!words.length || !start) { prev.innerHTML = ''; return; }
   const wl = window._wdtWordlists[lang];
   const lines = [];
-  var d = new Date(start + 'T00:00:00');
+  var d = new Date(start + 'T12:00:00');
   words.slice(0, 14).forEach(function(w) {
     const badLen   = w.length !== 5;
     const usedAgain = !badLen && window._wdtUsedWords && window._wdtUsedWords[lang] && window._wdtUsedWords[lang].has(w);
@@ -2022,7 +2026,15 @@ window._wdtPreviewValidated = function(lang) {
 };
 
 // Override _wdtSaveBulk: add validation before save
-window._wdtSaveBulkValidated = async function(lang, siteId) {
+// Hilfsfunktion: lokales Datum als YYYY-MM-DD (kein UTC-Versatz)
+function _wdtLocalDate(d) {
+  var y = d.getFullYear();
+  var m = String(d.getMonth() + 1).padStart(2, '0');
+  var day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+
+  window._wdtSaveBulkValidated = async function(lang, siteId) {
   const rawEl    = document.getElementById('wdt-bulk-' + lang);
   const startEl  = document.getElementById('wdt-startdate-' + lang);
   const statusEl = document.getElementById('wdt-status-' + lang);
@@ -2114,10 +2126,10 @@ window._wdtSaveBulkValidated = async function(lang, siteId) {
   }
 
   statusEl.textContent = 'Speichert…'; statusEl.style.color = 'var(--text3)';
-  var d = new Date(start + 'T00:00:00');
+  var d = new Date(start + 'T12:00:00'); // Mittags statt Mitternacht → kein Timezone-Slip
   var saved = 0;
   for (var i = 0; i < words.length; i++) {
-    const date = d.toISOString().slice(0,10);
+    const date = _wdtLocalDate(d);
     await api('/api/daily-words', { method: 'POST', body: { date: date, language: lang, word: words[i] } });
     saved++;
     statusEl.textContent = saved + '/' + words.length + ' gespeichert…';
