@@ -1575,6 +1575,14 @@ var isLive = p.status === 'published';
     html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:7px;background:var(--bg);border:1px solid var(--border)">';
       html +=   '<span style="min-width:54px;font-size:11px;font-weight:700;color:' + (isLive ? '#34d399' : 'var(--text3)') + '">' + BLOG_LANG_MAP[lc] + '</span>';
       html +=   '<span style="flex:1;font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.title) + '</span>';
+      // Feedback-Badge
+      var fb = window._blgFeedback && window._blgFeedback[p.id];
+      if (fb && fb.total > 0) {
+        var pct = Math.round(fb.yes / fb.total * 100);
+        var fbCol = pct >= 70 ? '#34d399' : pct >= 40 ? '#fbbf24' : '#f87171';
+        html += '<span style="font-size:10px;padding:1px 7px;border-radius:4px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:' + fbCol + ';font-family:\'Space Mono\',monospace;flex-shrink:0;margin-left:4px" title="' + fb.yes + ' Ja / ' + fb.no + ' Nein">' +
+          '\uD83D\uDC4D ' + pct + '% (' + fb.total + ')</span>';
+      }
       html +=   '<div style="display:flex;gap:4px;flex-shrink:0">';
       html +=     '<button class="btn btn-ghost btn-sm" data-act="pub" data-id="' + p.id + '" data-site="' + siteId + '" data-st="' + newSt + '" onclick="_blgAction(this)">' + lbl + '</button>';
       html +=     '<button class="btn btn-ghost btn-sm" data-act="edit" data-id="' + p.id + '" data-site="' + siteId + '" onclick="_blgAction(this)">\u270f Edit</button>';
@@ -1600,8 +1608,20 @@ const BLOG_LANGS = [
 ];
 
 async function renderBlog(siteId, panel) {
-  const posts = await api(`/api/blog?site_id=${siteId}`);
+  const [posts, feedback] = await Promise.all([
+    api(`/api/blog?site_id=${siteId}`),
+    api(`/api/blog/feedback?site_id=${siteId}`),
+  ]);
   if (!posts) { panel.innerHTML = errState(); return; }
+
+  // Feedback-Map: post_id -> { yes, no, total }
+  window._blgFeedback = {};
+  (feedback || []).forEach(f => {
+    if (!window._blgFeedback[f.post_id]) window._blgFeedback[f.post_id] = { yes:0, no:0, total:0 };
+    window._blgFeedback[f.post_id].yes   += Number(f.yes);
+    window._blgFeedback[f.post_id].no    += Number(f.no);
+    window._blgFeedback[f.post_id].total += Number(f.total);
+  });
   const pubCount = posts.filter(p => p.status === 'published').length;
 
   const langTabs = BLOG_LANGS.map((l, i) => `

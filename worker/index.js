@@ -1620,6 +1620,50 @@ async function handleRequest(request, env) {
     return d1Explorer(rs, segments.slice(2), url, request.method, request);
   }
 
+  // ── BLOG FEEDBACK (public POST, auth GET) ─────────────────────────
+  if (path === '/api/blog/feedback') {
+    // Tabelle anlegen falls nicht vorhanden
+    await db.prepare(`CREATE TABLE IF NOT EXISTS blog_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      site_id TEXT NOT NULL,
+      post_id INTEGER NOT NULL,
+      post_slug TEXT,
+      lang TEXT,
+      helpful INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run().catch(() => {});
+
+    // POST: Feedback speichern (public, kein Auth)
+    if (request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const { site_id, post_id, post_slug, lang, helpful } = body;
+      if (!site_id || post_id === undefined || helpful === undefined)
+        return err('site_id, post_id und helpful sind erforderlich');
+      await db.prepare(
+        'INSERT INTO blog_feedback (site_id, post_id, post_slug, lang, helpful) VALUES (?,?,?,?,?)'
+      ).bind(site_id, post_id, post_slug || '', lang || '', helpful ? 1 : 0).run();
+      return json({ success: true });
+    }
+
+    // GET: aggregiertes Feedback (auth)
+    if (request.method === 'GET') {
+      if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+      const siteId = url.searchParams.get('site_id') || '';
+      const rows = await db.prepare(`
+        SELECT post_id, post_slug, lang,
+               SUM(CASE WHEN helpful=1 THEN 1 ELSE 0 END) AS yes,
+               SUM(CASE WHEN helpful=0 THEN 1 ELSE 0 END) AS no,
+               COUNT(*) AS total,
+               MAX(created_at) AS last_at
+        FROM blog_feedback
+        WHERE site_id = ?
+        GROUP BY post_id, post_slug, lang
+        ORDER BY last_at DESC
+      `).bind(siteId).all();
+      return json(rows.results || []);
+    }
+  }
+
   return err('Not found', 404);
 }
 
