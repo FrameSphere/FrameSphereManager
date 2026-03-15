@@ -1055,6 +1055,10 @@ async function renderChangelog(siteId, panel) {
                   onclick="toggleChangelogPublish(${e.id}, ${e.published ? 0 : 1}, '${siteId}')">
                   ${e.published ? '↙ Entwurf' : '🌐 Veröff.'}
                 </button>
+                <button class="btn btn-ghost btn-sm" style="${e.publish_at ? 'color:#fbbf24;border-color:rgba(251,191,36,.35)' : ''}"
+                  onclick="_clScheduleEntry(${e.id}, '${siteId}', ${e.publish_at ? `'${e.publish_at}'` : 'null'})">
+                  ${e.publish_at ? '⏰ ' + new Date(e.publish_at).toLocaleString('de-DE', {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) : '⏰ Planen'}
+                </button>
                 <button class="btn btn-danger btn-sm"
                   onclick="deleteChangelog(${e.id}, '${siteId}')">× Löschen</button>
               </div>
@@ -1107,6 +1111,20 @@ async function deleteChangelog(id, siteId) {
   await api(`/api/changelog/${id}`, { method: 'DELETE' });
   reloadPanel(siteId, 'changelog');
 }
+
+window._clScheduleEntry = function(id, siteId, currentISO) {
+  _openScheduleModal({
+    currentISO: currentISO || null,
+    onConfirm: async function(iso) {
+      await api(`/api/changelog/${id}`, { method: 'PATCH', body: { publish_at: iso, published: 0 } });
+      reloadPanel(siteId, 'changelog');
+    },
+    onClear: async function() {
+      await api(`/api/changelog/${id}`, { method: 'PATCH', body: { publish_at: null } });
+      reloadPanel(siteId, 'changelog');
+    }
+  });
+};
 
 // ── Zeitplan-Modal (wiederverwendbar) ────────────────────────────
 function _fmtSchedule(iso) {
@@ -1305,7 +1323,7 @@ var allLive  = liveCount === total;
 var schedISO = g.posts.reduce(function(f,p){ return f||(p.publish_at&&p.publish_at.trim()?p.publish_at:null); }, null);
 var schedLbl = schedISO ? ('\u23f0 ' + _fmtSchedule(schedISO)) : '\u23f0 Planen';
 var schedSt  = schedISO ? 'font-size:10px;padding:2px 8px;color:#fbbf24;border-color:rgba(251,191,36,.35)' : 'font-size:10px;padding:2px 8px';
-var schedArg = schedISO ? JSON.stringify(schedISO) : 'null';
+var schedArg = schedISO ? ("'" + schedISO + "'") : 'null';
 html += '<button class="btn btn-ghost btn-sm" style="' + schedSt + '" onclick="event.stopPropagation();_blgScheduleGroup(' + allIds + ',\'' + siteId + '\',' + schedArg + ')">' + schedLbl + '</button>';
 html += '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();_blgPublishGroup(' + allIds + ',\'' + (allLive?'draft':'published') + '\',\'' + siteId + '\')">'
   + (allLive ? '\u2199 Alle Entwurf' : '\uD83C\uDF10 Alle live') + '</button>';

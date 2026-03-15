@@ -755,57 +755,6 @@ async function handleRequest(request, env) {
     return json({ success: true });
   }
 
-  // ── GET /api/blog ─────────────────────────────────────────────────
-  if (request.method === 'GET' && path === '/api/blog') {
-    const siteId = url.searchParams.get('site_id');
-    // Ensure columns exist
-    await db.prepare('ALTER TABLE blog_posts ADD COLUMN slug TEXT').run().catch(() => {});
-    await db.prepare("ALTER TABLE blog_posts ADD COLUMN lang TEXT DEFAULT 'de'").run().catch(() => {});
-    await db.prepare('ALTER TABLE blog_posts ADD COLUMN tags TEXT DEFAULT \'\'').run().catch(() => {});
-    let q = 'SELECT * FROM blog_posts WHERE 1=1';
-    const params = [];
-    if (siteId) { q += ' AND site_id=?'; params.push(siteId); }
-    q += ' ORDER BY created_at DESC';
-    const result = await db.prepare(q).bind(...params).all();
-    return json(result.results);
-  }
-
-  // ── POST /api/blog ────────────────────────────────────────────────
-  if (request.method === 'POST' && path === '/api/blog') {
-    const body = await request.json();
-    const { site_id, title, slug, content, excerpt, status, lang, tags } = body;
-    if (!site_id || !title) return err('Missing fields');
-    await db.prepare('ALTER TABLE blog_posts ADD COLUMN slug TEXT').run().catch(() => {});
-    await db.prepare("ALTER TABLE blog_posts ADD COLUMN lang TEXT DEFAULT 'de'").run().catch(() => {});
-    await db.prepare('ALTER TABLE blog_posts ADD COLUMN tags TEXT DEFAULT \'\'').run().catch(() => {});
-    const finalSlug = slug || makeSlug(title);
-    const r = await db.prepare(
-      'INSERT INTO blog_posts (site_id, title, slug, content, excerpt, status, lang, tags) VALUES (?,?,?,?,?,?,?,?)'
-    ).bind(site_id, title, finalSlug, content || null, excerpt || null, status || 'draft', lang || 'de', tags || '').run();
-    return json({ success: true, id: r.meta.last_row_id });
-  }
-
-  // ── PATCH /api/blog/:id ───────────────────────────────────────────
-  if (request.method === 'PATCH' && segments[1] === 'blog' && segments[2] && !segments[3]) {
-    const body = await request.json().catch(() => ({}));
-    const sets = []; const params = [];
-    if (body.title   !== undefined) { sets.push('title=?');   params.push(body.title);   sets.push('slug=?'); params.push(makeSlug(body.title)); }
-    if (body.content !== undefined) { sets.push('content=?'); params.push(body.content); }
-    if (body.excerpt !== undefined) { sets.push('excerpt=?'); params.push(body.excerpt); }
-    if (body.status  !== undefined) { sets.push('status=?');  params.push(body.status);  }
-    if (body.lang    !== undefined) { sets.push('lang=?');    params.push(body.lang);    }
-    if (body.tags    !== undefined) { sets.push('tags=?');    params.push(body.tags);    }
-    if (!sets.length) return err('Nothing to update');
-    await db.prepare(`UPDATE blog_posts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
-    return json({ success: true });
-  }
-
-  // ── DELETE /api/blog/:id ──────────────────────────────────────────
-  if (request.method === 'DELETE' && segments[1] === 'blog' && segments[2]) {
-    await db.prepare('DELETE FROM blog_posts WHERE id=?').bind(segments[2]).run();
-    return json({ success: true });
-  }
-
   // ── GET /api/words ────────────────────────────────────────────────
   if (request.method === 'GET' && path === '/api/words') {
     const status = url.searchParams.get('status');
@@ -970,7 +919,6 @@ async function handleRequest(request, env) {
     const cfH = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfToken}` };
 
     try {
-      // 1. Parallel: Zones + Web Analytics Sites
       const [zonesRes, waRes] = await Promise.all([
         fetch(`https://api.cloudflare.com/client/v4/zones?account.id=${accountId}&per_page=50`, { headers: cfH }),
         fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/web-analytics/sites?per_page=100`, { headers: cfH }),
@@ -980,7 +928,6 @@ async function handleRequest(request, env) {
       const zones   = zonesJson.result || [];
       const waSites = Array.isArray(waJson.result) ? waJson.result : (waJson.result?.data || []);
 
-      // hostname -> Web Analytics siteTag
       const hostToWaTag = {};
       waSites.forEach(s => {
         const h = s.host || s.hostname || '';
@@ -988,13 +935,11 @@ async function handleRequest(request, env) {
         if (h && t) hostToWaTag[h] = t;
       });
 
-      // hostname -> zone ID (fuer Custom Domains)
       const hostToZoneId = {};
       zones.forEach(z => { if (z.name && z.id) hostToZoneId[z.name] = z.id; });
 
-      const result = {}; // hostname -> { by_day: [{day, views}] }
+      const result = {};
 
-      // 2. RUM Pageviews per Web Analytics Site (parallel)
       await Promise.all(Object.entries(hostToWaTag).map(async ([host, tag]) => {
         const q = JSON.stringify({ query:
           `{viewer{accounts(filter:{accountTag:"${accountId}"}){` +
@@ -1015,7 +960,6 @@ async function handleRequest(request, env) {
         } catch(_) {}
       }));
 
-      // 3. Zone HTTP Analytics fuer Custom Domains (ueberschreibt RUM wenn vorhanden)
       await Promise.all(Object.entries(hostToZoneId).map(async ([host, zoneId]) => {
         const q = JSON.stringify({ query:
           `{viewer{zones(filter:{zoneTag:"${zoneId}"}){` +
@@ -1095,36 +1039,9 @@ async function handleRequest(request, env) {
       status TEXT DEFAULT 'draft',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
-    for (const col of ['tags TEXT DEFAULT \'\'', 'excerpt TEXT DEFAULT \'\'', 'content TEXT DEFAULT \'\'', "lang TEXT DEFAULT 'de'", "slug TEXT DEFAULT ''", "group_id TEXT DEFAULT ''", "publish_at TEXT DEFAULT NULL"]) {
+    for (const col of ["lang TEXT DEFAULT 'de'", "slug TEXT DEFAULT ''", "group_id TEXT DEFAULT ''", "publish_at TEXT DEFAULT NULL", "tags TEXT DEFAULT ''", "excerpt TEXT DEFAULT ''", "content TEXT DEFAULT ''"]) {
       await db.prepare(`ALTER TABLE blog_posts ADD COLUMN ${col}`).run().catch(() => {});
     }
-  }
-
-  // GET /api/blog/post – public: single post by slug
-  if (request.method === 'GET' && path === '/api/blog/post') {
-    await ensureBlogTable(db);
-    const siteId = url.searchParams.get('site_id') || '';
-    const lang   = url.searchParams.get('lang') || 'de';
-    const slug   = url.searchParams.get('slug') || '';
-    if (!slug) return err('slug erforderlich');
-    const post = await db.prepare(
-      "SELECT * FROM blog_posts WHERE site_id=? AND lang=? AND slug=? AND status='published' LIMIT 1"
-    ).bind(siteId, lang, slug).first();
-    if (!post) return new Response('Not Found', { status: 404 });
-    return json(post);
-  }
-
-  // GET /api/blog/published – public
-  if (request.method === 'GET' && path === '/api/blog/published') {
-    await ensureBlogTable(db);
-    const siteId = url.searchParams.get('site_id') || '';
-    const lang   = url.searchParams.get('lang') || '';
-    let q = "SELECT * FROM blog_posts WHERE site_id=? AND status='published'";
-    const binds = [siteId];
-    if (lang) { q += ' AND lang=?'; binds.push(lang); }
-    q += ' ORDER BY created_at DESC';
-    const result = await db.prepare(q).bind(...binds).all();
-    return json(result.results);
   }
 
   // GET /api/blog – authenticated
@@ -1143,12 +1060,12 @@ async function handleRequest(request, env) {
     if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
     await ensureBlogTable(db);
     const body = await request.json().catch(() => ({}));
-    const { site_id, title, tags, excerpt, content, status, lang, group_id } = body;
+    const { site_id, title, tags, excerpt, content, status, lang, group_id, publish_at } = body;
     if (!site_id || !title) return err('site_id und title erforderlich');
     const slug = makeSlug(title);
     const r = await db.prepare(
-      'INSERT INTO blog_posts (site_id, title, slug, tags, excerpt, content, status, lang, group_id) VALUES (?,?,?,?,?,?,?,?,?)'
-    ).bind(site_id, title, slug, tags || '', excerpt || '', content || '', status || 'draft', lang || 'de', group_id || '').run();
+      'INSERT INTO blog_posts (site_id, title, slug, tags, excerpt, content, status, lang, group_id, publish_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
+    ).bind(site_id, title, slug, tags || '', excerpt || '', content || '', status || 'draft', lang || 'de', group_id || '', publish_at || null).run();
     if (status === 'published') {
       await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
         .bind(site_id, 'info', `📝 Blog: ${title}`, 'Neuer Artikel veröffentlicht auf /blog').run();
@@ -1162,15 +1079,14 @@ async function handleRequest(request, env) {
     await ensureBlogTable(db);
     const body = await request.json().catch(() => ({}));
     const sets = []; const params = [];
-    if (body.title   !== undefined) { sets.push('title=?');   params.push(body.title); }
-    if (body.tags    !== undefined) { sets.push('tags=?');    params.push(body.tags); }
-    if (body.excerpt !== undefined) { sets.push('excerpt=?'); params.push(body.excerpt); }
-    if (body.content !== undefined) { sets.push('content=?'); params.push(body.content); }
-    if (body.status  !== undefined) { sets.push('status=?');  params.push(body.status); }
-    if (body.lang     !== undefined) { sets.push('lang=?');     params.push(body.lang); }
-    if (body.group_id  !== undefined) { sets.push('group_id=?');  params.push(body.group_id); }
+    if (body.title      !== undefined) { sets.push('title=?');      params.push(body.title); sets.push('slug=?'); params.push(makeSlug(body.title)); }
+    if (body.tags       !== undefined) { sets.push('tags=?');       params.push(body.tags); }
+    if (body.excerpt    !== undefined) { sets.push('excerpt=?');    params.push(body.excerpt); }
+    if (body.content    !== undefined) { sets.push('content=?');    params.push(body.content); }
+    if (body.status     !== undefined) { sets.push('status=?');     params.push(body.status); }
+    if (body.lang       !== undefined) { sets.push('lang=?');       params.push(body.lang); }
+    if (body.group_id   !== undefined) { sets.push('group_id=?');   params.push(body.group_id); }
     if (body.publish_at !== undefined) { sets.push('publish_at=?'); params.push(body.publish_at || null); }
-    if (body.title      !== undefined) { sets.push('slug=?');       params.push(makeSlug(body.title)); }
     if (!sets.length) return err('Nothing to update');
     await db.prepare(`UPDATE blog_posts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
     return json({ success: true });
@@ -1199,7 +1115,7 @@ async function handleRequest(request, env) {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
-    for (const col of ['username TEXT DEFAULT \'\'', 'notes TEXT DEFAULT \'\'']) {
+    for (const col of ["username TEXT DEFAULT ''", "notes TEXT DEFAULT ''"]) {
       await db.prepare(`ALTER TABLE vault_entries ADD COLUMN ${col}`).run().catch(() => {});
     }
   }
@@ -1279,7 +1195,7 @@ async function handleRequest(request, env) {
       sort_order INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
-    for (const col of ['color TEXT DEFAULT \'\'', 'pinned INTEGER DEFAULT 0', 'sort_order INTEGER DEFAULT 0']) {
+    for (const col of ["color TEXT DEFAULT ''", 'pinned INTEGER DEFAULT 0', 'sort_order INTEGER DEFAULT 0']) {
       await db.prepare(`ALTER TABLE pinboard_pins ADD COLUMN ${col}`).run().catch(() => {});
     }
   }
@@ -1340,7 +1256,6 @@ async function handleRequest(request, env) {
     await ensurePinboardTables(env.DB);
     const body = await request.json().catch(() => ({}));
     if (!body.title || !body.board_id) return err('Titel und Board erforderlich');
-    // Optional: create linked todo
     let todoTaskId = body.todo_task_id || null;
     if (body.create_todo && !todoTaskId) {
       const tr = await env.DB.prepare(
@@ -1478,10 +1393,8 @@ async function handleRequest(request, env) {
   }
 
   // ── RLDB EXPLORER (ratelimit-db) ─────────────────────────────────
-  // Discover tables dynamically from sqlite_master
   async function d1Explorer(d1db, segments, url, method, request) {
     if (method === 'GET' && segments[0] === 'tables') {
-      // List all tables
       const tables = await d1db.prepare(
         `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name`
       ).all();
@@ -1498,7 +1411,6 @@ async function handleRequest(request, env) {
     }
     if (method === 'GET' && segments[0] && segments[0] !== 'tables' && !segments[1]) {
       const table = segments[0];
-      // Validate table exists
       const exists = await d1db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).bind(table).first();
       if (!exists) return err('Table not found', 404);
       const limit    = Math.min(parseInt(url.searchParams.get('limit')  || '100'), 500);
@@ -1570,10 +1482,6 @@ async function handleRequest(request, env) {
   }
 
   // ── SUPABASE PROXY ───────────────────────────────────────────────
-  // Browser → Worker → Supabase REST API
-  // Keys stored as Wrangler secrets: SUPABASE_FT_KEY, SUPABASE_FS_KEY
-  // Set via: npx wrangler secret put SUPABASE_FT_KEY
-  //          npx wrangler secret put SUPABASE_FS_KEY
   if (segments[1] === 'supabase') {
     if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
 
@@ -1592,32 +1500,21 @@ async function handleRequest(request, env) {
     const sbBase = `https://${sbCfg.ref}.supabase.co`;
     const sbHeaders = { apikey: sbKey, Authorization: `Bearer ${sbKey}`, 'Content-Type': 'application/json' };
 
-    // GET /api/supabase/:db/tables  →  list all tables + counts + schema
     if (request.method === 'GET' && segments[3] === 'tables') {
-      // Fetch OpenAPI spec from Supabase
       const specR = await fetch(`${sbBase}/rest/v1/`, { headers: sbHeaders });
       if (!specR.ok) return err(`Supabase spec error ${specR.status}`, 502);
       const spec   = await specR.json();
       const tableNames = Object.keys(spec.paths || {})
         .map(p => p.replace(/^\//, ''))
         .filter(n => n && !n.includes('{') && !n.startsWith('rpc/'));
-
       const infos = await Promise.all(tableNames.map(async name => {
         try {
-          const cr = await fetch(`${sbBase}/rest/v1/${name}?select=*&limit=0`, {
-            headers: { ...sbHeaders, Prefer: 'count=exact' }
-          });
+          const cr = await fetch(`${sbBase}/rest/v1/${name}?select=*&limit=0`, { headers: { ...sbHeaders, Prefer: 'count=exact' } });
           const range = cr.headers.get('Content-Range') || '';
           const total = parseInt((range.split('/')[1] || '0'), 10);
-          // Build columns from OpenAPI definition
           const def  = spec.definitions?.[name];
           const columns = def?.properties
-            ? Object.entries(def.properties).map(([k, v]) => ({
-                name: k,
-                type: v.format || v.type || 'any',
-                pk:   (def['x-pk'] || []).includes(k) || k === 'id',
-                notnull: false
-              }))
+            ? Object.entries(def.properties).map(([k, v]) => ({ name: k, type: v.format || v.type || 'any', pk: (def['x-pk'] || []).includes(k) || k === 'id', notnull: false }))
             : [];
           return { name, count: isNaN(total) ? 0 : total, columns };
         } catch { return { name, count: 0, columns: [] }; }
@@ -1625,7 +1522,6 @@ async function handleRequest(request, env) {
       return json(infos);
     }
 
-    // GET /api/supabase/:db/:table?limit=&offset=&order_by=&order_dir=&search=&filter_col=&filter_val=
     if (request.method === 'GET' && segments[3] && !segments[4]) {
       const table     = segments[3];
       const limit     = Math.min(parseInt(url.searchParams.get('limit')   || '100'), 500);
@@ -1635,7 +1531,6 @@ async function handleRequest(request, env) {
       const search    = url.searchParams.get('search')    || '';
       const filterCol = url.searchParams.get('filter_col') || '';
       const filterVal = url.searchParams.get('filter_val') || '';
-
       const params = new URLSearchParams();
       params.set('select', '*');
       params.set('limit',  limit);
@@ -1644,60 +1539,39 @@ async function handleRequest(request, env) {
       if (filterCol && filterVal) {
         params.set(filterCol, `eq.${filterVal}`);
       } else if (search) {
-        // Use textSearch on common text columns
         const textCols = ['title','name','message','content','email','description','subject','body','text','label','notes'];
-        params.set(textCols[0], `ilike.*${search}*`); // best-effort, single column
+        params.set(textCols[0], `ilike.*${search}*`);
       }
-
-      const r = await fetch(`${sbBase}/rest/v1/${table}?${params}`, {
-        headers: { ...sbHeaders, Prefer: 'count=exact' }
-      });
+      const r = await fetch(`${sbBase}/rest/v1/${table}?${params}`, { headers: { ...sbHeaders, Prefer: 'count=exact' } });
       if (!r.ok) return err(`Supabase ${r.status}: ${(await r.text()).slice(0,100)}`, 502);
       const rows  = await r.json();
       const range = r.headers.get('Content-Range') || '';
       const total = parseInt((range.split('/')[1] || String(rows.length)), 10);
-      // Build schema from first row
-      const columns = rows.length
-        ? Object.keys(rows[0]).map(k => ({ name: k, type: 'any', pk: k === 'id', notnull: false }))
-        : [];
+      const columns = rows.length ? Object.keys(rows[0]).map(k => ({ name: k, type: 'any', pk: k === 'id', notnull: false })) : [];
       return json({ rows, total: isNaN(total) ? rows.length : total, columns, limit, offset });
     }
 
-    // POST /api/supabase/:db/:table  (insert)
     if (request.method === 'POST' && segments[3] && !segments[4]) {
       const table = segments[3];
       const body  = await request.json().catch(() => ({}));
-      const r = await fetch(`${sbBase}/rest/v1/${table}`, {
-        method: 'POST',
-        headers: { ...sbHeaders, Prefer: 'return=minimal' },
-        body: JSON.stringify(body),
-      });
+      const r = await fetch(`${sbBase}/rest/v1/${table}`, { method: 'POST', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(body) });
       if (!r.ok) return err(`Supabase ${r.status}: ${(await r.text()).slice(0,100)}`, 502);
       return json({ success: true });
     }
 
-    // PATCH /api/supabase/:db/:table/:id  (update)
     if (request.method === 'PATCH' && segments[3] && segments[4]) {
       const table = segments[3];
       const id    = segments[4];
       const body  = await request.json().catch(() => ({}));
-      const r = await fetch(`${sbBase}/rest/v1/${table}?id=eq.${id}`, {
-        method: 'PATCH',
-        headers: { ...sbHeaders, Prefer: 'return=minimal' },
-        body: JSON.stringify(body),
-      });
+      const r = await fetch(`${sbBase}/rest/v1/${table}?id=eq.${id}`, { method: 'PATCH', headers: { ...sbHeaders, Prefer: 'return=minimal' }, body: JSON.stringify(body) });
       if (!r.ok) return err(`Supabase ${r.status}: ${(await r.text()).slice(0,100)}`, 502);
       return json({ success: true });
     }
 
-    // DELETE /api/supabase/:db/:table/:id  (delete)
     if (request.method === 'DELETE' && segments[3] && segments[4]) {
       const table = segments[3];
       const id    = segments[4];
-      const r = await fetch(`${sbBase}/rest/v1/${table}?id=eq.${id}`, {
-        method: 'DELETE',
-        headers: { ...sbHeaders, Prefer: 'return=minimal' },
-      });
+      const r = await fetch(`${sbBase}/rest/v1/${table}?id=eq.${id}`, { method: 'DELETE', headers: { ...sbHeaders, Prefer: 'return=minimal' } });
       if (!r.ok) return err(`Supabase ${r.status}: ${(await r.text()).slice(0,100)}`, 502);
       return json({ success: true });
     }
