@@ -1104,6 +1104,9 @@ or: WORT1, WORT2, WORT3"
     </div>` : emptyState('Noch keine Wörter eingetragen')}
   `;
 
+  // Validierungs-Handler patchen (ersetzt die einfachen inline handlers)
+  setTimeout(() => window._wdtPatchHandlers && window._wdtPatchHandlers(siteId), 50);
+
   // JS-Funktionen für Tabs + Preview + Save
   window._wdtTab = function(code) {
     const langs = ['de','en','fr','es','it'];
@@ -1963,4 +1966,116 @@ window._blgDeleteGroup = async function(postIds, siteId) {
     await api('/api/blog/' + postIds[i], { method: 'DELETE' });
   }
   reloadPanel(siteId, 'blog');
+};
+
+// ── WDT Wordlist-Validierung (erweitert die renderWortDesTages-Closures) ─────────────
+window._wdtWordlists = window._wdtWordlists || {};
+
+window._wdtLoadWordlist = async function(lang) {
+  if (window._wdtWordlists[lang]) return window._wdtWordlists[lang];
+  try {
+    const res = await fetch('https://wordify.pages.dev/api/wordlist?lang=' + lang);
+    if (!res.ok) return null;
+    const arr = await res.json();
+    if (!Array.isArray(arr)) return null;
+    window._wdtWordlists[lang] = new Set(arr);
+    return window._wdtWordlists[lang];
+  } catch(_) { return null; }
+};
+
+// Override _wdtPreview: live validation in preview panel
+window._wdtPreviewValidated = function(lang) {
+  const raw   = document.getElementById('wdt-bulk-' + lang);
+  const startEl = document.getElementById('wdt-startdate-' + lang);
+  const prev  = document.getElementById('wdt-preview-' + lang);
+  if (!raw || !prev) return;
+  const words = raw.value.split(/[\n,]+/).map(function(w){ return w.trim().toUpperCase(); }).filter(Boolean);
+  const start = startEl && startEl.value;
+  if (!words.length || !start) { prev.innerHTML = ''; return; }
+  const wl = window._wdtWordlists[lang];
+  const lines = [];
+  var d = new Date(start + 'T00:00:00');
+  words.slice(0, 14).forEach(function(w) {
+    const badLen   = w.length !== 5;
+    const notInWl  = !badLen && wl && !wl.has(w);
+    const color    = badLen ? '#f87171' : notInWl ? '#fbbf24' : 'var(--text2)';
+    const badge    = badLen
+      ? '<span style="font-size:9px;background:rgba(239,68,68,.2);color:#f87171;padding:1px 5px;border-radius:3px;margin-left:6px">✗ ' + w.length + ' Buchstaben</span>'
+      : notInWl
+        ? '<span style="font-size:9px;background:rgba(251,191,36,.2);color:#fbbf24;padding:1px 5px;border-radius:3px;margin-left:6px">⚠ nicht in Liste</span>'
+        : '<span style="font-size:9px;background:rgba(34,197,94,.2);color:#34d399;padding:1px 5px;border-radius:3px;margin-left:6px">✓</span>';
+    lines.push('<div style="color:' + color + '">' + d.toISOString().slice(0,10) + '  →  ' + w + badge + '</div>');
+    d.setDate(d.getDate() + 1);
+  });
+  if (words.length > 14) lines.push('<div style="color:var(--text3)">… +' + (words.length - 14) + ' weitere</div>');
+  prev.innerHTML = lines.join('');
+};
+
+// Override _wdtSaveBulk: add validation before save
+window._wdtSaveBulkValidated = async function(lang, siteId) {
+  const rawEl    = document.getElementById('wdt-bulk-' + lang);
+  const startEl  = document.getElementById('wdt-startdate-' + lang);
+  const statusEl = document.getElementById('wdt-status-' + lang);
+  if (!rawEl || !startEl || !statusEl) return;
+  const words = rawEl.value.split(/[\n,]+/).map(function(w){ return w.trim().toUpperCase(); }).filter(Boolean);
+  const start = startEl.value;
+  if (!words.length) { alert('Bitte mindestens ein Wort eingeben.'); return; }
+  if (!start) { alert('Bitte Startdatum wählen.'); return; }
+
+  // Validierung 1: 5 Buchstaben
+  const wrongLen = words.filter(function(w){ return w.length !== 5; });
+  if (wrongLen.length) {
+    alert(wrongLen.length + ' Wort' + (wrongLen.length > 1 ? 'örter haben' : ' hat') +
+      ' nicht genau 5 Buchstaben:\n\n' + wrongLen.slice(0, 10).join(', ') +
+      (wrongLen.length > 10 ? ' …' : '') +
+      '\n\nBitte korrigieren und erneut speichern.');
+    return;
+  }
+
+  // Validierung 2: in Wortliste
+  statusEl.textContent = 'Prüfe Wortliste…'; statusEl.style.color = 'var(--text3)';
+  const wl = await window._wdtLoadWordlist(lang);
+  if (wl) {
+    const missing = words.filter(function(w){ return !wl.has(w); });
+    if (missing.length) {
+      const proceed = confirm(
+        missing.length + ' Wort' + (missing.length > 1 ? 'örter sind' : ' ist') +
+        ' nicht in der Wordify-Liste (' + lang.toUpperCase() + '):\n\n' +
+        missing.slice(0, 15).join(', ') + (missing.length > 15 ? ' …' : '') +
+        '\n\nDiese Wörter können im Spiel nicht gelöst werden.\nTrotzdem speichern?'
+      );
+      if (!proceed) { statusEl.textContent = ''; return; }
+    }
+  }
+
+  statusEl.textContent = 'Speichert…'; statusEl.style.color = 'var(--text3)';
+  var d = new Date(start + 'T00:00:00');
+  var saved = 0;
+  for (var i = 0; i < words.length; i++) {
+    const date = d.toISOString().slice(0,10);
+    await api('/api/daily-words', { method: 'POST', body: { date: date, language: lang, word: words[i] } });
+    saved++;
+    statusEl.textContent = saved + '/' + words.length + ' gespeichert…';
+    d.setDate(d.getDate() + 1);
+  }
+  statusEl.textContent = '✓ ' + saved + ' Wörter gespeichert!';
+  statusEl.style.color = '#34d399';
+  rawEl.value = '';
+  const prevEl = document.getElementById('wdt-preview-' + lang);
+  if (prevEl) prevEl.innerHTML = '';
+  setTimeout(function(){ reloadPanel(siteId, 'wortdestages'); }, 1000);
+};
+
+// Patch oninput handlers nach render — called by renderWortDesTages after panel.innerHTML is set
+window._wdtPatchHandlers = function(siteId) {
+  ['de','en','fr','es','it'].forEach(function(lang) {
+    const bulk  = document.getElementById('wdt-bulk-' + lang);
+    const start = document.getElementById('wdt-startdate-' + lang);
+    const btn   = document.querySelector('#wdt-panel-' + lang + ' .btn-primary');
+    if (bulk)  bulk.oninput  = function(){ window._wdtPreviewValidated(lang); };
+    if (start) start.oninput = function(){ window._wdtPreviewValidated(lang); };
+    if (btn)   btn.onclick   = function(){ window._wdtSaveBulkValidated(lang, siteId); };
+    // Preload wordlist silently
+    window._wdtLoadWordlist(lang).then(function(){ window._wdtPreviewValidated(lang); });
+  });
 };
