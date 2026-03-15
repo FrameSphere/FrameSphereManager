@@ -1620,6 +1620,118 @@ async function handleRequest(request, env) {
     return d1Explorer(rs, segments.slice(2), url, request.method, request);
   }
 
+  // ── BLOG ANALYTICS (public POST, auth GET) ──────────────────────
+  if (path === '/api/blog/analytics') {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS blog_analytics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      site_id TEXT NOT NULL,
+      post_id INTEGER,
+      post_slug TEXT,
+      lang TEXT,
+      event TEXT NOT NULL,
+      scroll_depth INTEGER,
+      time_on_page INTEGER,
+      referrer TEXT,
+      country TEXT,
+      device TEXT,
+      session_id TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run().catch(() => {});
+
+    // POST: Event tracken (public)
+    if (request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const { site_id, post_id, post_slug, lang, event, scroll_depth, time_on_page, referrer, session_id, device } = body;
+      if (!site_id || !event) return err('site_id und event erforderlich');
+      const country = request.headers.get('CF-IPCountry') || '';
+      await db.prepare(
+        'INSERT INTO blog_analytics (site_id, post_id, post_slug, lang, event, scroll_depth, time_on_page, referrer, country, device, session_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+      ).bind(
+        site_id, post_id || null, post_slug || '', lang || '',
+        event, scroll_depth || null, time_on_page || null,
+        (referrer || '').slice(0, 200), country,
+        device || '', session_id || ''
+      ).run();
+      return json({ ok: true });
+    }
+
+    // GET: Aggregierte Analytics (auth)
+    if (request.method === 'GET') {
+      if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+      const siteId = url.searchParams.get('site_id') || '';
+      const days   = parseInt(url.searchParams.get('days') || '30');
+
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+
+      // Pageviews pro Post
+      const byPost = await db.prepare(`
+        SELECT post_slug, lang,
+          COUNT(*) AS views,
+          COUNT(DISTINCT session_id) AS uniques,
+          AVG(CASE WHEN time_on_page IS NOT NULL THEN time_on_page END) AS avg_time,
+          MAX(created_at) AS last_view
+        FROM blog_analytics
+        WHERE site_id=? AND event='pageview' AND created_at >= ?
+        GROUP BY post_slug, lang
+        ORDER BY views DESC
+      `).bind(siteId, since).all();
+
+      // Scroll-Tiefe Verteilung
+      const scrollDist = await db.prepare(`
+        SELECT post_slug,
+          SUM(CASE WHEN scroll_depth >= 25 THEN 1 ELSE 0 END) AS s25,
+          SUM(CASE WHEN scroll_depth >= 50 THEN 1 ELSE 0 END) AS s50,
+          SUM(CASE WHEN scroll_depth >= 75 THEN 1 ELSE 0 END) AS s75,
+          SUM(CASE WHEN scroll_depth >= 100 THEN 1 ELSE 0 END) AS s100,
+          COUNT(*) AS total
+        FROM blog_analytics
+        WHERE site_id=? AND event='scroll' AND created_at >= ?
+        GROUP BY post_slug
+      `).bind(siteId, since).all();
+
+      // Referrer Top 10
+      const referrers = await db.prepare(`
+        SELECT referrer, COUNT(*) AS cnt
+        FROM blog_analytics
+        WHERE site_id=? AND event='pageview' AND referrer != '' AND created_at >= ?
+        GROUP BY referrer ORDER BY cnt DESC LIMIT 10
+      `).bind(siteId, since).all();
+
+      // Länder Top 10
+      const countries = await db.prepare(`
+        SELECT country, COUNT(*) AS cnt
+        FROM blog_analytics
+        WHERE site_id=? AND event='pageview' AND country != '' AND created_at >= ?
+        GROUP BY country ORDER BY cnt DESC LIMIT 10
+      `).bind(siteId, since).all();
+
+      // Devices
+      const devices = await db.prepare(`
+        SELECT device, COUNT(*) AS cnt
+        FROM blog_analytics
+        WHERE site_id=? AND event='pageview' AND created_at >= ?
+        GROUP BY device ORDER BY cnt DESC
+      `).bind(siteId, since).all();
+
+      // Views pro Tag (letzten 30 Tage)
+      const byDay = await db.prepare(`
+        SELECT substr(created_at,1,10) AS day, COUNT(*) AS views, COUNT(DISTINCT session_id) AS uniques
+        FROM blog_analytics
+        WHERE site_id=? AND event='pageview' AND created_at >= ?
+        GROUP BY day ORDER BY day ASC
+      `).bind(siteId, since).all();
+
+      return json({
+        byPost:    byPost.results    || [],
+        scrollDist: scrollDist.results || [],
+        referrers: referrers.results  || [],
+        countries: countries.results  || [],
+        devices:   devices.results    || [],
+        byDay:     byDay.results      || [],
+      });
+    }
+  }
+
   // ── BLOG FEEDBACK (public POST, auth GET) ─────────────────────────
   if (path === '/api/blog/feedback') {
     // Tabelle anlegen falls nicht vorhanden

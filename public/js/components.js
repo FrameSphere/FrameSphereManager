@@ -1700,6 +1700,190 @@ window._blgToggleFeedback = function(siteId) {
   }
 };
 
+// ── Blog Analytics ─────────────────────────────────────────────────
+window._blgToggleAnalytics = async function(siteId) {
+  const panel = document.getElementById('bl-analytics-panel');
+  const btn   = document.getElementById('bl-analytics-btn');
+  if (!panel) return;
+  const open = panel.style.display !== 'none';
+  if (open) {
+    panel.style.display = 'none';
+    if (btn) { btn.style.background = ''; btn.style.borderColor = ''; btn.style.color = ''; }
+    return;
+  }
+  panel.style.display = 'block';
+  if (btn) { btn.style.background = 'rgba(99,102,241,.15)'; btn.style.borderColor = 'rgba(99,102,241,.4)'; btn.style.color = '#818cf8'; }
+  panel.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">Lade Analytics\u2026</div>';
+  const data = await api(`/api/blog/analytics?site_id=${siteId}&days=30`);
+  if (!data) { panel.innerHTML = errState(); return; }
+  panel.innerHTML = _renderBlogAnalytics(data);
+};
+
+function _renderBlogAnalytics(data) {
+  const { byPost, scrollDist, referrers, countries, devices, byDay } = data;
+
+  const totalViews   = byPost.reduce((s,r) => s + Number(r.views),   0);
+  const totalUniques = byPost.reduce((s,r) => s + Number(r.uniques), 0);
+
+  // Avg time helper
+  function fmtTime(sec) {
+    if (!sec || sec < 1) return '–';
+    if (sec < 60) return Math.round(sec) + 's';
+    return Math.floor(sec/60) + 'm ' + Math.round(sec%60) + 's';
+  }
+
+  // Sparkline für Views pro Tag
+  function sparkline(rows) {
+    if (!rows.length) return '<div style="color:var(--text3);font-size:11px">Noch keine Daten</div>';
+    const vals = rows.map(r => Number(r.views));
+    const max  = Math.max(...vals, 1);
+    const bars = vals.map(v => {
+      const h = Math.max(4, Math.round(v / max * 40));
+      return `<div style="flex:1;height:${h}px;background:#818cf8;border-radius:2px 2px 0 0;opacity:.7;min-width:4px" title="${v}"></div>`;
+    }).join('');
+    return `<div style="display:flex;align-items:flex-end;gap:2px;height:44px;padding-top:4px">${bars}</div>`;
+  }
+
+  // Post-Tabelle: Grupp nach Slug (alle Sprachen zusammen)
+  const bySlug = {};
+  byPost.forEach(r => {
+    if (!bySlug[r.post_slug]) bySlug[r.post_slug] = { views:0, uniques:0, times:[], langs:{} };
+    bySlug[r.post_slug].views   += Number(r.views);
+    bySlug[r.post_slug].uniques += Number(r.uniques);
+    if (r.avg_time) bySlug[r.post_slug].times.push(Number(r.avg_time));
+    bySlug[r.post_slug].langs[r.lang] = Number(r.views);
+  });
+  const sortedPosts = Object.entries(bySlug).sort((a,b) => b[1].views - a[1].views);
+
+  // Scroll-Tiefe Map
+  const scrollMap = {};
+  scrollDist.forEach(r => { scrollMap[r.post_slug] = r; });
+
+  // Flag emoji für Länder
+  function flag(cc) {
+    if (!cc || cc.length !== 2) return cc || '?';
+    return String.fromCodePoint(...[...cc.toUpperCase()].map(c => 0x1F1A5 + c.charCodeAt(0))) + ' ' + cc;
+  }
+
+  let html = `
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+
+    <!-- Header KPIs -->
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+      ${[
+        { label:'Views (30T)',    val: totalViews,   col:'#818cf8' },
+        { label:'Unique Visitors', val: totalUniques, col:'#60a5fa' },
+        { label:'Posts getrackt', val: sortedPosts.length, col:'#34d399' },
+      ].map(k => `<div style="padding:14px 22px;flex:1;min-width:100px;border-right:1px solid var(--border)">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:4px">${k.label}</div>
+        <div style="font-size:22px;font-weight:800;color:${k.col}">${k.val}</div>
+      </div>`).join('')}
+      <!-- Device split -->
+      <div style="padding:14px 22px;flex:1;min-width:120px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:6px">Geräte</div>
+        ${devices.map(d => {
+          const total = devices.reduce((s,x) => s+Number(x.cnt),0) || 1;
+          const pct   = Math.round(Number(d.cnt)/total*100);
+          const icon  = d.device === 'mobile' ? '📱' : '💻';
+          return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+            <span style="font-size:11px">${icon} ${d.device}</span>
+            <div style="flex:1;height:5px;background:rgba(255,255,255,.08);border-radius:3px">
+              <div style="width:${pct}%;height:100%;background:#818cf8;border-radius:3px"></div>
+            </div>
+            <span style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace">${pct}%</span>
+          </div>`;
+        }).join('') || '<div style="font-size:11px;color:var(--text3)">Keine Daten</div>'}
+      </div>
+    </div>
+
+    <!-- Sparkline -->
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border)">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:8px">Views letzte 30 Tage</div>
+      ${sparkline(byDay)}
+      ${byDay.length ? `<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:4px"><span>${byDay[0]?.day||''}</span><span>${byDay[byDay.length-1]?.day||''}</span></div>` : ''}
+    </div>
+
+    <!-- Post-Tabelle -->
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:rgba(255,255,255,.02)">
+        <th style="text-align:left;padding:10px 18px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Post</th>
+        <th style="text-align:center;padding:10px 12px;font-size:10px;font-weight:700;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Views</th>
+        <th style="text-align:center;padding:10px 12px;font-size:10px;font-weight:700;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Uniques</th>
+        <th style="text-align:center;padding:10px 12px;font-size:10px;font-weight:700;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Eis Zeit</th>
+        <th style="text-align:center;padding:10px 12px;font-size:10px;font-weight:700;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Scroll 75%+</th>
+        <th style="text-align:center;padding:10px 12px;font-size:10px;font-weight:700;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Scroll 100%</th>
+      </tr></thead>
+      <tbody>`;
+
+  sortedPosts.forEach(([slug, d], ri) => {
+    const avgTime = d.times.length ? d.times.reduce((a,b)=>a+b,0)/d.times.length : null;
+    const sd = scrollMap[slug];
+    const s75pct  = sd && sd.total > 0 ? Math.round(Number(sd.s75)  / Number(sd.total) * 100) : null;
+    const s100pct = sd && sd.total > 0 ? Math.round(Number(sd.s100) / Number(sd.total) * 100) : null;
+    const rowBg = ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.015)';
+
+    function scrollBadge(pct) {
+      if (pct === null) return '<span style="color:var(--text3)">-</span>';
+      const col = pct >= 60 ? '#34d399' : pct >= 30 ? '#fbbf24' : '#f87171';
+      const bg  = pct >= 60 ? 'rgba(52,211,153,.1)' : pct >= 30 ? 'rgba(251,191,36,.1)' : 'rgba(239,68,68,.1)';
+      return `<span style="padding:2px 7px;border-radius:5px;background:${bg};color:${col};font-size:11px;font-weight:700;font-family:'Space Mono',monospace">${pct}%</span>`;
+    }
+
+    html += `<tr style="background:${rowBg}" onmouseover="this.style.background='rgba(255,255,255,.03)'" onmouseout="this.style.background='${rowBg}'">
+      <td style="padding:10px 18px;border-bottom:1px solid rgba(35,46,66,.4)">
+        <div style="font-size:12px;font-weight:600">${slug || '(unbekannt)'}</div>
+        <div style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:2px">${Object.entries(d.langs).map(([l,v])=>`${l}:${v}`).join(' · ')}</div>
+      </td>
+      <td style="padding:10px 12px;text-align:center;border-bottom:1px solid rgba(35,46,66,.4);font-size:13px;font-weight:700;color:#818cf8">${d.views}</td>
+      <td style="padding:10px 12px;text-align:center;border-bottom:1px solid rgba(35,46,66,.4);font-size:13px;font-weight:700;color:#60a5fa">${d.uniques}</td>
+      <td style="padding:10px 12px;text-align:center;border-bottom:1px solid rgba(35,46,66,.4);font-size:12px;color:var(--text2);font-family:'Space Mono',monospace">${fmtTime(avgTime)}</td>
+      <td style="padding:10px 12px;text-align:center;border-bottom:1px solid rgba(35,46,66,.4)">${scrollBadge(s75pct)}</td>
+      <td style="padding:10px 12px;text-align:center;border-bottom:1px solid rgba(35,46,66,.4)">${scrollBadge(s100pct)}</td>
+    </tr>`;
+  });
+
+  if (!sortedPosts.length) {
+    html += `<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--text3);font-size:12px">📊 Noch keine Analytics-Daten — werden automatisch gesammelt sobald jemand einen Blog-Post aufruft.</td></tr>`;
+  }
+
+  html += `</tbody></table></div>
+
+    <!-- Bottom: Referrer + Länder -->
+    <div style="display:flex;gap:0;border-top:1px solid var(--border);flex-wrap:wrap">
+      <!-- Referrer -->
+      <div style="flex:1;min-width:200px;padding:14px 18px;border-right:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:10px">Top Referrer</div>
+        ${referrers.length
+          ? referrers.map(r => {
+              const host = r.referrer.replace(/^https?:\/\//,'').split('/')[0] || r.referrer;
+              return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.referrer)}">${esc(host||'(direkt)')}</span>
+                <span style="font-size:11px;font-weight:700;color:#818cf8;font-family:'Space Mono',monospace;flex-shrink:0">${r.cnt}</span>
+              </div>`;
+            }).join('')
+          : '<div style="font-size:11px;color:var(--text3)">Keine Daten</div>'}
+      </div>
+      <!-- Länder -->
+      <div style="flex:1;min-width:200px;padding:14px 18px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:10px">Top Länder</div>
+        ${countries.length
+          ? countries.map(c => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+              <span style="flex:1;font-size:11px">${flag(c.country)}</span>
+              <span style="font-size:11px;font-weight:700;color:#60a5fa;font-family:'Space Mono',monospace;flex-shrink:0">${c.cnt}</span>
+            </div>`).join('')
+          : '<div style="font-size:11px;color:var(--text3)">Keine Daten</div>'}
+      </div>
+    </div>
+
+    <div style="padding:8px 18px;font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;border-top:1px solid var(--border)">
+      Zeitraum: letzte 30 Tage · Session-IDs sind anonym · kein Tracking von IPs
+    </div>
+  </div>`;
+
+  return html;
+}
+
 // ── Feedback-Tabelle ───────────────────────────────────────────────────
 function _renderFeedbackTable(posts, feedbackRows) {
   if (!feedbackRows.length) {
@@ -1922,8 +2106,13 @@ async function renderBlog(siteId, panel) {
         <span style="color:var(--text3);font-weight:400;font-size:11px;margin-left:8px">${pubCount} ver\u00F6ffentlicht</span>
       </div>
       <div class="flex-1"></div>
-      <button class="btn btn-ghost btn-sm" id="bl-feedback-btn" onclick="_blgToggleFeedback('${siteId}')">👍 Feedback-Analyse</button>
+      <button class="btn btn-ghost btn-sm" id="bl-analytics-btn" onclick="_blgToggleAnalytics('${siteId}')">📊 Analytics</button>
+      <button class="btn btn-ghost btn-sm" id="bl-feedback-btn" onclick="_blgToggleFeedback('${siteId}')">👍 Feedback</button>
       <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','blog')">\u21BB Aktualisieren</button>
+    </div>
+
+    <div id="bl-analytics-panel" style="display:none;margin-bottom:16px">
+      <div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">Lade Analytics\u2026</div>
     </div>
 
     <div id="bl-feedback-panel" style="display:none;margin-bottom:16px">
