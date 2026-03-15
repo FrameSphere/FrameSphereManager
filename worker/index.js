@@ -94,6 +94,11 @@ async function ensureChangelogTable(db) {
   await db.prepare("ALTER TABLE changelog_entries ADD COLUMN type TEXT DEFAULT 'feature'").run().catch(() => {});
   await db.prepare("ALTER TABLE changelog_entries ADD COLUMN slug TEXT DEFAULT ''").run().catch(() => {});
   await db.prepare("ALTER TABLE changelog_entries ADD COLUMN publish_at TEXT DEFAULT NULL").run().catch(() => {});
+  await db.prepare("ALTER TABLE changelog_entries ADD COLUMN published_at TEXT DEFAULT NULL").run().catch(() => {});
+  // Backfill: bereits veröffentlichte Einträge ohne published_at bekommen created_at
+  await db.prepare(
+    "UPDATE changelog_entries SET published_at = created_at WHERE published = 1 AND published_at IS NULL"
+  ).run().catch(() => {});
   // Backfill slugs for entries that were created before the slug system
   const noSlug = await db.prepare(
     "SELECT id, title FROM changelog_entries WHERE slug IS NULL OR slug = ''"
@@ -725,9 +730,10 @@ async function handleRequest(request, env) {
     if (!site_id || !title) return err('Missing fields');
     const ver = version || new Date().toISOString().slice(0, 10);
     const slug = makeSlug(title);
+    const clPubAt = published ? new Date().toISOString() : null;
     await db.prepare(
-      'INSERT INTO changelog_entries (site_id, version, title, slug, description, type, published) VALUES (?,?,?,?,?,?,?)'
-    ).bind(site_id, ver, title, slug, description || null, type || 'feature', published ? 1 : 0).run();
+      'INSERT INTO changelog_entries (site_id, version, title, slug, description, type, published, published_at) VALUES (?,?,?,?,?,?,?,?)'
+    ).bind(site_id, ver, title, slug, description || null, type || 'feature', published ? 1 : 0, clPubAt).run();
     return json({ success: true });
   }
 
@@ -742,6 +748,7 @@ async function handleRequest(request, env) {
     if (body.type       !== undefined) { sets.push('type=?'); params.push(body.type); }
     if (body.version    !== undefined) { sets.push('version=?'); params.push(body.version); }
     if (body.publish_at !== undefined) { sets.push('publish_at=?'); params.push(body.publish_at || null); }
+    if (body.published === 1) { sets.push('published_at=COALESCE(published_at,?)'); params.push(new Date().toISOString()); }
     if (sets.length) {
       params.push(segments[2]);
       await db.prepare(`UPDATE changelog_entries SET ${sets.join(',')} WHERE id=?`).bind(...params).run();
@@ -1039,9 +1046,13 @@ async function handleRequest(request, env) {
       status TEXT DEFAULT 'draft',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
-    for (const col of ["lang TEXT DEFAULT 'de'", "slug TEXT DEFAULT ''", "group_id TEXT DEFAULT ''", "publish_at TEXT DEFAULT NULL", "tags TEXT DEFAULT ''", "excerpt TEXT DEFAULT ''", "content TEXT DEFAULT ''"]) {
+    for (const col of ["lang TEXT DEFAULT 'de'", "slug TEXT DEFAULT ''", "group_id TEXT DEFAULT ''", "publish_at TEXT DEFAULT NULL", "published_at TEXT DEFAULT NULL", "tags TEXT DEFAULT ''", "excerpt TEXT DEFAULT ''", "content TEXT DEFAULT ''"]) {
       await db.prepare(`ALTER TABLE blog_posts ADD COLUMN ${col}`).run().catch(() => {});
     }
+    // Backfill: bereits veröffentlichte Posts ohne published_at bekommen created_at
+    await db.prepare(
+      "UPDATE blog_posts SET published_at = created_at WHERE status = 'published' AND published_at IS NULL"
+    ).run().catch(() => {});
   }
 
   // GET /api/blog – authenticated
@@ -1063,9 +1074,10 @@ async function handleRequest(request, env) {
     const { site_id, title, tags, excerpt, content, status, lang, group_id, publish_at } = body;
     if (!site_id || !title) return err('site_id und title erforderlich');
     const slug = makeSlug(title);
+    const pubAt = (status === 'published') ? new Date().toISOString() : null;
     const r = await db.prepare(
-      'INSERT INTO blog_posts (site_id, title, slug, tags, excerpt, content, status, lang, group_id, publish_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
-    ).bind(site_id, title, slug, tags || '', excerpt || '', content || '', status || 'draft', lang || 'de', group_id || '', publish_at || null).run();
+      'INSERT INTO blog_posts (site_id, title, slug, tags, excerpt, content, status, lang, group_id, publish_at, published_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+    ).bind(site_id, title, slug, tags || '', excerpt || '', content || '', status || 'draft', lang || 'de', group_id || '', publish_at || null, pubAt).run();
     if (status === 'published') {
       await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
         .bind(site_id, 'info', `📝 Blog: ${title}`, 'Neuer Artikel veröffentlicht auf /blog').run();
@@ -1087,6 +1099,7 @@ async function handleRequest(request, env) {
     if (body.lang       !== undefined) { sets.push('lang=?');       params.push(body.lang); }
     if (body.group_id   !== undefined) { sets.push('group_id=?');   params.push(body.group_id); }
     if (body.publish_at !== undefined) { sets.push('publish_at=?'); params.push(body.publish_at || null); }
+    if (body.status === 'published') { sets.push('published_at=COALESCE(published_at,?)'); params.push(new Date().toISOString()); }
     if (!sets.length) return err('Nothing to update');
     await db.prepare(`UPDATE blog_posts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
     return json({ success: true });
@@ -1607,7 +1620,7 @@ async function runScheduledPublish(env) {
     "SELECT id, site_id, title FROM blog_posts WHERE status='draft' AND publish_at IS NOT NULL AND publish_at != '' AND publish_at <= ?"
   ).bind(now).all();
   for (const post of (blogDue.results || [])) {
-    await db.prepare("UPDATE blog_posts SET status='published', publish_at=NULL WHERE id=?").bind(post.id).run();
+    await db.prepare("UPDATE blog_posts SET status='published', publish_at=NULL, published_at=COALESCE(published_at,?) WHERE id=?").bind(new Date().toISOString(), post.id).run();
     await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
       .bind(post.site_id, 'info', `\uD83D\uDCDD Blog live: ${post.title}`, 'Geplant veröffentlicht').run().catch(()=>{});
   }
@@ -1617,7 +1630,7 @@ async function runScheduledPublish(env) {
     "SELECT id, site_id, title FROM changelog_entries WHERE published=0 AND publish_at IS NOT NULL AND publish_at != '' AND publish_at <= ?"
   ).bind(now).all().catch(()=>({ results: [] }));
   for (const entry of (clDue.results || [])) {
-    await db.prepare("UPDATE changelog_entries SET published=1, publish_at=NULL WHERE id=?").bind(entry.id).run();
+    await db.prepare("UPDATE changelog_entries SET published=1, publish_at=NULL, published_at=COALESCE(published_at,?) WHERE id=?").bind(new Date().toISOString(), entry.id).run();
     await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
       .bind(entry.site_id, 'info', `\uD83D\uDCCB Changelog live: ${entry.title}`, 'Geplant veröffentlicht').run().catch(()=>{});
   }
