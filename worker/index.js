@@ -1732,6 +1732,95 @@ async function handleRequest(request, env) {
     }
   }
 
+  // ── CHANGELOG REACTIONS (public) ──────────────────────────────────
+  if (path === '/api/changelog/reactions') {
+    await db.prepare(`CREATE TABLE IF NOT EXISTS changelog_reactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      site_id TEXT NOT NULL,
+      entry_id INTEGER,
+      entry_slug TEXT,
+      reaction TEXT NOT NULL,
+      session_id TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run().catch(() => {});
+
+    // POST: Reaction speichern (public)
+    if (request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const { site_id, entry_id, entry_slug, reaction, session_id } = body;
+      if (!site_id || !reaction) return err('site_id und reaction erforderlich');
+      const valid = ['fire','rocket','love','clap'];
+      if (!valid.includes(reaction)) return err('Ungültige reaction');
+      await db.prepare(
+        'INSERT INTO changelog_reactions (site_id, entry_id, entry_slug, reaction, session_id) VALUES (?,?,?,?,?)'
+      ).bind(site_id, entry_id || null, entry_slug || '', reaction, session_id || '').run();
+      return json({ success: true });
+    }
+
+    // GET: Counts pro Entry (public)
+    if (request.method === 'GET') {
+      const siteId = url.searchParams.get('site_id') || '';
+      const entrySlug = url.searchParams.get('slug') || '';
+      const rows = await db.prepare(`
+        SELECT reaction, COUNT(*) AS cnt
+        FROM changelog_reactions
+        WHERE site_id=? AND entry_slug=?
+        GROUP BY reaction
+      `).bind(siteId, entrySlug).all();
+      const counts = { fire:0, rocket:0, love:0, clap:0 };
+      (rows.results || []).forEach(r => { if (counts[r.reaction] !== undefined) counts[r.reaction] = Number(r.cnt); });
+      return json(counts);
+    }
+  }
+
+  // ── CHANGELOG ANALYTICS OVERVIEW (auth) ──────────────────────────
+  // Reuses blog_analytics table with site_id='fileflyr'
+  if (path === '/api/changelog/analytics') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const siteId = url.searchParams.get('site_id') || '';
+    const days   = parseInt(url.searchParams.get('days') || '30');
+    const since  = new Date(Date.now() - days * 86400000).toISOString();
+    await db.prepare(`CREATE TABLE IF NOT EXISTS blog_analytics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, site_id TEXT NOT NULL,
+      post_id INTEGER, post_slug TEXT, lang TEXT, event TEXT NOT NULL,
+      scroll_depth INTEGER, time_on_page INTEGER, referrer TEXT,
+      country TEXT, device TEXT, session_id TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run().catch(() => {});
+    const [byPost, scrollDist, byDay, devices, referrers, reactions] = await Promise.all([
+      db.prepare(`SELECT post_slug AS slug, COUNT(*) AS views, COUNT(DISTINCT session_id) AS uniques,
+        AVG(CASE WHEN time_on_page IS NOT NULL THEN time_on_page END) AS avg_time
+        FROM blog_analytics WHERE site_id=? AND event='pageview' AND created_at>=?
+        GROUP BY post_slug ORDER BY views DESC`).bind(siteId, since).all(),
+      db.prepare(`SELECT post_slug AS slug,
+        SUM(CASE WHEN scroll_depth>=25 THEN 1 ELSE 0 END) AS s25,
+        SUM(CASE WHEN scroll_depth>=50 THEN 1 ELSE 0 END) AS s50,
+        SUM(CASE WHEN scroll_depth>=75 THEN 1 ELSE 0 END) AS s75,
+        SUM(CASE WHEN scroll_depth>=100 THEN 1 ELSE 0 END) AS s100,
+        COUNT(*) AS total
+        FROM blog_analytics WHERE site_id=? AND event='scroll' AND created_at>=?
+        GROUP BY post_slug`).bind(siteId, since).all(),
+      db.prepare(`SELECT substr(created_at,1,10) AS day, COUNT(*) AS views, COUNT(DISTINCT session_id) AS uniques
+        FROM blog_analytics WHERE site_id=? AND event='pageview' AND created_at>=?
+        GROUP BY day ORDER BY day ASC`).bind(siteId, since).all(),
+      db.prepare(`SELECT device, COUNT(*) AS cnt FROM blog_analytics
+        WHERE site_id=? AND event='pageview' AND created_at>=? GROUP BY device ORDER BY cnt DESC`).bind(siteId, since).all(),
+      db.prepare(`SELECT referrer, COUNT(*) AS cnt FROM blog_analytics
+        WHERE site_id=? AND event='pageview' AND referrer!='' AND created_at>=?
+        GROUP BY referrer ORDER BY cnt DESC LIMIT 10`).bind(siteId, since).all(),
+      db.prepare(`SELECT entry_slug, reaction, COUNT(*) AS cnt FROM changelog_reactions
+        WHERE site_id=? GROUP BY entry_slug, reaction`).bind(siteId).all().catch(() => ({ results: [] })),
+    ]);
+    return json({
+      byPost:     byPost.results     || [],
+      scrollDist: scrollDist.results || [],
+      byDay:      byDay.results      || [],
+      devices:    devices.results    || [],
+      referrers:  referrers.results  || [],
+      reactions:  reactions.results  || [],
+    });
+  }
+
   // ── BLOG FEEDBACK (public POST, auth GET) ─────────────────────────
   if (path === '/api/blog/feedback') {
     // Tabelle anlegen falls nicht vorhanden

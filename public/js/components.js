@@ -1202,6 +1202,129 @@ async function renderKontakt(siteId, panel) {
 }
 
 // ── CHANGELOG (Öffentlich auf /changelog, verwaltet im HQ) ───────────────
+// ── CHANGELOG ANALYTICS ──────────────────────────────────────
+window._clToggleAnalytics = async function(siteId) {
+  const panel = document.getElementById('cl-analytics-panel');
+  const btn   = document.getElementById('cl-analytics-btn');
+  if (!panel) return;
+  const open = panel.style.display !== 'none';
+  if (open) {
+    panel.style.display = 'none';
+    if (btn) { btn.style.background = ''; btn.style.borderColor = ''; btn.style.color = ''; }
+    return;
+  }
+  panel.style.display = 'block';
+  if (btn) { btn.style.background = 'rgba(99,102,241,.15)'; btn.style.borderColor = 'rgba(99,102,241,.4)'; btn.style.color = '#818cf8'; }
+  panel.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">Lade Analytics\u2026</div>';
+  const data = await api(`/api/changelog/analytics?site_id=${siteId}&days=30`);
+  if (!data) { panel.innerHTML = errState(); return; }
+  panel.innerHTML = _renderChangelogAnalytics(data);
+};
+
+function _renderChangelogAnalytics(data) {
+  const { byPost, scrollDist, devices, referrers, byDay, reactions } = data;
+  const totalViews   = (byPost||[]).reduce((s,r) => s + Number(r.views),   0);
+  const totalUniques = (byPost||[]).reduce((s,r) => s + Number(r.uniques), 0);
+
+  function fmtTime(sec) {
+    if (!sec || sec < 1) return '\u2013';
+    if (sec < 60) return Math.round(sec) + 's';
+    return Math.floor(sec/60) + 'm ' + Math.round(sec%60) + 's';
+  }
+  function sparkline(rows) {
+    if (!rows||!rows.length) return '<div style="color:var(--text3);font-size:11px">Noch keine Daten</div>';
+    const vals = rows.map(r => Number(r.views));
+    const max  = Math.max(...vals, 1);
+    return '<div style="display:flex;align-items:flex-end;gap:2px;height:44px;padding-top:4px">' +
+      vals.map(v => { const h=Math.max(4,Math.round(v/max*40)); return `<div style="flex:1;height:${h}px;background:#818cf8;border-radius:2px 2px 0 0;opacity:.7;min-width:4px" title="${v}"></div>`; }).join('') +
+      '</div>';
+  }
+
+  const scrollMap = {};
+  (scrollDist||[]).forEach(r => { scrollMap[r.slug] = r; });
+
+  const reactMap = {};
+  (reactions||[]).forEach(r => {
+    if (!reactMap[r.entry_slug]) reactMap[r.entry_slug] = {fire:0,rocket:0,love:0,clap:0};
+    reactMap[r.entry_slug][r.reaction] = Number(r.cnt);
+  });
+
+  const totalReactions = (reactions||[]).reduce((s,r)=>s+Number(r.cnt),0);
+  const devArr = devices||[];
+
+  let html = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+    <div style="display:flex;border-bottom:1px solid var(--border);flex-wrap:wrap">
+      ${[
+        {label:'Views (30T)',  val:totalViews,     col:'#818cf8'},
+        {label:'Unique Visits',val:totalUniques,   col:'#60a5fa'},
+        {label:'Eintr\u00e4ge',val:(byPost||[]).length, col:'#34d399'},
+        {label:'Reactions',    val:totalReactions, col:'#f59e0b'},
+      ].map(k=>`<div style="padding:14px 20px;flex:1;min-width:90px;border-right:1px solid var(--border)">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:4px">${k.label}</div>
+        <div style="font-size:22px;font-weight:800;color:${k.col}">${k.val}</div>
+      </div>`).join('')}
+      <div style="padding:14px 20px;flex:1;min-width:110px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:6px">Ger\u00e4te</div>
+        ${devArr.length ? devArr.map(d=>{ const tot=devArr.reduce((s,x)=>s+Number(x.cnt),0)||1; const pct=Math.round(Number(d.cnt)/tot*100); return `<div style="display:flex;align-items:center;gap:5px;margin-bottom:3px"><span style="font-size:11px">${d.device==='mobile'?'\uD83D\uDCF1':'\uD83D\uDCBB'} ${d.device}</span><div style="flex:1;height:5px;background:rgba(255,255,255,.08);border-radius:3px"><div style="width:${pct}%;height:100%;background:#818cf8;border-radius:3px"></div></div><span style="font-size:10px;color:var(--text3)">${pct}%</span></div>`; }).join('') : '<div style="font-size:11px;color:var(--text3)">Keine Daten</div>'}
+      </div>
+    </div>
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border)">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:8px">Views letzte 30 Tage</div>
+      ${sparkline(byDay)}
+      ${byDay&&byDay.length?`<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:4px"><span>${byDay[0]?.day||''}</span><span>${byDay[byDay.length-1]?.day||''}</span></div>`:''}
+    </div>
+    <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:rgba(255,255,255,.02)">
+        <th style="text-align:left;padding:10px 16px;font-size:10px;font-weight:700;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Eintrag</th>
+        <th style="text-align:center;padding:10px 10px;font-size:10px;font-weight:700;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Views</th>
+        <th style="text-align:center;padding:10px 10px;font-size:10px;font-weight:700;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Uniques</th>
+        <th style="text-align:center;padding:10px 10px;font-size:10px;font-weight:700;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Ø Zeit</th>
+        <th style="text-align:center;padding:10px 10px;font-size:10px;font-weight:700;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Scroll 75%</th>
+        <th style="text-align:center;padding:10px 10px;font-size:10px;font-weight:700;color:var(--text3);font-family:'Space Mono',monospace;border-bottom:1px solid var(--border)">Reactions</th>
+      </tr></thead><tbody>`;
+
+  (byPost||[]).forEach((r, ri) => {
+    const sd = scrollMap[r.slug];
+    const s75 = sd && sd.total > 0 ? Math.round(Number(sd.s75)/Number(sd.total)*100) : null;
+    const rx = reactMap[r.slug] || {fire:0,rocket:0,love:0,clap:0};
+    const rxT = rx.fire+rx.rocket+rx.love+rx.clap;
+    const bg = ri%2===0 ? 'transparent' : 'rgba(255,255,255,.015)';
+    function sBadge(p) {
+      if (p===null) return '<span style="color:var(--text3)">-</span>';
+      const c=p>=60?'#34d399':p>=30?'#fbbf24':'#f87171';
+      const b=p>=60?'rgba(52,211,153,.1)':p>=30?'rgba(251,191,36,.1)':'rgba(239,68,68,.1)';
+      return `<span style="padding:2px 6px;border-radius:5px;background:${b};color:${c};font-size:11px;font-weight:700;font-family:'Space Mono',monospace">${p}%</span>`;
+    }
+    html += `<tr style="background:${bg}" onmouseover="this.style.background='rgba(255,255,255,.03)'" onmouseout="this.style.background='${bg}'">
+      <td style="padding:10px 16px;border-bottom:1px solid rgba(35,46,66,.4);font-size:12px;font-weight:600">${r.slug||'(unbekannt)'}</td>
+      <td style="padding:10px 10px;text-align:center;border-bottom:1px solid rgba(35,46,66,.4);font-size:13px;font-weight:700;color:#818cf8">${r.views}</td>
+      <td style="padding:10px 10px;text-align:center;border-bottom:1px solid rgba(35,46,66,.4);font-size:13px;font-weight:700;color:#60a5fa">${r.uniques}</td>
+      <td style="padding:10px 10px;text-align:center;border-bottom:1px solid rgba(35,46,66,.4);font-size:12px;color:var(--text2);font-family:'Space Mono',monospace">${fmtTime(r.avg_time)}</td>
+      <td style="padding:10px 10px;text-align:center;border-bottom:1px solid rgba(35,46,66,.4)">${sBadge(s75)}</td>
+      <td style="padding:10px 10px;text-align:center;border-bottom:1px solid rgba(35,46,66,.4)">${rxT>0?`<span title="\uD83D\uDD25${rx.fire} \uD83D\uDE80${rx.rocket} \u2764\uFE0F${rx.love} \uD83D\uDC4F${rx.clap}">\uD83D\uDD25${rx.fire} \uD83D\uDE80${rx.rocket} \u2764\uFE0F${rx.love} \uD83D\uDC4F${rx.clap}</span>`:'<span style="color:var(--text3)">–</span>'}</td>
+    </tr>`;
+  });
+
+  if (!(byPost||[]).length) html += `<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--text3);font-size:12px">📊 Noch keine Analytics-Daten — werden automatisch gesammelt wenn jemand eine Changelog-Seite aufruft.</td></tr>`;
+
+  html += `</tbody></table></div>
+    <div style="display:flex;border-top:1px solid var(--border);flex-wrap:wrap">
+      <div style="flex:1;min-width:180px;padding:14px 18px;border-right:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:10px">Top Referrer</div>
+        ${(referrers||[]).length ? (referrers||[]).map(r=>{ const h=r.referrer.replace(/^https?:\/\//,'').split('/')[0]||r.referrer; return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h||'(direkt)')}</span><span style="font-size:11px;font-weight:700;color:#818cf8;font-family:'Space Mono',monospace">${r.cnt}</span></div>`; }).join('') : '<div style="font-size:11px;color:var(--text3)">Keine Daten</div>'}
+      </div>
+      <div style="flex:1;min-width:180px;padding:14px 18px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:10px">Top Reactions</div>
+        ${(reactions||[]).length ? Object.entries((reactions||[]).reduce((a,r)=>{ a[r.reaction]=(a[r.reaction]||0)+Number(r.cnt); return a; },{})).sort((a,b)=>b[1]-a[1]).map(([r,cnt])=>{ const icons={fire:'\uD83D\uDD25',rocket:'\uD83D\uDE80',love:'\u2764\uFE0F',clap:'\uD83D\uDC4F'}; return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">${icons[r]||r}</span><span style="font-size:12px;font-weight:700;color:var(--text2)">${cnt}</span></div>`; }).join('') : '<div style="font-size:11px;color:var(--text3)">Noch keine Reactions</div>'}
+      </div>
+    </div>
+    <div style="padding:8px 18px;font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;border-top:1px solid var(--border)">Zeitraum: letzte 30 Tage \u00b7 Reactions: alle Zeit \u00b7 Session-IDs sind anonym</div>
+  </div>`;
+
+  return html;
+}
+
 async function renderChangelog(siteId, panel) {
   const entries = await api(`/api/changelog?site_id=${siteId}`);
   if (!entries) { panel.innerHTML = errState(); return; }
@@ -1259,7 +1382,12 @@ async function renderChangelog(siteId, panel) {
         <span style="color:var(--text3);font-weight:400;font-size:11px;margin-left:8px">${entries.filter(e=>e.published).length} live</span>
       </div>
       <div class="flex-1"></div>
+      <button class="btn btn-ghost btn-sm" id="cl-analytics-btn" onclick="_clToggleAnalytics('${siteId}')">📊 Analytics</button>
       <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','changelog')">↻ Aktualisieren</button>
+    </div>
+
+    <div id="cl-analytics-panel" style="display:none;margin-bottom:16px">
+      <div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">Lade Analytics\u2026</div>
     </div>
 
     ${entries.length ? `
