@@ -56,6 +56,20 @@ function makeSlug(title) {
     .replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,80) || String(Date.now());
 }
 
+// ── Auto-create hf_ping_log table ───────────────────────────────────────────
+async function ensureHfPingLog(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS hf_ping_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    status TEXT NOT NULL,
+    http_code INTEGER,
+    response_ms INTEGER,
+    model_loaded INTEGER DEFAULT 0,
+    error TEXT,
+    triggered_by TEXT DEFAULT 'cron',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`).run();
+}
+
 // ── Auto-create suggestions table (top-level, used by public + auth routes) ──
 async function ensureSuggestionsTable(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS suggestions (
@@ -1903,7 +1917,69 @@ async function handleRequest(request, env) {
     } catch(e) { return err('CF GraphQL error: ' + e.message, 502); }
   }
 
+  // ── GET /api/hf-ping-log ───────────────────────────────────────────────
+  if (request.method === 'GET' && path === '/api/hf-ping-log') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    await ensureHfPingLog(env.DB);
+    const limit = parseInt(url.searchParams.get('limit') || '50');
+    const rows = await env.DB.prepare(
+      'SELECT * FROM hf_ping_log ORDER BY created_at DESC LIMIT ?'
+    ).bind(limit).all();
+    return json(rows.results || []);
+  }
+
+  // ── POST /api/hf-ping — manueller Ping auslösen ───────────────────────────
+  if (request.method === 'POST' && path === '/api/hf-ping') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const result = await pingHfSpace(env.DB, env.HF_SPACE_URL || 'https://framesphere-framespell-mt5.hf.space', 'manual');
+    return json(result);
+  }
+
   return err('Not found', 404);
+}
+
+// ── HuggingFace Space Ping ───────────────────────────────────────────────────
+async function pingHfSpace(db, hfUrl, triggeredBy = 'cron') {
+  await ensureHfPingLog(db);
+  const start = Date.now();
+  let status = 'error';
+  let httpCode = null;
+  let modelLoaded = 0;
+  let errorMsg = null;
+
+  try {
+    const res = await fetch(`${hfUrl}/health`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(30000),
+    });
+    httpCode = res.status;
+    const responseMs = Date.now() - start;
+    if (res.ok) {
+      const body = await res.json().catch(() => ({}));
+      modelLoaded = body.model_loaded ? 1 : 0;
+      status = 'ok';
+      await db.prepare(
+        'INSERT INTO hf_ping_log (status, http_code, response_ms, model_loaded, triggered_by) VALUES (?,?,?,?,?)'
+      ).bind(status, httpCode, responseMs, modelLoaded, triggeredBy).run();
+      return { status, http_code: httpCode, response_ms: responseMs, model_loaded: modelLoaded };
+    } else {
+      status = 'error';
+      errorMsg = `HTTP ${httpCode}`;
+    }
+    const responseMs2 = Date.now() - start;
+    await db.prepare(
+      'INSERT INTO hf_ping_log (status, http_code, response_ms, model_loaded, error, triggered_by) VALUES (?,?,?,?,?,?)'
+    ).bind(status, httpCode, responseMs2, 0, errorMsg, triggeredBy).run();
+    return { status, http_code: httpCode, response_ms: responseMs2, error: errorMsg };
+  } catch (e) {
+    errorMsg = e.message || 'fetch failed';
+    const responseMs = Date.now() - start;
+    await db.prepare(
+      'INSERT INTO hf_ping_log (status, http_code, response_ms, model_loaded, error, triggered_by) VALUES (?,?,?,?,?,?)'
+    ).bind('error', null, responseMs, 0, errorMsg.slice(0, 200), triggeredBy).run().catch(() => {});
+    return { status: 'error', response_ms: responseMs, error: errorMsg };
+  }
 }
 
 async function runScheduledPublish(env) {
@@ -1944,5 +2020,21 @@ export default {
   },
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runScheduledPublish(env));
+    // HF Space Keepalive: Läuft bei jedem Cron-Call (alle 5 min).
+    // Wir pingen aber nur wenn seit dem letzten Ping mind. 23h vergangen sind.
+    ctx.waitUntil((async () => {
+      try {
+        await ensureHfPingLog(env.DB);
+        const last = await env.DB.prepare(
+          "SELECT created_at FROM hf_ping_log WHERE triggered_by='cron' ORDER BY created_at DESC LIMIT 1"
+        ).first();
+        const INTERVAL_MS = 23 * 60 * 60 * 1000; // 23 Stunden
+        const lastTs = last ? new Date(last.created_at).getTime() : 0;
+        if (Date.now() - lastTs >= INTERVAL_MS) {
+          const hfUrl = env.HF_SPACE_URL || 'https://framesphere-framespell-mt5.hf.space';
+          await pingHfSpace(env.DB, hfUrl, 'cron');
+        }
+      } catch (e) { /* silent fail */ }
+    })());
   },
 };

@@ -10,7 +10,7 @@ const SITES = [
   { id: 'traitora',     name: 'Traitora',        url: 'https://traitora.pages.dev',        icon: 'brain',        color: '#8b5cf6', tabs: ['daten'] },
   { id: 'fileflyr',     name: 'FileFlyr',        url: 'https://fileflyr.pages.dev',        icon: 'folder-open',  color: '#3b82f6', tabs: ['vorschläge','changelog','errors','notifications','daten'] },
   { id: 'ratelimit',    name: 'Ratelimit API',   url: 'https://ratelimit-api.pages.dev',   icon: 'zap',          color: '#10b981', tabs: ['analytics','support','changelog','errors','notifications','daten'] },
-  { id: 'framespell',   name: 'FrameSpell',      url: 'https://framespell.pages.dev',      icon: 'sparkles',     color: '#6366f1', tabs: ['support','changelog','blog','errors','daten'] },
+  { id: 'framespell',   name: 'FrameSpell',      url: 'https://framespell.pages.dev',      icon: 'sparkles',     color: '#6366f1', tabs: ['support','changelog','blog','errors','daten','hfmonitor'] },
 ];
 
 // Returns an <i data-lucide> element for a site's icon

@@ -36,6 +36,18 @@ CREATE TABLE IF NOT EXISTS notifications (
   FOREIGN KEY (site_id) REFERENCES sites(id)
 );
 
+-- HuggingFace Space Ping-Log (FrameSpell Keepalive)
+CREATE TABLE IF NOT EXISTS hf_ping_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  status TEXT NOT NULL,           -- 'ok' | 'error'
+  http_code INTEGER,              -- z.B. 200
+  response_ms INTEGER,            -- Antwortzeit in ms
+  model_loaded INTEGER DEFAULT 0, -- 1 wenn Modell fertig geladen
+  error TEXT,                     -- Fehlermeldung falls vorhanden
+  triggered_by TEXT DEFAULT 'cron', -- 'cron' | 'manual'
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Support Messages (chat threads per ticket)
 CREATE TABLE IF NOT EXISTS support_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

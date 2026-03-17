@@ -517,6 +517,164 @@ async function markSiteRead(siteId) {
   loadTopbarStats();
 }
 
+// ── HF MONITOR (FrameSpell) ──────────────────────────────────────────────
+async function renderHfMonitor(siteId, panel) {
+  const HF_URL = 'https://framesphere-framespell-mt5.hf.space';
+  const logs = await api('/api/hf-ping-log?limit=100');
+  if (!logs) { panel.innerHTML = errState(); return; }
+
+  // Stats
+  const now = Date.now();
+  const h24 = logs.filter(l => now - new Date(l.created_at).getTime() < 86400000);
+  const lastLog = logs[0] || null;
+  const okCount  = h24.filter(l => l.status === 'ok').length;
+  const errCount = h24.filter(l => l.status === 'error').length;
+  const msArr    = h24.filter(l => l.response_ms != null);
+  const avgMs    = msArr.length ? Math.round(msArr.reduce((a,b) => a + b.response_ms, 0) / msArr.length) : null;
+
+  const statusColor = !lastLog ? '#9ca3af'
+    : lastLog.status === 'ok' ? '#34d399' : '#f87171';
+  const statusLabel = !lastLog ? 'Unbekannt'
+    : lastLog.status === 'ok'
+      ? (lastLog.model_loaded ? 'Online • Modell geladen' : 'Online • Modell lädt')
+      : 'Offline / Fehler';
+  const statusDot = !lastLog ? '⚪' : lastLog.status === 'ok' ? '🟢' : '🔴';
+
+  panel.innerHTML = `
+    <div class="actions-bar">
+      <div style="font-size:13px;font-weight:700">🤖 HuggingFace Space Monitor</div>
+      <div class="flex-1"></div>
+      <button class="btn btn-ghost btn-sm" id="hf-manual-ping-btn" onclick="hfManualPing('${siteId}')"
+        style="display:flex;align-items:center;gap:5px">
+        ${icon('zap', 12)} Jetzt pingen
+      </button>
+      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','hfmonitor')">&#8635; Aktualisieren</button>
+    </div>
+
+    <!-- Status-Karten -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:6px">Status</div>
+        <div style="display:flex;align-items:center;gap:7px">
+          <span style="font-size:18px">${statusDot}</span>
+          <span style="font-size:12px;font-weight:700;color:${statusColor}">${statusLabel}</span>
+        </div>
+        ${lastLog ? `<div class="mono" style="font-size:10px;color:var(--text3);margin-top:5px">Letzter Ping: ${fmtDate(lastLog.created_at)}</div>` : '<div style="font-size:11px;color:var(--text3);margin-top:5px">Noch kein Ping</div>'}
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:6px">Antwortzeit</div>
+        <div style="font-size:22px;font-weight:800;color:var(--text1)">
+          ${lastLog?.response_ms != null ? `${lastLog.response_ms}<span style="font-size:12px;font-weight:400;color:var(--text3)"> ms</span>` : '–'}
+        </div>
+        ${avgMs != null ? `<div style="font-size:11px;color:var(--text3);margin-top:3px">⌀ ${avgMs}ms (24h)</div>` : ''}
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:6px">Pings (24h)</div>
+        <div style="font-size:22px;font-weight:800;color:var(--text1)">${h24.length}</div>
+        <div style="font-size:11px;margin-top:3px">
+          <span style="color:#34d399">${okCount} ok</span>
+          &bull; <span style="color:#f87171">${errCount} fehler</span>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:6px">Space</div>
+        <a href="${HF_URL}" target="_blank"
+           style="font-size:10px;color:#6366f1;word-break:break-all;font-family:'Space Mono',monospace;line-height:1.4">${HF_URL}</a>
+        <div style="font-size:10px;color:var(--text3);margin-top:5px">Keepalive alle 23h (Cron)</div>
+      </div>
+    </div>
+
+    <!-- Ping-Verlauf -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
+        <div style="font-size:12px;font-weight:700;flex:1">${icon('list', 13)} Ping-Verlauf
+          <span style="color:var(--text3);font-weight:400;margin-left:6px">(letzte ${logs.length})</span>
+        </div>
+        <span style="font-size:10px;padding:1px 7px;border-radius:4px;background:rgba(52,211,153,.15);color:#34d399;font-weight:700">ok</span>
+        <span style="font-size:10px;padding:1px 7px;border-radius:4px;background:rgba(248,113,113,.15);color:#f87171;font-weight:700">fehler</span>
+        <span style="font-size:10px;padding:1px 7px;border-radius:4px;background:rgba(251,191,36,.15);color:#fbbf24;font-weight:700">manual</span>
+        <span style="font-size:10px;padding:1px 7px;border-radius:4px;background:rgba(99,102,241,.15);color:#a5b4fc;font-weight:700">cron</span>
+      </div>
+      <div style="max-height:420px;overflow-y:auto">
+        ${logs.length === 0
+          ? `<div style="padding:32px;text-align:center;color:var(--text3);font-size:13px">
+              ${icon('clock', 22, 'color:var(--text3);margin-bottom:8px')}<br><br>
+              Noch keine Pings aufgezeichnet.<br>
+              <span style="font-size:11px">Klicke "Jetzt pingen" oder warte auf den nächsten Cron-Aufruf.</span>
+             </div>`
+          : `<table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead>
+                <tr style="background:var(--bg)">
+                  <th style="padding:8px 14px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);white-space:nowrap">Zeit</th>
+                  <th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3)">Status</th>
+                  <th style="padding:8px 10px;text-align:right;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3)">HTTP</th>
+                  <th style="padding:8px 10px;text-align:right;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3)">ms</th>
+                  <th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3)">Modell</th>
+                  <th style="padding:8px 14px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3)">Auslöser</th>
+                  <th style="padding:8px 14px;text-align:left;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3)">Fehler</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${logs.map(l => `
+                  <tr style="border-top:1px solid var(--border);transition:background .1s"
+                      onmouseover="this.style.background='rgba(255,255,255,.03)'"
+                      onmouseout="this.style.background=''">
+                    <td class="mono" style="padding:8px 14px;color:var(--text3);white-space:nowrap;font-size:11px">${fmtDate(l.created_at)}</td>
+                    <td style="padding:8px 10px;text-align:center">
+                      <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;
+                        background:${l.status === 'ok' ? 'rgba(52,211,153,.15)' : 'rgba(248,113,113,.15)'};
+                        color:${l.status === 'ok' ? '#34d399' : '#f87171'}">
+                        ${l.status === 'ok' ? 'OK' : 'ERR'}
+                      </span>
+                    </td>
+                    <td class="mono" style="padding:8px 10px;text-align:right;color:${l.http_code === 200 ? '#34d399' : '#f87171'}">${l.http_code ?? '–'}</td>
+                    <td class="mono" style="padding:8px 10px;text-align:right;color:var(--text2)">${l.response_ms != null ? l.response_ms : '–'}</td>
+                    <td style="padding:8px 10px;text-align:center;font-size:14px">${l.model_loaded ? '✅' : '⏳'}</td>
+                    <td style="padding:8px 14px">
+                      <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;
+                        background:${l.triggered_by === 'manual' ? 'rgba(251,191,36,.15)' : 'rgba(99,102,241,.15)'};
+                        color:${l.triggered_by === 'manual' ? '#fbbf24' : '#a5b4fc'}">
+                        ${l.triggered_by === 'manual' ? 'manual' : 'cron'}
+                      </span>
+                    </td>
+                    <td style="padding:8px 14px;color:#f87171;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.error || '')}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>`
+        }
+      </div>
+    </div>
+  `;
+  refreshIcons();
+}
+
+window.hfManualPing = async function(siteId) {
+  const btn = document.getElementById('hf-manual-ping-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = icon('loader', 12) + ' Pinge…'; }
+  const result = await api('/api/hf-ping', { method: 'POST', body: {} });
+  if (btn) { btn.disabled = false; btn.innerHTML = icon('zap', 12) + ' Jetzt pingen'; }
+  if (result) {
+    const ok = result.status === 'ok';
+    const msg = ok
+      ? `✅ Online — ${result.response_ms}ms${result.model_loaded ? ' • Modell geladen' : ' • Modell lädt noch'}`
+      : `❌ Fehler — ${result.error || 'unbekannt'}`;
+    const toast = document.createElement('div');
+    toast.style.cssText = [
+      'position:fixed;bottom:24px;right:24px;z-index:9999',
+      'padding:10px 18px;border-radius:9px;font-size:12px;font-weight:700',
+      `background:${ok ? 'rgba(52,211,153,.15)' : 'rgba(248,113,113,.15)'}`,
+      `border:1px solid ${ok ? 'rgba(52,211,153,.4)' : 'rgba(248,113,113,.4)'}`,
+      `color:${ok ? '#34d399' : '#f87171'}`,
+      'box-shadow:0 8px 24px rgba(0,0,0,.3)',
+    ].join(';');
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
+    setTimeout(() => reloadPanel(siteId, 'hfmonitor'), 800);
+  }
+};
+
 // ── WORT DES TAGES (Dashboard) ───────────────────────────────
 const LANGS = [
   { code: 'de', label: 'Deutsch 🇩🇪' },
@@ -881,6 +1039,7 @@ function loadTabContent(siteId, tabName) {
     case 'daten':         renderDaten(siteId, panel);         break;
     case 'errors':        renderErrors(siteId, panel);        break;
     case 'notifications': renderNotifications(siteId, panel); break;
+    case 'hfmonitor':    renderHfMonitor(siteId, panel);    break;
   }
 }
 
