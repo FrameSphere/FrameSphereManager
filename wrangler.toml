@@ -25,4 +25,4 @@ crons = ["*/5 * * * *"]
 ENVIRONMENT = "production"
 # DASHBOARD_PASSWORD wird als Secret gesetzt, NICHT hier im File!
 # Befehl: npx wrangler secret put DASHBOARD_PASSWORD
-HF_SPACE_URL = "https://framesphere-framespell-mt5.hf.space"
+HF_SPACE_URL = "https://framespherehf-mt5-rechtschreibkorrektur.hf.space"

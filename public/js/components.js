@@ -519,7 +519,7 @@ async function markSiteRead(siteId) {
 
 // ── HF MONITOR (FrameSpell) ──────────────────────────────────────────────
 async function renderHfMonitor(siteId, panel) {
-  const HF_URL = 'https://framesphere-framespell-mt5.hf.space';
+  const HF_URL = 'https://framespherehf-mt5-rechtschreibkorrektur.hf.space';
   const logs = await api('/api/hf-ping-log?limit=100');
   if (!logs) { panel.innerHTML = errState(); return; }
 

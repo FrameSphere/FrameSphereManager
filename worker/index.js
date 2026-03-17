@@ -1931,7 +1931,7 @@ async function handleRequest(request, env) {
   // ── POST /api/hf-ping — manueller Ping auslösen ───────────────────────────
   if (request.method === 'POST' && path === '/api/hf-ping') {
     if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
-    const result = await pingHfSpace(env.DB, env.HF_SPACE_URL || 'https://framesphere-framespell-mt5.hf.space', 'manual');
+    const result = await pingHfSpace(env.DB, env.HF_SPACE_URL || 'https://framespherehf-mt5-rechtschreibkorrektur.hf.space', 'manual');
     return json(result);
   }
 
@@ -2031,7 +2031,7 @@ export default {
         const INTERVAL_MS = 23 * 60 * 60 * 1000; // 23 Stunden
         const lastTs = last ? new Date(last.created_at).getTime() : 0;
         if (Date.now() - lastTs >= INTERVAL_MS) {
-          const hfUrl = env.HF_SPACE_URL || 'https://framesphere-framespell-mt5.hf.space';
+          const hfUrl = env.HF_SPACE_URL || 'https://framespherehf-mt5-rechtschreibkorrektur.hf.space';
           await pingHfSpace(env.DB, hfUrl, 'cron');
         }
       } catch (e) { /* silent fail */ }
