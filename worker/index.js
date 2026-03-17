@@ -1962,6 +1962,12 @@ async function pingHfSpace(db, hfUrl, triggeredBy = 'cron') {
       await db.prepare(
         'INSERT INTO hf_ping_log (status, http_code, response_ms, model_loaded, triggered_by) VALUES (?,?,?,?,?)'
       ).bind(status, httpCode, responseMs, modelLoaded, triggeredBy).run();
+      // Benachrichtigung nur bei automatischem Cron-Ping (nicht bei manuellen)
+      if (triggeredBy === 'cron') {
+        const modelInfo = modelLoaded ? ' • Modell geladen' : ' • Modell lädt';
+        await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+          .bind('framespell', 'success', '🟢 HF Space online', `Keepalive-Ping OK • ${responseMs}ms${modelInfo}`).run().catch(() => {});
+      }
       return { status, http_code: httpCode, response_ms: responseMs, model_loaded: modelLoaded };
     } else {
       status = 'error';
@@ -1971,6 +1977,9 @@ async function pingHfSpace(db, hfUrl, triggeredBy = 'cron') {
     await db.prepare(
       'INSERT INTO hf_ping_log (status, http_code, response_ms, model_loaded, error, triggered_by) VALUES (?,?,?,?,?,?)'
     ).bind(status, httpCode, responseMs2, 0, errorMsg, triggeredBy).run();
+    // Fehler-Benachrichtigung immer senden (Cron + Manual)
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind('framespell', 'error', '🔴 HF Space Fehler', `Ping fehlgeschlagen • HTTP ${httpCode} • ${errorMsg.slice(0, 80)}`).run().catch(() => {});
     return { status, http_code: httpCode, response_ms: responseMs2, error: errorMsg };
   } catch (e) {
     errorMsg = e.message || 'fetch failed';
@@ -1978,6 +1987,9 @@ async function pingHfSpace(db, hfUrl, triggeredBy = 'cron') {
     await db.prepare(
       'INSERT INTO hf_ping_log (status, http_code, response_ms, model_loaded, error, triggered_by) VALUES (?,?,?,?,?,?)'
     ).bind('error', null, responseMs, 0, errorMsg.slice(0, 200), triggeredBy).run().catch(() => {});
+    // Fehler-Benachrichtigung auch bei Exception (Timeout, Netzwerk etc.)
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind('framespell', 'error', '🔴 HF Space nicht erreichbar', `Ping Exception • ${errorMsg.slice(0, 100)}`).run().catch(() => {});
     return { status: 'error', response_ms: responseMs, error: errorMsg };
   }
 }
