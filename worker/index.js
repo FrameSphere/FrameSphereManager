@@ -1948,7 +1948,7 @@ async function pingHfSpace(db, hfUrl, triggeredBy = 'cron') {
   let errorMsg = null;
 
   try {
-    const res = await fetch(`${hfUrl}/health`, {
+    const res = await fetch(`${hfUrl}/`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
       signal: AbortSignal.timeout(30000),
