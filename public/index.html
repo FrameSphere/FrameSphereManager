@@ -212,6 +212,16 @@
         <div class="db-greeting-right" id="db-status-pills">
           <!-- pills injected -->
         </div>
+        <button onclick="exportAllBlogsTxt()"
+          style="display:flex;align-items:center;gap:7px;padding:7px 14px;border-radius:9px;
+            border:1px solid var(--border);background:var(--surface);color:var(--text2);
+            cursor:pointer;font-size:11px;font-weight:700;font-family:inherit;
+            transition:border-color .15s,background .15s"
+          id="global-blog-export-btn"
+          onmouseover="this.style.borderColor='rgba(255,255,255,.2)'" onmouseout="this.style.borderColor='var(--border)'">
+          <i data-lucide="download" style="width:13px;height:13px"></i>
+          Blog Export
+        </button>
         <button id="content-check-btn" onclick="openContentCheck()"
           style="display:flex;align-items:center;gap:7px;padding:7px 14px;border-radius:9px;
             border:1px solid var(--border);background:var(--surface);color:var(--text2);
@@ -1058,6 +1068,115 @@ function _ccPaint(data, expanded) {
 window._ccToggleExpand = function() {
   if (_ccData) _ccPaint(_ccData, !_ccExpanded);
 };
+
+// ═══════════════════════════════════════════════════════════════════
+//  Globaler Blog TXT Export (alle Sites auf einmal)
+// ═══════════════════════════════════════════════════════════════════
+
+const BLOG_EXPORT_SITES = ['brawlmystery', 'traitora', 'wordify'];
+
+async function exportAllBlogsTxt() {
+  const btn = document.getElementById('global-blog-export-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i data-lucide="loader" style="width:13px;height:13px"></i> Lädt…'; refreshIcons(); }
+
+  // JSZip on-demand laden
+  if (!window.JSZip) {
+    await new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+      s.onload = res;
+      s.onerror = () => rej(new Error('JSZip konnte nicht geladen werden'));
+      document.head.appendChild(s);
+    }).catch(e => {
+      alert('Fehler: ' + e.message);
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="download" style="width:13px;height:13px"></i> Blog Export'; refreshIcons(); }
+      return;
+    });
+  }
+
+  // HTML → reiner Text
+  function htmlToText(html) {
+    if (!html) return '';
+    return html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<\/h[1-6]>/gi, '\n\n')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<\/div>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+      .replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  // Alle Sites parallel fetchen
+  const results = await Promise.all(
+    BLOG_EXPORT_SITES.map(siteId =>
+      api(`/api/blog?site_id=${siteId}`)
+        .then(posts => ({ siteId, posts: posts || [] }))
+        .catch(() => ({ siteId, posts: [] }))
+    )
+  );
+
+  const zip = new window.JSZip();
+  let totalPosts = 0;
+
+  for (const { siteId, posts } of results) {
+    if (!posts.length) continue;
+    totalPosts += posts.length;
+
+    for (const post of posts) {
+      const lang    = post.lang || 'de';
+      const slug    = (post.slug || `post-${post.id}`).replace(/[^a-z0-9-]/gi, '-').slice(0, 60);
+      const title   = htmlToText(post.title || '');
+      const excerpt = htmlToText(post.excerpt || '');
+      const content = htmlToText(post.content || '');
+
+      // Titel 2x für Title-Bonus im KeywordSystem
+      const parts = [title, title];
+      if (excerpt) parts.push('', excerpt);
+      if (content) parts.push('', content);
+      const txt = parts.join('\n');
+
+      // <site>/<lang>/<slug>.txt
+      zip.folder(siteId).folder(lang).file(`${slug}.txt`, txt);
+
+      // alle/<site>-<lang>-<slug>.txt  (alles gemischt für Themen-Analyse)
+      zip.folder('alle').file(`${siteId}-${lang}-${slug}.txt`, txt);
+    }
+  }
+
+  // README
+  zip.file('README.txt',
+    `Blog Export – Alle Sites\n` +
+    `Exportiert: ${new Date().toLocaleString('de-DE')}\n` +
+    `Posts gesamt: ${totalPosts}\n\n` +
+    `Ordnerstruktur:\n` +
+    BLOG_EXPORT_SITES.map(s => `  ${s}/<sprache>/<slug>.txt`).join('\n') + '\n' +
+    `  alle/                  <- alles gemischt\n\n` +
+    `Verwendung für KeywordSystem:\n` +
+    `  Gewünschten Ordner nach KeywordSystem/texts/<thema>/ kopieren\n` +
+    `  Dann: node analyze.mjs\n`
+  );
+
+  if (!totalPosts) {
+    alert('Keine Blog-Posts gefunden.');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="download" style="width:13px;height:13px"></i> Blog Export'; refreshIcons(); }
+    return;
+  }
+
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `blog-export-alle-${new Date().toISOString().slice(0,10)}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i data-lucide="download" style="width:13px;height:13px"></i> Blog Export'; refreshIcons(); }
+}
 
 // ─── Boot ────────────────────────────────────────────────────────────
 injectLoginScreen();

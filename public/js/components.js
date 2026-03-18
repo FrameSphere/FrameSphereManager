@@ -2403,6 +2403,7 @@ async function renderBlog(siteId, panel) {
       <button class="btn btn-ghost btn-sm" id="bl-analytics-btn" onclick="_blgToggleAnalytics('${siteId}')">📊 Analytics</button>
       <button class="btn btn-ghost btn-sm" id="bl-feedback-btn" onclick="_blgToggleFeedback('${siteId}')">👍 Feedback</button>
       <button class="btn btn-ghost btn-sm" onclick="_blgBulkSEO('${siteId}')" title="SEO für alle Posts ohne Keywords generieren">🔍 Bulk-SEO</button>
+      <button class="btn btn-ghost btn-sm" onclick="_blgExportTxt('${siteId}')" title="Alle Posts als .txt ZIP für KeywordSystem exportieren">📥 TXT Export</button>
       <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','blog')">\u21BB Aktualisieren</button>
     </div>
 
@@ -2739,6 +2740,124 @@ window._blgBulkSEO = async function(siteId) {
   if (btn) { btn.disabled = false; btn.textContent = '\uD83D\uDD0D Bulk-SEO'; }
   alert(`\u2705 ${done} Posts aktualisiert${failed > 0 ? ` (${failed} Fehler)` : ''}.`);
   reloadPanel(siteId, 'blog');
+};
+
+// ── TXT Export für KeywordSystem ─────────────────────────────────────
+window._blgExportTxt = async function(siteId) {
+  const btn = document.querySelector('[onclick*="_blgExportTxt"]');
+  if (btn) { btn.disabled = true; btn.textContent = '\u23F3 Lädt…'; }
+
+  // JSZip dynamisch laden (nur einmal)
+  if (!window.JSZip) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('JSZip konnte nicht geladen werden'));
+      document.head.appendChild(s);
+    }).catch(e => {
+      alert('Fehler: ' + e.message);
+      if (btn) { btn.disabled = false; btn.textContent = '\uD83D\uDCE5 TXT Export'; }
+      return;
+    });
+  }
+
+  // Alle Posts laden (alle Sprachen)
+  const posts = await api(`/api/blog?site_id=${siteId}`);
+  if (!posts || posts.length === 0) {
+    alert('Keine Posts gefunden.');
+    if (btn) { btn.disabled = false; btn.textContent = '\uD83D\uDCE5 TXT Export'; }
+    return;
+  }
+
+  // HTML zu reinem Text
+  function htmlToText(html) {
+    if (!html) return '';
+    return html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<\/h[1-6]>/gi, '\n\n')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<\/div>/gi, '\n')
+      .replace(/<[^>]+>/g, '')           // alle restlichen Tags
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')        // max 2 Leerzeilen
+      .trim();
+  }
+
+  const zip  = new window.JSZip();
+  const langs = ['de', 'en', 'fr', 'es', 'it'];
+
+  // Ordner pro Sprache, Dateien nach Slug benennen
+  for (const post of posts) {
+    const lang   = post.lang || 'de';
+    const slug   = (post.slug || `post-${post.id}`).slice(0, 60);
+    const title  = htmlToText(post.title || '');
+    const excerpt = htmlToText(post.excerpt || '');
+    const content = htmlToText(post.content || '');
+
+    // Aufbau der .txt Datei:
+    // Zeile 1: Titel (extra Gewicht für KeywordSystem)
+    // Zeile 2: Titel nochmal (Title-Bonus)
+    // Leerzeile
+    // Auszug
+    // Leerzeile
+    // Hauptinhalt
+    const parts = [title, title];
+    if (excerpt) parts.push('', excerpt);
+    if (content) parts.push('', content);
+    const txtContent = parts.join('\n');
+
+    zip.folder(lang).file(`${slug}.txt`, txtContent);
+  }
+
+  // Auch alle Posts gemeinsam in einem 'alle/' Ordner (sprachgemischt, für themen-übergreifende Analyse)
+  for (const post of posts) {
+    const lang    = post.lang || 'de';
+    const slug    = (post.slug || `post-${post.id}`).slice(0, 60);
+    const title   = htmlToText(post.title || '');
+    const excerpt = htmlToText(post.excerpt || '');
+    const content = htmlToText(post.content || '');
+    const parts   = [title, title];
+    if (excerpt) parts.push('', excerpt);
+    if (content) parts.push('', content);
+    zip.folder('alle').file(`${lang}-${slug}.txt`, parts.join('\n'));
+  }
+
+  // README für den ZIP
+  zip.file('README.txt',
+    `KeywordSystem Export – ${siteId}\n` +
+    `Exportiert: ${new Date().toLocaleString('de-DE')}\n` +
+    `Posts: ${posts.length}\n\n` +
+    `Ordnerstruktur:\n` +
+    `  de/   – Deutsche Posts\n` +
+    `  en/   – Englische Posts\n` +
+    `  fr/   – Franz\u00f6sische Posts\n` +
+    `  es/   – Spanische Posts\n` +
+    `  it/   – Italienische Posts\n` +
+    `  alle/ – Alle Posts gemischt (f\u00fcr Themen-Analyse)\n\n` +
+    `Verwendung:\n` +
+    `  Gew\u00fcnschten Ordner in KeywordSystem/texts/<thema>/ kopieren\n` +
+    `  Dann: node analyze.mjs\n`
+  );
+
+  // ZIP generieren und herunterladen
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `${siteId}-blog-posts-${new Date().toISOString().slice(0,10)}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  if (btn) { btn.disabled = false; btn.textContent = '\uD83D\uDCE5 TXT Export'; }
 };
 
 // Tag-Gruppe in echte group_id-Gruppe umwandeln
