@@ -2308,6 +2308,7 @@ async function renderBlog(siteId, panel) {
 
   // Feedback-Map: post_id -> { yes, no, total }
   window._blgFeedback = {};
+  window._blgPostsCache = posts; // Cache für Bulk-SEO und andere globale Aktionen
   (feedback || []).forEach(f => {
     if (!window._blgFeedback[f.post_id]) window._blgFeedback[f.post_id] = { yes:0, no:0, total:0 };
     window._blgFeedback[f.post_id].yes   += Number(f.yes);
@@ -2401,7 +2402,7 @@ async function renderBlog(siteId, panel) {
       <div class="flex-1"></div>
       <button class="btn btn-ghost btn-sm" id="bl-analytics-btn" onclick="_blgToggleAnalytics('${siteId}')">📊 Analytics</button>
       <button class="btn btn-ghost btn-sm" id="bl-feedback-btn" onclick="_blgToggleFeedback('${siteId}')">👍 Feedback</button>
-      <button class="btn btn-ghost btn-sm" onclick="_blgBulkSEO('${siteId}', posts)" title="SEO für alle Posts ohne Keywords generieren">🔍 Bulk-SEO</button>
+      <button class="btn btn-ghost btn-sm" onclick="_blgBulkSEO('${siteId}')" title="SEO für alle Posts ohne Keywords generieren">🔍 Bulk-SEO</button>
       <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','blog')">\u21BB Aktualisieren</button>
     </div>
 
@@ -2715,7 +2716,8 @@ window._blgRegenSEO = async function(id, siteId) {
 };
 
 // ── SEO Bulk-Regenerierung (alle Posts ohne Keywords) ───────────────────────
-window._blgBulkSEO = async function(siteId, posts) {
+window._blgBulkSEO = async function(siteId) {
+  const posts = window._blgPostsCache || [];
   const missing = posts.filter(p => !p.meta_keywords || p.meta_keywords.trim() === '');
   if (missing.length === 0) {
     alert('\u2705 Alle Posts haben bereits SEO-Daten.');
