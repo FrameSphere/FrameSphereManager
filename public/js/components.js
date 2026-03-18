@@ -1862,6 +1862,12 @@ var isLive = p.status === 'published';
     html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:7px;background:var(--bg);border:1px solid var(--border)">';
       html +=   '<span style="min-width:54px;font-size:11px;font-weight:700;color:' + (isLive ? '#34d399' : 'var(--text3)') + '">' + BLOG_LANG_MAP[lc] + '</span>';
       html +=   '<span style="flex:1;font-size:12px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.title) + '</span>';
+      // SEO-Badge
+      if (p.meta_keywords && p.meta_keywords.length > 0) {
+        html += '<span style="font-size:10px;padding:1px 7px;border-radius:4px;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.2);color:#c084fc;flex-shrink:0;margin-left:4px" title="SEO generiert: ' + esc(p.meta_description||'') + '">🔍 SEO</span>';
+      } else {
+        html += '<span style="font-size:10px;padding:1px 7px;border-radius:4px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);color:#fbbf24;flex-shrink:0;margin-left:4px">⚠ kein SEO</span>';
+      }
       // Feedback-Badge
       var fb = window._blgFeedback && window._blgFeedback[p.id];
       if (fb && fb.total > 0) {
@@ -2395,6 +2401,7 @@ async function renderBlog(siteId, panel) {
       <div class="flex-1"></div>
       <button class="btn btn-ghost btn-sm" id="bl-analytics-btn" onclick="_blgToggleAnalytics('${siteId}')">📊 Analytics</button>
       <button class="btn btn-ghost btn-sm" id="bl-feedback-btn" onclick="_blgToggleFeedback('${siteId}')">👍 Feedback</button>
+      <button class="btn btn-ghost btn-sm" onclick="_blgBulkSEO('${siteId}', posts)" title="SEO für alle Posts ohne Keywords generieren">🔍 Bulk-SEO</button>
       <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','blog')">\u21BB Aktualisieren</button>
     </div>
 
@@ -2609,6 +2616,28 @@ window.openBlogEdit = async function(id, siteId) {
           <textarea id="ble-content-${id}" rows="10"
             style="font-family:'Space Mono',monospace;font-size:12px">${esc(p.content||'')}</textarea></div>
       </div>
+      <div style="background:rgba(139,92,246,.06);border:1px solid rgba(139,92,246,.2);border-radius:8px;padding:14px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#c084fc">🔍 SEO-Vorschau</span>
+          <span id="ble-seo-ts-${id}" style="font-size:10px;color:var(--text3);margin-left:auto">${p.seo_generated_at ? '⚡ ' + new Date(p.seo_generated_at).toLocaleDateString('de-DE') : '⚠️ Noch nicht generiert'}</span>
+          <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 10px" onclick="_blgRegenSEO(${id},'${siteId}')">🔄 SEO neu generieren</button>
+        </div>
+        <div id="ble-seo-panel-${id}">
+          ${p.meta_description ? `
+          <div style="margin-bottom:8px">
+            <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Meta-Description <span id="ble-seo-metalen-${id}" style="font-weight:400">(${(p.meta_description||'').length} Zeichen)</span></div>
+            <div id="ble-seo-meta-${id}" style="font-size:12px;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;line-height:1.5">${esc(p.meta_description||'')}</div>
+          </div>
+          <div style="margin-bottom:8px">
+            <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Keywords (${(p.meta_keywords||'').split(',').filter(Boolean).length})</div>
+            <div id="ble-seo-kw-${id}" style="display:flex;flex-wrap:wrap;gap:4px">${(p.meta_keywords||'').split(',').filter(Boolean).map(k => '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">' + esc(k.trim()) + '</span>').join('')}</div>
+          </div>
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Long-Tail Keywords</div>
+            <div id="ble-seo-lt-${id}" style="display:flex;flex-wrap:wrap;gap:4px">${(() => { try { return JSON.parse(p.longtail_keywords||'[]').map(k => '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(96,165,250,.1);color:#60a5fa">' + esc(k) + '</span>').join(''); } catch(e) { return '<span style="color:var(--text3);font-size:11px">–</span>'; } })()}</div>
+          </div>` : '<div style="font-size:12px;color:var(--text3)">Noch keine SEO-Daten – klicke auf „🔄 SEO neu generieren".</div>'}
+        </div>
+      </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="saveBlogEdit(${id},'${siteId}')">\u2713 Speichern</button>
         <button class="btn btn-ghost" onclick="document.getElementById('bl-edit-${id}').style.display='none'">Abbrechen</button>
@@ -2647,6 +2676,66 @@ window.saveBlogEdit = async function(id, siteId) {
 
 window.setBlogLang = async function(id, siteId, lang) {
   await api(`/api/blog/${id}`, { method: 'PATCH', body: { lang } });
+  reloadPanel(siteId, 'blog');
+};
+
+// ── SEO Regenerieren (einzelner Post) ────────────────────────────────────────
+window._blgRegenSEO = async function(id, siteId) {
+  const panel  = document.getElementById(`ble-seo-panel-${id}`);
+  const tsEl   = document.getElementById(`ble-seo-ts-${id}`);
+  if (panel) panel.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:4px 0">⏳ Generiert SEO…</div>';
+  const res = await api(`/api/seo/regenerate/${id}`, { method: 'POST' });
+  if (!res?.success || !res.seo) {
+    if (panel) panel.innerHTML = '<div style="font-size:12px;color:var(--red)">❌ Fehler beim Generieren.</div>';
+    return;
+  }
+  const seo = res.seo;
+  if (tsEl) tsEl.textContent = '⚡ Gerade generiert';
+  if (panel) {
+    const kwHtml = seo.keywords.map(k =>
+      '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">' + esc(k) + '</span>'
+    ).join('');
+    const ltHtml = seo.longtailKeywords.map(k =>
+      '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(96,165,250,.1);color:#60a5fa">' + esc(k) + '</span>'
+    ).join('');
+    panel.innerHTML = `
+      <div style="margin-bottom:8px">
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Meta-Description (${seo.metaDescription.length} Zeichen)</div>
+        <div style="font-size:12px;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;line-height:1.5">${esc(seo.metaDescription)}</div>
+      </div>
+      <div style="margin-bottom:8px">
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Keywords (${seo.keywords.length})</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">${kwHtml}</div>
+      </div>
+      <div>
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Long-Tail Keywords</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">${ltHtml || '<span style="color:var(--text3);font-size:11px">Keine (Text zu kurz für N-Gramme)</span>'}</div>
+      </div>`;
+  }
+};
+
+// ── SEO Bulk-Regenerierung (alle Posts ohne Keywords) ───────────────────────
+window._blgBulkSEO = async function(siteId, posts) {
+  const missing = posts.filter(p => !p.meta_keywords || p.meta_keywords.trim() === '');
+  if (missing.length === 0) {
+    alert('\u2705 Alle Posts haben bereits SEO-Daten.');
+    return;
+  }
+  if (!confirm(`SEO f\u00fcr ${missing.length} Post(s) ohne Keywords generieren?`)) return;
+
+  const btn = document.querySelector('[onclick*="_blgBulkSEO"]');
+  if (btn) { btn.disabled = true; btn.textContent = `\u23F3 0/${missing.length}\u2026`; }
+
+  let done = 0;
+  let failed = 0;
+  for (const post of missing) {
+    const res = await api(`/api/seo/regenerate/${post.id}`, { method: 'POST' }).catch(() => null);
+    if (res?.success) done++; else failed++;
+    if (btn) btn.textContent = `\u23F3 ${done}/${missing.length}\u2026`;
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '\uD83D\uDD0D Bulk-SEO'; }
+  alert(`\u2705 ${done} Posts aktualisiert${failed > 0 ? ` (${failed} Fehler)` : ''}.`);
   reloadPanel(siteId, 'blog');
 };
 

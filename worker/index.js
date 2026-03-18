@@ -1,6 +1,7 @@
 // =============================================
 // WebControl HQ - Cloudflare Worker API
 // =============================================
+import { generateSEO } from './seo.js';
 
 // ── Auth ─────────────────────────────────────────────────────────
 const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24h
@@ -1068,7 +1069,7 @@ async function handleRequest(request, env) {
       status TEXT DEFAULT 'draft',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`).run();
-    for (const col of ["lang TEXT DEFAULT 'de'", "slug TEXT DEFAULT ''", "group_id TEXT DEFAULT ''", "publish_at TEXT DEFAULT NULL", "published_at TEXT DEFAULT NULL", "tags TEXT DEFAULT ''", "excerpt TEXT DEFAULT ''", "content TEXT DEFAULT ''"]) {
+    for (const col of ["lang TEXT DEFAULT 'de'", "slug TEXT DEFAULT ''", "group_id TEXT DEFAULT ''", "publish_at TEXT DEFAULT NULL", "published_at TEXT DEFAULT NULL", "tags TEXT DEFAULT ''", "excerpt TEXT DEFAULT ''", "content TEXT DEFAULT ''", "meta_keywords TEXT DEFAULT ''", "meta_description TEXT DEFAULT ''", "longtail_keywords TEXT DEFAULT ''", "seo_generated_at TEXT DEFAULT NULL"]) {
       await db.prepare(`ALTER TABLE blog_posts ADD COLUMN ${col}`).run().catch(() => {});
     }
     // Backfill: bereits veröffentlichte Posts ohne published_at bekommen created_at
@@ -1109,14 +1110,16 @@ async function handleRequest(request, env) {
     if (!site_id || !title) return err('site_id und title erforderlich');
     const slug = makeSlug(title);
     const pubAt = (status === 'published') ? new Date().toISOString() : null;
+    // Auto-generate SEO fields
+    const seo = generateSEO({ title, content: content || '', lang: lang || 'de' });
     const r = await db.prepare(
-      'INSERT INTO blog_posts (site_id, title, slug, tags, excerpt, content, status, lang, group_id, publish_at, published_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-    ).bind(site_id, title, slug, tags || '', excerpt || '', content || '', status || 'draft', lang || 'de', group_id || '', publish_at || null, pubAt).run();
+      'INSERT INTO blog_posts (site_id, title, slug, tags, excerpt, content, status, lang, group_id, publish_at, published_at, meta_keywords, meta_description, longtail_keywords, seo_generated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    ).bind(site_id, title, slug, tags || '', excerpt || '', content || '', status || 'draft', lang || 'de', group_id || '', publish_at || null, pubAt, seo.keywords.join(','), seo.metaDescription, JSON.stringify(seo.longtailKeywords), new Date().toISOString()).run();
     if (status === 'published') {
       await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
         .bind(site_id, 'info', `📝 Blog: ${title}`, 'Neuer Artikel veröffentlicht auf /blog').run();
     }
-    return json({ success: true, id: r.meta.last_row_id });
+    return json({ success: true, id: r.meta.last_row_id, seo });
   }
 
   // PATCH /api/blog/:id – authenticated
@@ -1135,6 +1138,20 @@ async function handleRequest(request, env) {
     if (body.publish_at !== undefined) { sets.push('publish_at=?'); params.push(body.publish_at || null); }
     if (body.status === 'published') { sets.push('published_at=?'); params.push(new Date().toISOString()); }
     if (!sets.length) return err('Nothing to update');
+    // Auto-regenerate SEO if content-relevant fields changed
+    if (body.title !== undefined || body.content !== undefined || body.lang !== undefined) {
+      const existing = await db.prepare('SELECT title, content, lang FROM blog_posts WHERE id=?').bind(segments[2]).first().catch(() => null);
+      if (existing) {
+        const seoTitle   = body.title   ?? existing.title;
+        const seoContent = body.content ?? existing.content;
+        const seoLang    = body.lang    ?? existing.lang ?? 'de';
+        const seo = generateSEO({ title: seoTitle, content: seoContent, lang: seoLang });
+        sets.push('meta_keywords=?');      params.push(seo.keywords.join(','));
+        sets.push('meta_description=?');   params.push(seo.metaDescription);
+        sets.push('longtail_keywords=?');  params.push(JSON.stringify(seo.longtailKeywords));
+        sets.push('seo_generated_at=?');   params.push(new Date().toISOString());
+      }
+    }
     await db.prepare(`UPDATE blog_posts SET ${sets.join(',')} WHERE id=?`).bind(...params, segments[2]).run();
     return json({ success: true });
   }
@@ -1144,6 +1161,29 @@ async function handleRequest(request, env) {
     if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
     await db.prepare('DELETE FROM blog_posts WHERE id=?').bind(segments[2]).run();
     return json({ success: true });
+  }
+
+  // POST /api/seo/analyze – authenticated: generate SEO for any text on-demand
+  if (request.method === 'POST' && path === '/api/seo/analyze') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const body = await request.json().catch(() => ({}));
+    const { title, content, lang } = body;
+    if (!title && !content) return err('title oder content erforderlich');
+    const seo = generateSEO({ title: title || '', content: content || '', lang: lang || 'de' });
+    return json(seo);
+  }
+
+  // POST /api/seo/regenerate/:id – authenticated: re-run SEO for existing post
+  if (request.method === 'POST' && segments[1] === 'seo' && segments[2] === 'regenerate' && segments[3]) {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const postId = segments[3];
+    const post = await db.prepare('SELECT title, content, lang FROM blog_posts WHERE id=?').bind(postId).first();
+    if (!post) return err('Post not found', 404);
+    const seo = generateSEO({ title: post.title || '', content: post.content || '', lang: post.lang || 'de' });
+    await db.prepare(
+      'UPDATE blog_posts SET meta_keywords=?, meta_description=?, longtail_keywords=?, seo_generated_at=? WHERE id=?'
+    ).bind(seo.keywords.join(','), seo.metaDescription, JSON.stringify(seo.longtailKeywords), new Date().toISOString(), postId).run();
+    return json({ success: true, seo });
   }
 
   // ── VAULT ─────────────────────────────────────────────────────────────
