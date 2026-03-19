@@ -594,6 +594,7 @@ async function renderHfMonitor(siteId, panel) {
         <span style="font-size:10px;padding:1px 7px;border-radius:4px;background:rgba(248,113,113,.15);color:#f87171;font-weight:700">fehler</span>
         <span style="font-size:10px;padding:1px 7px;border-radius:4px;background:rgba(251,191,36,.15);color:#fbbf24;font-weight:700">manual</span>
         <span style="font-size:10px;padding:1px 7px;border-radius:4px;background:rgba(99,102,241,.15);color:#a5b4fc;font-weight:700">cron</span>
+        <span style="font-size:10px;padding:1px 7px;border-radius:4px;background:rgba(248,113,113,.15);color:#f87171;font-weight:700">retry</span>
       </div>
       <div style="max-height:420px;overflow-y:auto">
         ${logs.length === 0
@@ -632,9 +633,9 @@ async function renderHfMonitor(siteId, panel) {
                     <td style="padding:8px 10px;text-align:center;font-size:14px">${l.model_loaded ? '✅' : '⏳'}</td>
                     <td style="padding:8px 14px">
                       <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;
-                        background:${l.triggered_by === 'manual' ? 'rgba(251,191,36,.15)' : 'rgba(99,102,241,.15)'};
-                        color:${l.triggered_by === 'manual' ? '#fbbf24' : '#a5b4fc'}">
-                        ${l.triggered_by === 'manual' ? 'manual' : 'cron'}
+                        background:${l.triggered_by === 'manual' ? 'rgba(251,191,36,.15)' : l.triggered_by === 'cron-retry' ? 'rgba(248,113,113,.15)' : 'rgba(99,102,241,.15)'};
+                        color:${l.triggered_by === 'manual' ? '#fbbf24' : l.triggered_by === 'cron-retry' ? '#f87171' : '#a5b4fc'}">
+                        ${l.triggered_by === 'manual' ? 'manual' : l.triggered_by === 'cron-retry' ? 'retry' : 'cron'}
                       </span>
                     </td>
                     <td style="padding:8px 14px;color:#f87171;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.error || '')}</td>

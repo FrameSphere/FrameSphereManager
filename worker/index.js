@@ -2079,13 +2079,36 @@ export default {
       try {
         await ensureHfPingLog(env.DB);
         const last = await env.DB.prepare(
-          "SELECT created_at FROM hf_ping_log WHERE triggered_by='cron' ORDER BY created_at DESC LIMIT 1"
+          "SELECT created_at FROM hf_ping_log WHERE triggered_by IN ('cron','cron-retry') ORDER BY created_at DESC LIMIT 1"
         ).first();
-        const INTERVAL_MS = 23 * 60 * 60 * 1000; // 23 Stunden
+        const INTERVAL_MS = 11.5 * 60 * 60 * 1000; // 11.5 Stunden (2x pro Tag)
         const lastTs = last ? new Date(last.created_at).getTime() : 0;
         if (Date.now() - lastTs >= INTERVAL_MS) {
           const hfUrl = env.HF_SPACE_URL || 'https://framespherehf-mt5-rechtschreibkorrektur.hf.space';
-          await pingHfSpace(env.DB, hfUrl, 'cron');
+
+          // Erster Versuch
+          let result = await pingHfSpace(env.DB, hfUrl, 'cron');
+
+          // Bei Fehler: bis zu 3 Retries mit je 4s Pause
+          if (result.status !== 'ok') {
+            let attempts = 1;
+            while (attempts < 3 && result.status !== 'ok') {
+              await new Promise(r => setTimeout(r, 4000));
+              result = await pingHfSpace(env.DB, hfUrl, 'cron-retry');
+              attempts++;
+            }
+
+            // Nach 3 Fehlversuchen: MEGA ALARM
+            if (result.status !== 'ok') {
+              await env.DB.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+                .bind(
+                  'framespell',
+                  'error',
+                  '🚨🚨 HF SPACE DOWN – KRITISCH 🚨🚨',
+                  `Space antwortet nach 3 Versuchen nicht! Letzter Fehler: ${(result.error || 'unbekannt').slice(0, 120)} – Manuell prüfen!`
+                ).run().catch(() => {});
+            }
+          }
         }
       } catch (e) { /* silent fail */ }
     })());
