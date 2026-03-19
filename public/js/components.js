@@ -1761,8 +1761,9 @@ var id   = Number(btn.dataset.id);
 var site = btn.dataset.site;
 var st   = btn.dataset.st;
   if (act === 'pub')    toggleBlogPublish(id, st, site);
-if (act === 'edit')   openBlogEdit(id, site);
+  if (act === 'edit')   openBlogEdit(id, site);
   if (act === 'del')    deleteBlogPost(id, site);
+  if (act === 'seo')    _blgRegenSEOInline(id, site, btn);
 };
 
 function _renderBlogPostList(posts, siteId) {
@@ -1879,6 +1880,7 @@ var isLive = p.status === 'published';
       html +=   '<div style="display:flex;gap:4px;flex-shrink:0">';
       html +=     '<button class="btn btn-ghost btn-sm" data-act="pub" data-id="' + p.id + '" data-site="' + siteId + '" data-st="' + newSt + '" onclick="_blgAction(this)">' + lbl + '</button>';
       html +=     '<button class="btn btn-ghost btn-sm" data-act="edit" data-id="' + p.id + '" data-site="' + siteId + '" onclick="_blgAction(this)">\u270f Edit</button>';
+      html +=     '<button class="btn btn-ghost btn-sm" data-act="seo" data-id="' + p.id + '" data-site="' + siteId + '" onclick="_blgAction(this)" title="SEO neu generieren" style="padding:4px 8px">\uD83D\uDD04 SEO</button>';
       html +=     '<button class="btn btn-danger btn-sm" data-act="del" data-id="' + p.id + '" data-site="' + siteId + '" onclick="_blgAction(this)">&times;</button>';
       html +=   '</div>';
       html += '</div>';
@@ -2402,7 +2404,7 @@ async function renderBlog(siteId, panel) {
       <div class="flex-1"></div>
       <button class="btn btn-ghost btn-sm" id="bl-analytics-btn" onclick="_blgToggleAnalytics('${siteId}')">📊 Analytics</button>
       <button class="btn btn-ghost btn-sm" id="bl-feedback-btn" onclick="_blgToggleFeedback('${siteId}')">👍 Feedback</button>
-      <button class="btn btn-ghost btn-sm" onclick="_blgBulkSEO('${siteId}')" title="SEO für alle Posts ohne Keywords generieren">🔍 Bulk-SEO</button>
+      <button class="btn btn-ghost btn-sm" onclick="_blgBulkSEO('${siteId}')" title="SEO für alle Posts neu generieren (auch bestehende überschreiben)">🔍 Bulk-SEO</button>
       <button class="btn btn-ghost btn-sm" onclick="_blgExportTxt('${siteId}')" title="Alle Posts als .txt ZIP für KeywordSystem exportieren">📥 TXT Export</button>
       <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','blog')">\u21BB Aktualisieren</button>
     </div>
@@ -2716,29 +2718,64 @@ window._blgRegenSEO = async function(id, siteId) {
   }
 };
 
+// ── SEO Regenerierung für einzelnen Post (direkt aus der Liste) ─────────────
+window._blgRegenSEOInline = async function(id, siteId, btn) {
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '\u23F3';
+
+  const res = await api(`/api/seo/regenerate/${id}`, { method: 'POST' }).catch(() => null);
+
+  if (res?.success && res.seo) {
+    // SEO-Badge in der Zeile aktualisieren
+    const badge = btn.closest('div[style*="display:flex"]')?.parentElement?.querySelector('[title*="SEO"]');
+    if (badge) {
+      badge.textContent = '\uD83D\uDD0D SEO';
+      badge.style.background = 'rgba(139,92,246,.12)';
+      badge.style.borderColor = 'rgba(139,92,246,.2)';
+      badge.style.color = '#c084fc';
+      badge.title = 'SEO generiert: ' + (res.seo.metaDescription || '');
+    }
+    btn.textContent = '\u2713';
+    btn.style.color = '#34d399';
+    setTimeout(() => {
+      btn.textContent = origText;
+      btn.style.color = '';
+      btn.disabled = false;
+    }, 2000);
+  } else {
+    btn.textContent = '\u2716';
+    btn.style.color = 'var(--red)';
+    setTimeout(() => {
+      btn.textContent = origText;
+      btn.style.color = '';
+      btn.disabled = false;
+    }, 2000);
+  }
+};
+
 // ── SEO Bulk-Regenerierung (alle Posts ohne Keywords) ───────────────────────
 window._blgBulkSEO = async function(siteId) {
   const posts = window._blgPostsCache || [];
-  const missing = posts.filter(p => !p.meta_keywords || p.meta_keywords.trim() === '');
-  if (missing.length === 0) {
-    alert('\u2705 Alle Posts haben bereits SEO-Daten.');
+  if (posts.length === 0) {
+    alert('Keine Posts gefunden.');
     return;
   }
-  if (!confirm(`SEO f\u00fcr ${missing.length} Post(s) ohne Keywords generieren?`)) return;
+  if (!confirm(`SEO f\u00fcr ALLE ${posts.length} Posts neu generieren?\n\nBestehende Keywords werden \u00fcberschrieben.`)) return;
 
   const btn = document.querySelector('[onclick*="_blgBulkSEO"]');
-  if (btn) { btn.disabled = true; btn.textContent = `\u23F3 0/${missing.length}\u2026`; }
+  if (btn) { btn.disabled = true; btn.textContent = `\u23F3 0/${posts.length}\u2026`; }
 
   let done = 0;
   let failed = 0;
-  for (const post of missing) {
+  for (const post of posts) {
     const res = await api(`/api/seo/regenerate/${post.id}`, { method: 'POST' }).catch(() => null);
     if (res?.success) done++; else failed++;
-    if (btn) btn.textContent = `\u23F3 ${done}/${missing.length}\u2026`;
+    if (btn) btn.textContent = `\u23F3 ${done}/${posts.length}\u2026`;
   }
 
   if (btn) { btn.disabled = false; btn.textContent = '\uD83D\uDD0D Bulk-SEO'; }
-  alert(`\u2705 ${done} Posts aktualisiert${failed > 0 ? ` (${failed} Fehler)` : ''}.`);
+  alert(`\u2705 ${done} Posts neu generiert${failed > 0 ? ` (${failed} Fehler)` : ''}.`);
   reloadPanel(siteId, 'blog');
 };
 
