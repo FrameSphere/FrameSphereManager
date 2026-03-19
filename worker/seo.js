@@ -1,7 +1,36 @@
 // =============================================
-// SEO Pipeline – Pure JS, no dependencies
-// Runs in Cloudflare Workers (V8 Isolate)
+// SEO Pipeline – Cloudflare Worker
 // =============================================
+//
+// word-weights.json ablegen unter worker/word-weights.json
+// Format: { "brawlmystery": { "wort": 0.95, ... }, "traitora": {...}, "wordify": {...} }
+// Datei aus KeywordSystem/output/<site>/word-weights.json kopieren und zusammenführen.
+// Wenn die Datei leer ist ({}) läuft das System ohne Gewichte (reines TF-Scoring).
+// =============================================
+
+import WEIGHTS_RAW from './word-weights.json';
+
+// Gewichte beim Laden filtern: nur Wörter mit Score >= 0.05 behalten
+// → reduziert Arbeitsspeicher, entfernt irrelevante Einträge
+const WEIGHTS = {};
+for (const [site, words] of Object.entries(WEIGHTS_RAW)) {
+  if (words && typeof words === 'object') {
+    WEIGHTS[site] = Object.fromEntries(
+      Object.entries(words).filter(([, v]) => typeof v === 'number' && v >= 0.05)
+    );
+  }
+}
+
+/**
+ * Gibt das Gewicht eines Wortes für eine bestimmte Site zurück.
+ * Sucht zuerst in site-spezifischen Gewichten.
+ * Gibt null zurück wenn das Wort unbekannt ist → kein Bonus, kein Malus.
+ */
+function getWeight(word, siteId) {
+  const sw = WEIGHTS[siteId];
+  if (sw && sw[word] !== undefined) return sw[word];
+  return null;
+}
 
 // ── Stopword Lists (DE / EN / FR / ES / IT) ──────────────────────────────────
 
@@ -11,7 +40,7 @@ const STOPWORDS = {
     'und','oder','aber','doch','nicht','kein','keine','keinen','keinem','keiner','keines',
     'ist','sind','war','waren','wird','werden','wurde','wurden','hat','haben','hatte','hatten',
     'ich','du','er','sie','es','wir','ihr','mich','dich','sich','uns','euch',
-    'mir','dir','ihm','ihnen',
+    'mir','dir','ihm','ihnen','ihn',
     'in','an','auf','aus','bei','bis','durch','für','gegen','hinter','mit','nach','neben',
     'ohne','seit','über','um','unter','vor','von','während','wegen','zu','zwischen',
     'als','wie','wenn','ob','dass','weil','da','damit','obwohl',
@@ -20,12 +49,17 @@ const STOPWORDS = {
     'welcher','welche','welches','solcher','solche','solches',
     'hier','dort','so','dann','denn','nun','ja','nein',
     'kann','muss','soll','darf','mag','will','würde','könnte','müsste','sollte',
-    'beim','ins','ans','zum','zur','vom',
+    'beim','ins','ans','zum','zur','vom','im','am',
     'ab','pro','je','per','via','laut','trotz','statt',
     'was','wer','wo','wann','warum','woher','wohin','womit','worüber',
     'jetzt','heute','morgen','gestern','mal','oft','selten','meist','ganz',
     'bereits','erst','wieder','bisher','bald','zuerst',
-    'etwas','jemand','niemand',
+    'etwas','jemand','niemand','irgendwie','irgendwann',
+    'sein','seine','seinen','seinem','ihrer','ihrem','ihren',
+    'dabei','davon','dazu','daher','danach','davor','darin','daraus',
+    'jedoch','zwar','deshalb','deswegen','darum','also','somit','folglich',
+    'gut','neue','neuen','neuer','neues','großen','kleine','kleinen','großer',
+    'beim','vom','zum','zur','ins','aufs','ans','ums',
   ]),
   en: new Set([
     'the','a','an','and','or','but','not','no','nor','so','yet','for','of','in','on',
@@ -100,7 +134,6 @@ function getStopwords(lang) {
 // ── Step 1: Preprocess ────────────────────────────────────────────────────────
 
 function preprocess(text) {
-  // Strip HTML tags
   const plain = text.replace(/<[^>]+>/g, ' ');
   return plain
     .toLowerCase()
@@ -115,21 +148,35 @@ function preprocess(text) {
 function filterWords(tokens, lang) {
   const stops = getStopwords(lang);
   return tokens.filter(w => {
-    if (w.length < 3)     return false;
-    if (stops.has(w))     return false;
-    if (/^\d+$/.test(w))  return false;
+    if (w.length < 3)    return false;
+    if (stops.has(w))    return false;
+    if (/^\d+$/.test(w)) return false;
     return true;
   });
 }
 
 // ── Step 3: Score keywords ────────────────────────────────────────────────────
-// Factors:
-//   TF (Term Frequency) — base score
-//   Title Bonus  +5     — word appears in title
-//   Length Bonus +1     — word > 6 chars (more specific)
-//   Position Bonus +2   — word in first 20% of text (leads matter)
+// Faktoren (in absteigender Wichtigkeit):
+//
+//   1. Bundle-Gewicht × Multiplikator
+//      Wörter die im KeywordSystem als wichtig erkannt wurden bekommen einen
+//      starken Boost. Score 1.0 → 4× TF, Score 0.5 → 2.5× TF.
+//      Unbekannte Wörter (null) bleiben beim reinen TF-Score.
+//
+//   2. TF (Term Frequency) × 100
+//      Grundscore: wie oft kommt das Wort im Text vor.
+//
+//   3. Titel-Bonus +6
+//      Wörter im Titel sind für SEO besonders wichtig.
+//
+//   4. Positions-Bonus +2
+//      Wörter im ersten 20% des Texts (Einleitung) werden von Suchmaschinen
+//      stärker gewichtet.
+//
+//   5. Längen-Bonus +1
+//      Wörter > 6 Zeichen sind spezifischer und wertvoller.
 
-function scoreKeywords(allTokens, filteredTokens, titleTokens, lang) {
+function scoreKeywords(allTokens, filteredTokens, titleTokens, lang, siteId) {
   const stops    = getStopwords(lang);
   const total    = filteredTokens.length || 1;
   const titleSet = new Set(titleTokens.filter(t => !stops.has(t) && t.length >= 3));
@@ -142,37 +189,71 @@ function scoreKeywords(allTokens, filteredTokens, titleTokens, lang) {
 
   const scores = {};
   for (const [word, count] of Object.entries(freq)) {
-    let score = (count / total) * 100;
-    if (titleSet.has(word))  score += 5;
-    if (word.length > 6)     score += 1;
+    const tf = (count / total) * 100;
+
+    // Bundle-Gewicht als Multiplikator: bekannte wichtige Wörter werden verstärkt
+    // Formel: tf × (1 + weight × 3) → bei weight=1.0 ist der Score 4× so groß
+    const w = getWeight(word, siteId);
+    let score = w !== null ? tf * (1 + w * 3) : tf;
+
+    if (titleSet.has(word))  score += 6;
     if (earlySet.has(word))  score += 2;
+    if (word.length > 6)     score += 1;
+
     scores[word] = score;
   }
 
   return scores;
 }
 
-// ── Step 4: Build N-Grams (bigrams & trigrams) ───────────────────────────────
+// ── Step 4: Weighted N-Grams (Long-Tail Keywords) ────────────────────────────
+//
+// Verbesserung gegenüber reinem Co-Occurrence-Counting:
+// Jede Phrase wird bewertet durch das Durchschnittsgewicht seiner Wörter.
+// Dadurch entstehen Long-Tail Keywords auch wenn eine Phrase nur einmal
+// im Text vorkommt — solange die Wörter themenrelevant sind.
+//
+// Score = avgWordWeight × (1 + log(count + 1))
+//       → Häufigkeitsbonus, aber semantische Relevanz dominiert
 
-function buildNgrams(tokens, n, lang) {
+function buildWeightedNgrams(tokens, n, lang, siteId) {
   const stops  = getStopwords(lang);
-  const ngrams = {};
+  const phrases = {};
 
   for (let i = 0; i <= tokens.length - n; i++) {
     const gram = tokens.slice(i, i + n);
+
+    // Stopwords an den Rändern der Phrase ausschließen
     if (stops.has(gram[0]) || stops.has(gram[gram.length - 1])) continue;
     if (gram.some(t => t.length < 3)) continue;
+
     const key = gram.join(' ');
-    ngrams[key] = (ngrams[key] || 0) + 1;
+    if (!phrases[key]) {
+      // Durchschnittsgewicht der Komponenten-Wörter berechnen
+      // Unbekannte Wörter bekommen ein kleines Basis-Gewicht (0.05)
+      // damit auch themennahe Phrasen ohne explizites Gewicht auftauchen
+      const avgW = gram.reduce((s, w) => {
+        const weight = getWeight(w, siteId);
+        return s + (weight ?? 0.05);
+      }, 0) / gram.length;
+      phrases[key] = { count: 0, avgW };
+    }
+    phrases[key].count++;
   }
 
-  return Object.entries(ngrams)
-    .filter(([, count]) => count > 1)
-    .sort((a, b) => b[1] - a[1])
-    .map(([phrase]) => phrase);
+  return Object.entries(phrases)
+    .map(([phrase, { count, avgW }]) => ({
+      phrase,
+      score: avgW * (1 + Math.log(count + 1)),
+    }))
+    .filter(x => x.score > 0.03)  // Mindestqualität
+    .sort((a, b) => b.score - a.score)
+    .map(x => x.phrase);
 }
 
 // ── Step 5: Meta Description ─────────────────────────────────────────────────
+// Sucht den besten Satz aus dem Content als Meta-Description.
+// Bevorzugt Sätze die Top-Keywords enthalten und 80–160 Zeichen lang sind.
 
 function generateMetaDescription(title, content, topKeywords) {
   const plainText = content.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -193,7 +274,6 @@ function generateMetaDescription(title, content, topKeywords) {
   }
 
   if (!best && sentences.length > 0) best = sentences[0].trim();
-
   if (best && best.length > 160) {
     best = best.slice(0, 157).replace(/\s+\S*$/, '') + '…';
   }
@@ -204,13 +284,23 @@ function generateMetaDescription(title, content, topKeywords) {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
- * generateSEO({ title, content, lang })
- * Returns: { keywords: string[], metaDescription: string, longtailKeywords: string[] }
+ * generateSEO({ title, content, lang, siteId })
+ *
+ * @param {string} title    - Titel des Blog-Posts
+ * @param {string} content  - HTML oder Plaintext des Posts
+ * @param {string} lang     - Sprache: 'de', 'en', 'fr', 'es', 'it'
+ * @param {string} siteId   - Site-ID für site-spezifische Gewichte: 'brawlmystery' etc.
+ *
+ * @returns {{
+ *   keywords: string[],          Top 10 Short-Keywords
+ *   metaDescription: string,     Optimierte Meta-Description (≤160 Zeichen)
+ *   longtailKeywords: string[]   Top 10 Long-Tail Keywords (Bigrams + Trigrams)
+ * }}
  */
-export function generateSEO({ title = '', content = '', lang = 'en' } = {}) {
+export function generateSEO({ title = '', content = '', lang = 'en', siteId = '' } = {}) {
   const normLang = lang.split('-')[0].toLowerCase();
 
-  // Title repeated 3× for extra weight in scoring
+  // Titel dreifach wiederholen für stärkeres Gewicht im Scoring
   const fullText    = `${title} ${title} ${title} ${content}`;
   const allTokens   = preprocess(fullText);
   const titleTokens = preprocess(title);
@@ -224,16 +314,19 @@ export function generateSEO({ title = '', content = '', lang = 'en' } = {}) {
     };
   }
 
-  const scores = scoreKeywords(allTokens, filtered, titleTokens, normLang);
-
+  // Short Keywords: gewichtetes TF-Scoring
+  const scores = scoreKeywords(allTokens, filtered, titleTokens, normLang, siteId);
   const topKeywords = Object.entries(scores)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 15)
     .map(([word]) => word);
 
-  const bigrams  = buildNgrams(filtered, 2, normLang);
-  const trigrams = buildNgrams(filtered, 3, normLang);
-  const longtail = [...trigrams.slice(0, 5), ...bigrams.slice(0, 8)].slice(0, 10);
+  // Long-Tail: gewichtete Bigrams + Trigrams
+  const bigrams  = buildWeightedNgrams(filtered, 2, normLang, siteId);
+  const trigrams = buildWeightedNgrams(filtered, 3, normLang, siteId);
+
+  // Trigrams zuerst (spezifischer), dann Bigrams, insgesamt 10
+  const longtail = [...trigrams.slice(0, 4), ...bigrams.slice(0, 6)].slice(0, 10);
 
   const metaDescription = generateMetaDescription(title, content, topKeywords);
 

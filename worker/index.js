@@ -1111,7 +1111,7 @@ async function handleRequest(request, env) {
     const slug = makeSlug(title);
     const pubAt = (status === 'published') ? new Date().toISOString() : null;
     // Auto-generate SEO fields
-    const seo = generateSEO({ title, content: content || '', lang: lang || 'de' });
+    const seo = generateSEO({ title, content: content || '', lang: lang || 'de', siteId: site_id || '' });
     const r = await db.prepare(
       'INSERT INTO blog_posts (site_id, title, slug, tags, excerpt, content, status, lang, group_id, publish_at, published_at, meta_keywords, meta_description, longtail_keywords, seo_generated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
     ).bind(site_id, title, slug, tags || '', excerpt || '', content || '', status || 'draft', lang || 'de', group_id || '', publish_at || null, pubAt, seo.keywords.join(','), seo.metaDescription, JSON.stringify(seo.longtailKeywords), new Date().toISOString()).run();
@@ -1145,7 +1145,8 @@ async function handleRequest(request, env) {
         const seoTitle   = body.title   ?? existing.title;
         const seoContent = body.content ?? existing.content;
         const seoLang    = body.lang    ?? existing.lang ?? 'de';
-        const seo = generateSEO({ title: seoTitle, content: seoContent, lang: seoLang });
+        const existingSite = await db.prepare('SELECT site_id FROM blog_posts WHERE id=?').bind(segments[2]).first().catch(() => null);
+        const seo = generateSEO({ title: seoTitle, content: seoContent, lang: seoLang, siteId: existingSite?.site_id || '' });
         sets.push('meta_keywords=?');      params.push(seo.keywords.join(','));
         sets.push('meta_description=?');   params.push(seo.metaDescription);
         sets.push('longtail_keywords=?');  params.push(JSON.stringify(seo.longtailKeywords));
@@ -1169,7 +1170,7 @@ async function handleRequest(request, env) {
     const body = await request.json().catch(() => ({}));
     const { title, content, lang } = body;
     if (!title && !content) return err('title oder content erforderlich');
-    const seo = generateSEO({ title: title || '', content: content || '', lang: lang || 'de' });
+    const seo = generateSEO({ title: title || '', content: content || '', lang: lang || 'de', siteId: body.site_id || '' });
     return json(seo);
   }
 
@@ -1177,9 +1178,9 @@ async function handleRequest(request, env) {
   if (request.method === 'POST' && segments[1] === 'seo' && segments[2] === 'regenerate' && segments[3]) {
     if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
     const postId = segments[3];
-    const post = await db.prepare('SELECT title, content, lang FROM blog_posts WHERE id=?').bind(postId).first();
+    const post = await db.prepare('SELECT title, content, lang, site_id FROM blog_posts WHERE id=?').bind(postId).first();
     if (!post) return err('Post not found', 404);
-    const seo = generateSEO({ title: post.title || '', content: post.content || '', lang: post.lang || 'de' });
+    const seo = generateSEO({ title: post.title || '', content: post.content || '', lang: post.lang || 'de', siteId: post.site_id || '' });
     await db.prepare(
       'UPDATE blog_posts SET meta_keywords=?, meta_description=?, longtail_keywords=?, seo_generated_at=? WHERE id=?'
     ).bind(seo.keywords.join(','), seo.metaDescription, JSON.stringify(seo.longtailKeywords), new Date().toISOString(), postId).run();
