@@ -2584,35 +2584,42 @@ async function deleteBlogPost(id, siteId) {
 function _renderRemovableKeywords(keywords, postId, type, color, bg) {
   if (!keywords || keywords.length === 0) return '<span style="color:var(--text3);font-size:11px">–</span>';
   return keywords.map(k => {
-    const kEsc = esc(String(k).trim());
+    const kTrim = String(k).trim();
+    const kEsc  = esc(kTrim);
+    // data-kw speichert den Keyword-Wert sicher — kein textContent-Parsing nötig
+    const kData = kTrim.replace(/"/g, '&quot;');
     return `<span
-      style="position:relative;display:inline-flex;align-items:center;font-size:11px;padding:2px 8px;border-radius:4px;background:${bg};color:${color};cursor:default;transition:padding-right .15s"
-      onmouseover="this.querySelector('.kw-del').style.display='inline-flex';this.style.paddingRight='22px'"
-      onmouseout="this.querySelector('.kw-del').style.display='none';this.style.paddingRight='8px'"
+      data-kw="${kData}"
+      data-post="${postId}"
+      data-type="${type}"
+      style="position:relative;display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:4px;background:${bg};color:${color};cursor:default;user-select:none"
+      onmouseover="this.querySelector('.kw-del').style.opacity='1';this.querySelector('.kw-del').style.pointerEvents='auto'"
+      onmouseout="this.querySelector('.kw-del').style.opacity='0';this.querySelector('.kw-del').style.pointerEvents='none'"
     >${kEsc}<button
         class="kw-del"
-        onclick="_blgRemoveKeyword(${postId},'${type}',this.closest('span').textContent.slice(0,-1).trim())"
-        style="display:none;position:absolute;right:3px;top:50%;transform:translateY(-50%);
-          width:14px;height:14px;border-radius:50%;border:none;background:rgba(0,0,0,.35);
-          color:#fff;font-size:9px;line-height:1;cursor:pointer;align-items:center;justify-content:center;padding:0"
+        onclick="event.stopPropagation();_blgRemoveKeyword(${postId},'${type}',this.parentElement.dataset.kw)"
+        style="opacity:0;pointer-events:none;flex-shrink:0;width:13px;height:13px;border-radius:50%;border:none;
+          background:rgba(0,0,0,.4);color:#fff;font-size:9px;line-height:1;cursor:pointer;
+          display:inline-flex;align-items:center;justify-content:center;padding:0;transition:opacity .15s"
         title="Entfernen"
       >×</button></span>`;
   }).join('');
 }
 
 window._blgRemoveKeyword = async function(postId, type, keyword) {
+  if (!keyword) { console.warn('_blgRemoveKeyword: kein keyword'); return; }
   // Aktuellen Stand aus DOM lesen
   const container = document.getElementById(`ble-seo-${type}-${postId}`);
-  if (!container) return;
+  if (!container) { console.warn('_blgRemoveKeyword: container nicht gefunden', `ble-seo-${type}-${postId}`); return; }
 
-  // Alle verbleibenden Keywords = alle spans deren Text != keyword
-  const spans = Array.from(container.querySelectorAll('span[onmouseover]'));
+  // Alle verbleibenden Keywords via data-kw lesen
+  const spans = Array.from(container.querySelectorAll('span[data-kw]'));
   const remaining = spans
-    .map(s => s.textContent.trim())
+    .map(s => s.dataset.kw)
     .filter(t => t !== keyword);
 
   // Optimistisch aus DOM entfernen
-  const toRemove = spans.find(s => s.textContent.trim() === keyword);
+  const toRemove = spans.find(s => s.dataset.kw === keyword);
   if (toRemove) toRemove.remove();
 
   // Zähler im Label aktualisieren
