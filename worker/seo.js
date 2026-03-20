@@ -316,17 +316,49 @@ export function generateSEO({ title = '', content = '', lang = 'en', siteId = ''
 
   // Short Keywords: gewichtetes TF-Scoring
   const scores = scoreKeywords(allTokens, filtered, titleTokens, normLang, siteId);
-  const topKeywords = Object.entries(scores)
+  const rawKeywords = Object.entries(scores)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 15)
+    .slice(0, 25)
     .map(([word]) => word);
+
+  // Deduplication: echte Wortvarianten entfernen (Plural, Flexion)
+  // Regel: nur filtern wenn Längenunterschied <= 3 Zeichen UND eines ist Prefix des anderen
+  // Beispiele die gefiltert werden:  pause/pausen (diff=1), spiel/spiele (diff=1)
+  // Beispiele die NICHT gefiltert werden: spiel/wortspiel (diff=4), pause/pausenhelfen (diff=6)
+  const topKeywords = [];
+  for (const word of rawKeywords) {
+    const isDuplicate = topKeywords.some(existing => {
+      const diff = Math.abs(word.length - existing.length);
+      if (diff > 3) return false; // zu unterschiedlich lang → keine Variante
+      return existing.startsWith(word) || word.startsWith(existing);
+    });
+    if (!isDuplicate) topKeywords.push(word);
+    if (topKeywords.length >= 10) break;
+  }
 
   // Long-Tail: gewichtete Bigrams + Trigrams
   const bigrams  = buildWeightedNgrams(filtered, 2, normLang, siteId);
   const trigrams = buildWeightedNgrams(filtered, 3, normLang, siteId);
 
-  // Trigrams zuerst (spezifischer), dann Bigrams, insgesamt 10
-  const longtail = [...trigrams.slice(0, 4), ...bigrams.slice(0, 6)].slice(0, 10);
+  // Long-Tail Deduplication:
+  // 1. Keine Phrase bei der alle Wörter schon in einer anderen (kürzeren) Phrase sind
+  // 2. Keine Phrasen die nur Umkehrungen voneinander sind ("pausen helfen" + "helfen pausen")
+  const allPhrases = [...trigrams.slice(0, 8), ...bigrams.slice(0, 10)];
+  const longtailRaw = [];
+  for (const phrase of allPhrases) {
+    const words = phrase.split(' ');
+    // Duplikat wenn bereits eine Phrase mit denselben Wörtern (andere Reihenfolge) drin ist
+    const isDupe = longtailRaw.some(existing => {
+      const exWords = existing.split(' ');
+      return exWords.length === words.length &&
+             words.every(w => exWords.includes(w));
+    });
+    // Auch überspringen wenn die Phrase nur aus Keywords besteht die schon einzeln top-ranked sind
+    // und keine neue Kombination bringen
+    if (!isDupe) longtailRaw.push(phrase);
+    if (longtailRaw.length >= 10) break;
+  }
+  const longtail = longtailRaw;
 
   const metaDescription = generateMetaDescription(title, content, topKeywords);
 

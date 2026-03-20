@@ -2579,6 +2579,63 @@ async function deleteBlogPost(id, siteId) {
   reloadPanel(siteId, 'blog');
 }
 
+// ── Removable Keyword Tags ────────────────────────────────────────────
+
+function _renderRemovableKeywords(keywords, postId, type, color, bg) {
+  if (!keywords || keywords.length === 0) return '<span style="color:var(--text3);font-size:11px">–</span>';
+  return keywords.map(k => {
+    const kEsc = esc(String(k).trim());
+    return `<span
+      style="position:relative;display:inline-flex;align-items:center;font-size:11px;padding:2px 8px;border-radius:4px;background:${bg};color:${color};cursor:default;transition:padding-right .15s"
+      onmouseover="this.querySelector('.kw-del').style.display='inline-flex';this.style.paddingRight='22px'"
+      onmouseout="this.querySelector('.kw-del').style.display='none';this.style.paddingRight='8px'"
+    >${kEsc}<button
+        class="kw-del"
+        onclick="_blgRemoveKeyword(${postId},'${type}',this.closest('span').textContent.slice(0,-1).trim())"
+        style="display:none;position:absolute;right:3px;top:50%;transform:translateY(-50%);
+          width:14px;height:14px;border-radius:50%;border:none;background:rgba(0,0,0,.35);
+          color:#fff;font-size:9px;line-height:1;cursor:pointer;align-items:center;justify-content:center;padding:0"
+        title="Entfernen"
+      >×</button></span>`;
+  }).join('');
+}
+
+window._blgRemoveKeyword = async function(postId, type, keyword) {
+  // Aktuellen Stand aus DOM lesen
+  const container = document.getElementById(`ble-seo-${type}-${postId}`);
+  if (!container) return;
+
+  // Alle verbleibenden Keywords = alle spans deren Text != keyword
+  const spans = Array.from(container.querySelectorAll('span[onmouseover]'));
+  const remaining = spans
+    .map(s => s.textContent.trim())
+    .filter(t => t !== keyword);
+
+  // Optimistisch aus DOM entfernen
+  const toRemove = spans.find(s => s.textContent.trim() === keyword);
+  if (toRemove) toRemove.remove();
+
+  // Zähler im Label aktualisieren
+  const label = container.previousElementSibling;
+  if (label) {
+    const countMatch = label.innerHTML.match(/(Keywords?|Long-Tail Keywords?)/);
+    if (countMatch) {
+      const baseLabel = countMatch[0];
+      label.innerHTML = label.innerHTML.replace(
+        /Keywords?.*?<span/,
+        `${baseLabel} (${remaining.length}) <span`
+      );
+    }
+  }
+
+  // In DB speichern
+  const body = type === 'kw'
+    ? { meta_keywords: remaining.join(',') }
+    : { longtail_keywords: JSON.stringify(remaining) };
+
+  await api(`/api/blog/${postId}`, { method: 'PATCH', body }).catch(() => null);
+};
+
 window.openBlogEdit = async function(id, siteId) {
   const box = document.getElementById(`bl-edit-${id}`);
   if (!box) return;
@@ -2634,12 +2691,12 @@ window.openBlogEdit = async function(id, siteId) {
             <div id="ble-seo-meta-${id}" style="font-size:12px;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px;line-height:1.5">${esc(p.meta_description||'')}</div>
           </div>
           <div style="margin-bottom:8px">
-            <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Keywords (${(p.meta_keywords||'').split(',').filter(Boolean).length})</div>
-            <div id="ble-seo-kw-${id}" style="display:flex;flex-wrap:wrap;gap:4px">${(p.meta_keywords||'').split(',').filter(Boolean).map(k => '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">' + esc(k.trim()) + '</span>').join('')}</div>
+            <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Keywords (${(p.meta_keywords||'').split(',').filter(Boolean).length}) <span style="font-weight:400;font-size:9px;opacity:.5">hover → × zum Entfernen</span></div>
+            <div id="ble-seo-kw-${id}" style="display:flex;flex-wrap:wrap;gap:4px">${_renderRemovableKeywords((p.meta_keywords||'').split(',').filter(Boolean), id, 'kw', '#c084fc', 'rgba(139,92,246,.15)')}</div>
           </div>
           <div>
-            <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Long-Tail Keywords</div>
-            <div id="ble-seo-lt-${id}" style="display:flex;flex-wrap:wrap;gap:4px">${(() => { try { return JSON.parse(p.longtail_keywords||'[]').map(k => '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(96,165,250,.1);color:#60a5fa">' + esc(k) + '</span>').join(''); } catch(e) { return '<span style="color:var(--text3);font-size:11px">–</span>'; } })()}</div>
+            <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Long-Tail Keywords <span style="font-weight:400;font-size:9px;opacity:.5">hover → × zum Entfernen</span></div>
+            <div id="ble-seo-lt-${id}" style="display:flex;flex-wrap:wrap;gap:4px">${_renderRemovableKeywords((() => { try { return JSON.parse(p.longtail_keywords||'[]'); } catch(e) { return []; } })(), id, 'lt', '#60a5fa', 'rgba(96,165,250,.1)')}</div>
           </div>` : '<div style="font-size:12px;color:var(--text3)">Noch keine SEO-Daten – klicke auf „🔄 SEO neu generieren".</div>'}
         </div>
       </div>
@@ -2697,12 +2754,7 @@ window._blgRegenSEO = async function(id, siteId) {
   const seo = res.seo;
   if (tsEl) tsEl.textContent = '⚡ Gerade generiert';
   if (panel) {
-    const kwHtml = seo.keywords.map(k =>
-      '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">' + esc(k) + '</span>'
-    ).join('');
-    const ltHtml = seo.longtailKeywords.map(k =>
-      '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(96,165,250,.1);color:#60a5fa">' + esc(k) + '</span>'
-    ).join('');
+
     panel.innerHTML = `
       <div style="margin-bottom:8px">
         <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Meta-Description (${seo.metaDescription.length} Zeichen)</div>
@@ -2710,11 +2762,11 @@ window._blgRegenSEO = async function(id, siteId) {
       </div>
       <div style="margin-bottom:8px">
         <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Keywords (${seo.keywords.length})</div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px">${kwHtml}</div>
+        <div id="ble-seo-kw-${id}" style="display:flex;flex-wrap:wrap;gap:4px">${_renderRemovableKeywords(seo.keywords, id, 'kw', '#c084fc', 'rgba(139,92,246,.15)')}</div>
       </div>
       <div>
         <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px">Long-Tail Keywords</div>
-        <div style="display:flex;flex-wrap:wrap;gap:4px">${ltHtml || '<span style="color:var(--text3);font-size:11px">Keine (Text zu kurz für N-Gramme)</span>'}</div>
+        <div id="ble-seo-lt-${id}" style="display:flex;flex-wrap:wrap;gap:4px">${_renderRemovableKeywords(seo.longtailKeywords, id, 'lt', '#60a5fa', 'rgba(96,165,250,.1)')}</div>
       </div>`;
   }
 };

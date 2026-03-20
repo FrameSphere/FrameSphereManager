@@ -1135,11 +1135,17 @@ async function handleRequest(request, env) {
     if (body.status     !== undefined) { sets.push('status=?');     params.push(body.status); }
     if (body.lang       !== undefined) { sets.push('lang=?');       params.push(body.lang); }
     if (body.group_id   !== undefined) { sets.push('group_id=?');   params.push(body.group_id); }
-    if (body.publish_at !== undefined) { sets.push('publish_at=?'); params.push(body.publish_at || null); }
+    if (body.publish_at        !== undefined) { sets.push('publish_at=?');        params.push(body.publish_at || null); }
+    if (body.meta_keywords      !== undefined) { sets.push('meta_keywords=?');      params.push(body.meta_keywords); }
+    if (body.meta_description   !== undefined) { sets.push('meta_description=?');   params.push(body.meta_description); }
+    if (body.longtail_keywords  !== undefined) { sets.push('longtail_keywords=?');  params.push(body.longtail_keywords); }
     if (body.status === 'published') { sets.push('published_at=?'); params.push(new Date().toISOString()); }
     if (!sets.length) return err('Nothing to update');
-    // Auto-regenerate SEO if content-relevant fields changed
-    if (body.title !== undefined || body.content !== undefined || body.lang !== undefined) {
+    // Auto-regenerate SEO nur wenn Inhalt/Titel/Sprache geändert wird
+    // NICHT wenn nur meta_keywords/longtail_keywords manuell gesetzt werden
+    const seoRelevantChange = body.title !== undefined || body.content !== undefined || body.lang !== undefined;
+    const manualSEOEdit = body.meta_keywords !== undefined || body.meta_description !== undefined || body.longtail_keywords !== undefined;
+    if (seoRelevantChange && !manualSEOEdit) {
       const existing = await db.prepare('SELECT title, content, lang FROM blog_posts WHERE id=?').bind(segments[2]).first().catch(() => null);
       if (existing) {
         const seoTitle   = body.title   ?? existing.title;
