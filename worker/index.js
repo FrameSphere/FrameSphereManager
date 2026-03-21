@@ -139,6 +139,19 @@ async function ensureErrorTable(db) {
   )`).run();
 }
 
+// ── Auto-create wordify_wins table ──────────────────────────────
+async function ensureWinsTable(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS wordify_wins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    game_type TEXT NOT NULL DEFAULT 'classic',
+    word TEXT NOT NULL,
+    language TEXT NOT NULL DEFAULT 'de',
+    date TEXT,
+    attempts INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`).run();
+}
+
 // ── Auto-create daily_words + contact_messages tables ────────────
 async function ensureTables(db) {
   await db.batch([
@@ -257,6 +270,68 @@ async function handleRequest(request, env) {
     const row = await db.prepare('SELECT word FROM daily_words WHERE date=? AND language=?')
       .bind(date, lang).first();
     return json({ word: row ? row.word.toUpperCase() : null, date, lang });
+  }
+
+  // POST /api/game-wins ── public: Wordify meldet einen Gewinn
+  if (request.method === 'POST' && path === '/api/game-wins') {
+    const db = env.DB;
+    await ensureWinsTable(db);
+    const body = await request.json().catch(() => ({}));
+    const { game_type, word, language, date, attempts } = body;
+    if (!word || !language) return err('Missing word or language');
+    await db.prepare(
+      'INSERT INTO wordify_wins (game_type, word, language, date, attempts) VALUES (?,?,?,?,?)'
+    ).bind(
+      game_type || 'classic',
+      word.toUpperCase().trim(),
+      language,
+      date || new Date().toISOString().slice(0, 10),
+      attempts || null
+    ).run();
+    return json({ success: true });
+  }
+
+  // GET /api/game-wins ── auth: Dashboard liest Gewinn-Statistiken
+  if (request.method === 'GET' && path === '/api/game-wins') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureWinsTable(db);
+    const lang     = url.searchParams.get('lang');
+    const gameType = url.searchParams.get('game_type');
+    const date     = url.searchParams.get('date');
+    const days     = parseInt(url.searchParams.get('days') || '30');
+
+    let baseWhere = '1=1';
+    const baseParams = [];
+    if (lang)     { baseWhere += ' AND language=?';  baseParams.push(lang); }
+    if (gameType) { baseWhere += ' AND game_type=?'; baseParams.push(gameType); }
+    if (date)     { baseWhere += ' AND date=?';      baseParams.push(date); }
+
+    const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+
+    const [total, byWord, byDay, byLang, byType, todayRow] = await Promise.all([
+      db.prepare(`SELECT COUNT(*) as c FROM wordify_wins WHERE ${baseWhere}`)
+        .bind(...baseParams).first(),
+      db.prepare(`SELECT word, language, game_type, COUNT(*) as wins FROM wordify_wins WHERE ${baseWhere} AND date >= ? GROUP BY word, language, game_type ORDER BY wins DESC LIMIT 20`)
+        .bind(...baseParams, since).all(),
+      db.prepare(`SELECT date, COUNT(*) as wins FROM wordify_wins WHERE ${baseWhere} AND date >= ? GROUP BY date ORDER BY date ASC`)
+        .bind(...baseParams, since).all(),
+      db.prepare(`SELECT language, COUNT(*) as wins FROM wordify_wins WHERE ${baseWhere} GROUP BY language ORDER BY wins DESC`)
+        .bind(...baseParams).all(),
+      db.prepare(`SELECT game_type, COUNT(*) as wins FROM wordify_wins WHERE ${baseWhere} GROUP BY game_type ORDER BY wins DESC`)
+        .bind(...baseParams).all(),
+      db.prepare(`SELECT COUNT(*) as c FROM wordify_wins WHERE date=?`)
+        .bind(new Date().toISOString().slice(0, 10)).first(),
+    ]);
+
+    return json({
+      total:    total?.c || 0,
+      today:    todayRow?.c || 0,
+      byWord:   byWord.results   || [],
+      byDay:    byDay.results    || [],
+      byLang:   byLang.results   || [],
+      byType:   byType.results   || [],
+    });
   }
 
   // POST /api/contact ── public (multi-site contact form)

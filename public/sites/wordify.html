@@ -53,7 +53,204 @@
 <script src="../js/components.js"></script>
 <script>
 initSitePage('wordify', 'wortanfragen');
-// pre-register new tabs so loadTabContent knows to route them
+
+// ── Wordify Gewinn-Statistiken ─────────────────────────────────────────────
+
+async function loadWinStats(targetPanelId, opts) {
+  opts = opts || {};
+  const panel = document.getElementById(targetPanelId);
+  if (!panel) return;
+  panel.innerHTML = '<div class="loading">Lade Gewinn-Daten…</div>';
+
+  const params = new URLSearchParams({ days: opts.days || 30 });
+  if (opts.lang) params.set('lang', opts.lang);
+  if (opts.game_type) params.set('game_type', opts.game_type);
+  if (opts.date) params.set('date', opts.date);
+
+  const data = await api('/api/game-wins?' + params.toString());
+  if (!data) { panel.innerHTML = errState(); return; }
+
+  const langEmoji = { de: '🇩🇪', en: '🇬🇧', fr: '🇫🇷', es: '🇪🇸', it: '🇮🇹' };
+  const typeLabel = { classic: 'Klassisch', daily: 'Wort des Tages' };
+
+  panel.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px">
+      <div class="kpi-card">
+        <div class="kpi-label">Gesamt erraten</div>
+        <div class="kpi-value">${data.total.toLocaleString('de-DE')}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Heute erraten</div>
+        <div class="kpi-value" style="color:#22c55e">${data.today}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Classic Wins</div>
+        <div class="kpi-value">${(data.byType.find(function(r){return r.game_type==='classic';}) || {wins:0}).wins}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">WDT Wins</div>
+        <div class="kpi-value">${(data.byType.find(function(r){return r.game_type==='daily';}) || {wins:0}).wins}</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+
+      <!-- Top-Wörter -->
+      <div class="card">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:10px">
+          🏆 Top-Wörter (${opts.days || 30}d)
+        </div>
+        ${data.byWord.length === 0
+          ? '<div style="color:var(--text3);font-size:12px">Noch keine Daten</div>'
+          : data.byWord.map(function(r, i) {
+              return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">' +
+                '<span style="font-size:10px;color:var(--text3);width:16px">' + (i+1) + '</span>' +
+                '<span class="mono" style="font-size:13px;font-weight:700;color:var(--accent)">' + r.word + '</span>' +
+                '<span style="font-size:10px;color:var(--text3);margin-left:2px">' + (langEmoji[r.language] || r.language) + '</span>' +
+                '<span style="font-size:10px;color:var(--text3);margin-left:2px">' + (typeLabel[r.game_type] || r.game_type) + '</span>' +
+                '<span style="margin-left:auto;font-size:12px;font-weight:700;color:#22c55e">' + r.wins + 'x</span>' +
+              '</div>';
+            }).join('')
+        }
+      </div>
+
+      <!-- Pro Sprache -->
+      <div class="card">
+        <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:10px">
+          🌍 Sprachen
+        </div>
+        ${data.byLang.length === 0
+          ? '<div style="color:var(--text3);font-size:12px">Noch keine Daten</div>'
+          : data.byLang.map(function(r) {
+              const total = data.total || 1;
+              const pct   = Math.round(r.wins / total * 100);
+              return '<div style="margin-bottom:8px">' +
+                '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">' +
+                  '<span>' + (langEmoji[r.language] || r.language) + ' ' + r.language.toUpperCase() + '</span>' +
+                  '<span style="font-weight:700">' + r.wins + '</span>' +
+                '</div>' +
+                '<div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">' +
+                  '<div style="height:100%;width:' + pct + '%;background:#22c55e;border-radius:2px"></div>' +
+                '</div>' +
+              '</div>';
+            }).join('')
+        }
+      </div>
+    </div>
+
+    <!-- Tages-Verlauf -->
+    <div class="card">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:12px">
+        📅 Gewinne pro Tag (${opts.days || 30}d)
+      </div>
+      ${data.byDay.length === 0
+        ? '<div style="color:var(--text3);font-size:12px">Noch keine Daten</div>'
+        : (function() {
+            const max = Math.max.apply(null, data.byDay.map(function(r){return r.wins;})) || 1;
+            return '<div style="display:flex;align-items:flex-end;gap:3px;height:60px">' +
+              data.byDay.map(function(r) {
+                const h = Math.round(r.wins / max * 60);
+                return '<div title="' + r.date + ': ' + r.wins + ' Gewinne" style="flex:1;min-width:4px;height:' + h + 'px;background:#22c55e;border-radius:2px 2px 0 0;opacity:0.85"></div>';
+              }).join('') +
+            '</div>' +
+            '<div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3);margin-top:4px">' +
+              '<span>' + data.byDay[0].date + '</span>' +
+              '<span>' + data.byDay[data.byDay.length-1].date + '</span>' +
+            '</div>';
+          })()
+      }
+    </div>
+  `;
+}
+
+// WDT-Tab: Gewinn-Widget direkt nach dem bestehenden WDT-Inhalt anhängen
+function appendWdtWinWidget(siteId) {
+  var panel = document.getElementById('tab-wortdestages');
+  if (!panel) return;
+  // Wrapper-Div anhängen falls noch nicht vorhanden
+  if (document.getElementById('wdt-win-section')) return;
+  var wrap = document.createElement('div');
+  wrap.id = 'wdt-win-section';
+  wrap.style.cssText = 'margin-top:24px';
+  wrap.innerHTML =
+    '<div style="font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px">' +
+    '  <i data-lucide="trophy" style="width:14px;height:14px;color:#22c55e"></i>' +
+    '  Wort des Tages – Errate-Statistik' +
+    '  <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadWinStats(\"wdt-win-inner\",{game_type:\"daily\",days:30})">↻</button>' +
+    '</div>' +
+    '<div id="wdt-win-inner"></div>';
+  panel.appendChild(wrap);
+  refreshIcons();
+  loadWinStats('wdt-win-inner', { game_type: 'daily', days: 30 });
+}
+
+// Daten-Tab: vollständige Gewinn-Sektion
+function appendDatenWinWidget(siteId) {
+  var panel = document.getElementById('tab-daten');
+  if (!panel) return;
+  if (document.getElementById('daten-win-section')) return;
+  var wrap = document.createElement('div');
+  wrap.id = 'daten-win-section';
+  wrap.style.cssText = 'margin-top:24px';
+  wrap.innerHTML =
+    '<div style="font-size:13px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px">' +
+    '  <i data-lucide="bar-chart-2" style="width:14px;height:14px;color:#22c55e"></i>' +
+    '  Erraten-Statistik (alle Spielmodi)' +
+    '  <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="loadWinStats(\"daten-win-inner\",{days:30})">↻</button>' +
+    '</div>' +
+    '<div id="daten-win-inner"></div>';
+  panel.appendChild(wrap);
+  refreshIcons();
+  loadWinStats('daten-win-inner', { days: 30 });
+}
+
+// Tab-Übergabe abfangen um Widgets zu injizieren
+var _origShowTab = window.showTab;
+if (typeof _origShowTab === 'function') {
+  window.showTab = function(siteId, tabId, btn) {
+    _origShowTab.apply(this, arguments);
+    if (siteId === 'wordify') {
+      if (tabId === 'wortdestages') setTimeout(function(){ appendWdtWinWidget(siteId); }, 400);
+      if (tabId === 'daten')        setTimeout(function(){ appendDatenWinWidget(siteId); }, 400);
+    }
+  };
+}
+
+// Auf initSitePage-Callback warten (nach Auth) – via MutationObserver auf den aktiven Tab-Panel
+document.addEventListener('DOMContentLoaded', function() {
+  // Sicherstellen dass showTab nach dem Layout-Init überschrieben wird
+  var patchInterval = setInterval(function() {
+    if (typeof window.showTab === 'function' && window.showTab !== _origShowTab) {
+      clearInterval(patchInterval);
+      return;
+    }
+    if (typeof window.showTab === 'function' && window.showTab === _origShowTab) {
+      // Noch nicht gepatcht – warten
+    } else if (typeof window.showTab === 'function') {
+      clearInterval(patchInterval);
+    }
+  }, 100);
+
+  // Fallback: wenn der Daten- oder WDT-Tab bereits aktiv ist beim Laden
+  setTimeout(function() {
+    var activeWdt = document.getElementById('tab-wortdestages');
+    var activeDaten = document.getElementById('tab-daten');
+    if (activeWdt && activeWdt.classList.contains('active')) appendWdtWinWidget('wordify');
+    if (activeDaten && activeDaten.classList.contains('active')) appendDatenWinWidget('wordify');
+
+    // showTab patchen (nach initSitePage)
+    if (typeof window.showTab === 'function') {
+      var orig = window.showTab;
+      window.showTab = function(siteId, tabId, btn) {
+        orig.apply(this, arguments);
+        if (siteId === 'wordify') {
+          if (tabId === 'wortdestages') setTimeout(function(){ appendWdtWinWidget(siteId); }, 400);
+          if (tabId === 'daten')        setTimeout(function(){ appendDatenWinWidget(siteId); }, 400);
+        }
+      };
+    }
+  }, 800);
+});
 </script>
 </body>
 </html>
