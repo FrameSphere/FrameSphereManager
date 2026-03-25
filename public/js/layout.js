@@ -160,6 +160,10 @@ function injectSidebar(activeSiteId = null) {
         <span class="icon"><i data-lucide="circle-dollar-sign" style="width:14px;height:14px;color:#22c55e"></i></span>
         Revenue
       </a>
+      <a class="nav-item${window.location.pathname.includes('blog-verwaltung') ? ' active' : ''}" href="${pathPrefix()}blog-verwaltung.html">
+        <span class="icon"><i data-lucide="book-open" style="width:14px;height:14px;color:#f59e0b"></i></span>
+        Blog Verwaltung
+      </a>
     </div>
     <div class="sidebar-section">
       <div class="sidebar-label">Webseiten</div>

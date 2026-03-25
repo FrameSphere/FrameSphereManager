@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blog Verwaltung – WebControl HQ</title>
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+<div id="layout">
+  <div id="main">
+
+    <div class="page-header" style="border-left:3px solid #f59e0b;padding-left:25px">
+      <div class="flex items-center gap-12">
+        <i data-lucide="book-open" style="width:22px;height:22px;color:#f59e0b"></i>
+        <div>
+          <div class="page-title">Blog Verwaltung</div>
+          <div class="page-sub" style="color:var(--text3)">Zentrales Blog-Management für alle Seiten</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Haupt-Tabs -->
+    <div class="site-tabs" id="bv-tabs">
+      <button class="tab-btn active" onclick="bvShowTab('neuer-beitrag',this)">
+        <i data-lucide="pencil" style="width:12px;height:12px"></i> Neuer Beitrag
+      </button>
+      <button class="tab-btn" onclick="bvShowTab('seo-manager',this)">
+        <i data-lucide="search" style="width:12px;height:12px"></i> SEO Manager
+      </button>
+    </div>
+
+    <div class="tab-content-area">
+
+      <!-- ═══════════════════════════════════════════════════════ TAB 1: Neuer Beitrag -->
+      <div id="bvtab-neuer-beitrag" class="tab-panel active">
+        <div class="form-card">
+          <div class="form-card-title">📝 Neuen Blog-Beitrag erstellen</div>
+
+          <!-- Seiten-Auswahl (erste Zeile, prominent) -->
+          <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:10px;padding:14px 16px;margin-bottom:18px">
+            <label style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#f59e0b;display:block;margin-bottom:8px">
+              <i data-lucide="globe" style="width:12px;height:12px;display:inline-block;vertical-align:-1px;margin-right:4px"></i>
+              Ziel-Seite
+            </label>
+            <select id="bv-site" onchange="bvSiteChanged()" style="width:100%;padding:10px 14px;font-size:14px;font-weight:700;border-radius:8px;background:var(--surface);border:1px solid rgba(245,158,11,.4);color:var(--text1)">
+              <option value="">— Seite auswählen —</option>
+              <option value="framesphere">Frame-Sphere</option>
+              <option value="brawlmystery">BrawlMystery</option>
+              <option value="framespell">FrameSpell</option>
+            </select>
+          </div>
+
+          <!-- Sprache + Titel -->
+          <div class="form-row">
+            <div class="form-group" style="max-width:160px">
+              <label>Sprache</label>
+              <select id="bv-lang">
+                <option value="de">🇩🇪 Deutsch</option>
+                <option value="en">🇬🇧 English</option>
+                <option value="fr">🇫🇷 Français</option>
+                <option value="es">🇪🇸 Español</option>
+                <option value="it">🇮🇹 Italiano</option>
+              </select>
+            </div>
+            <div class="form-group form-full">
+              <label>Titel</label>
+              <input id="bv-title" placeholder="Titel des Beitrags…" oninput="bvAutoSlug()">
+            </div>
+          </div>
+
+          <!-- Slug -->
+          <div class="form-row">
+            <div class="form-group form-full">
+              <label>Slug <span style="color:var(--text3);font-weight:400">(wird automatisch generiert)</span></label>
+              <input id="bv-slug" placeholder="mein-beitrag-slug" style="font-family:'Space Mono',monospace;font-size:12px">
+            </div>
+          </div>
+
+          <!-- Excerpt -->
+          <div class="form-row">
+            <div class="form-group form-full">
+              <label>Excerpt / Teaser</label>
+              <textarea id="bv-excerpt" rows="2" placeholder="Kurze Zusammenfassung für Listen und SEO…"></textarea>
+            </div>
+          </div>
+
+          <!-- Content -->
+          <div class="form-row">
+            <div class="form-group form-full">
+              <label>Inhalt <span style="color:var(--text3);font-weight:400">(HTML erlaubt)</span></label>
+              <textarea id="bv-content" rows="10"
+                placeholder="&lt;p&gt;Dein Beitrags-Inhalt hier…&lt;/p&gt;&#10;&lt;h2&gt;Abschnitt&lt;/h2&gt;&#10;&lt;p&gt;Weiterer Text…&lt;/p&gt;"
+                style="font-family:'Space Mono',monospace;font-size:12px"></textarea>
+            </div>
+          </div>
+
+          <!-- Tags + Gruppe -->
+          <div class="form-row">
+            <div class="form-group">
+              <label>Tags <span style="color:var(--text3);font-weight:400">(komma-getrennt)</span></label>
+              <input id="bv-tags" placeholder="tutorial, guide, tipps">
+            </div>
+            <div class="form-group">
+              <label>Gruppen-ID <span style="color:var(--text3);font-weight:400">(für Mehrsprachigkeit)</span></label>
+              <input id="bv-group" placeholder="grp-… (leer = neue Gruppe)">
+            </div>
+          </div>
+
+          <!-- SEO -->
+          <details style="margin-bottom:16px">
+            <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--text3);padding:8px 0;user-select:none">
+              🔍 SEO-Felder (optional)
+            </summary>
+            <div style="padding-top:10px;display:flex;flex-direction:column;gap:10px">
+              <div class="form-group">
+                <label>Meta-Description</label>
+                <textarea id="bv-meta-desc" rows="2" placeholder="Kurze Beschreibung für Suchmaschinen (ca. 150–160 Zeichen)…"></textarea>
+              </div>
+              <div class="form-group">
+                <label>Meta-Keywords <span style="color:var(--text3);font-weight:400">(komma-getrennt)</span></label>
+                <input id="bv-meta-kw" placeholder="keyword1, keyword2, keyword3">
+              </div>
+            </div>
+          </details>
+
+          <!-- Aktionen -->
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+              <input type="checkbox" id="bv-publish" style="width:16px;height:16px">
+              Sofort veröffentlichen
+            </label>
+            <button class="btn btn-ghost btn-sm" id="bv-schedule-btn" onclick="bvOpenSchedule()">⏰ Zeitplan</button>
+            <button class="btn btn-primary" onclick="bvSubmit()">
+              <i data-lucide="send" style="width:13px;height:13px"></i> Beitrag erstellen
+            </button>
+            <span id="bv-status" style="font-size:12px;color:var(--text3)"></span>
+          </div>
+        </div>
+
+        <!-- Letzte Beiträge (alle Sites) -->
+        <div class="actions-bar" style="margin-top:24px;margin-bottom:10px">
+          <div style="font-size:13px;font-weight:700">📋 Letzte Beiträge (alle Sites)</div>
+          <div class="flex-1"></div>
+          <select id="bv-filter-site" onchange="bvLoadRecentPosts()" style="padding:4px 10px;font-size:11px;width:auto">
+            <option value="">Alle Seiten</option>
+            <option value="framesphere">Frame-Sphere</option>
+            <option value="brawlmystery">BrawlMystery</option>
+            <option value="framespell">FrameSpell</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="bvLoadRecentPosts()">↻ Aktualisieren</button>
+        </div>
+        <div id="bv-recent-posts">
+          <div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">Lade Beiträge…</div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════ TAB 2: SEO Manager -->
+      <div id="bvtab-seo-manager" class="tab-panel">
+
+        <!-- Toolbar -->
+        <div class="actions-bar" style="margin-bottom:16px">
+          <div style="font-size:13px;font-weight:700">🔍 SEO Keyword Manager</div>
+          <div class="flex-1"></div>
+          <select id="seo-filter-site" onchange="seoLoad()" style="padding:4px 10px;font-size:11px;width:auto">
+            <option value="">Alle Seiten</option>
+            <option value="framesphere">Frame-Sphere</option>
+            <option value="brawlmystery">BrawlMystery</option>
+            <option value="framespell">FrameSpell</option>
+          </select>
+          <select id="seo-filter-lang" onchange="seoApplyFilter()" style="padding:4px 10px;font-size:11px;width:auto">
+            <option value="">Alle Sprachen</option>
+            <option value="de">🇩🇪 DE</option>
+            <option value="en">🇬🇧 EN</option>
+            <option value="fr">🇫🇷 FR</option>
+            <option value="es">🇪🇸 ES</option>
+            <option value="it">🇮🇹 IT</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="seoLoad()">↻ Laden</button>
+        </div>
+
+        <!-- Sub-Tabs: Übersicht / Ignoriert / KI-Optimierung -->
+        <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0">
+          <button class="tab-btn active" id="seotab-btn-overview" onclick="seoSubTab('overview',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">📊 Übersicht</button>
+          <button class="tab-btn" id="seotab-btn-ignored" onclick="seoSubTab('ignored',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">🚫 Ignoriert</button>
+          <button class="tab-btn" id="seotab-btn-ai" onclick="seoSubTab('ai',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">🤖 KI-Optimierung</button>
+        </div>
+
+        <!-- SEO Übersicht -->
+        <div id="seotab-overview">
+          <div id="seo-stats-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px"></div>
+
+          <!-- Suchfeld -->
+          <div style="margin-bottom:12px;display:flex;gap:8px">
+            <input id="seo-search" placeholder="Keyword suchen…" oninput="seoApplyFilter()"
+              style="flex:1;padding:8px 12px;font-size:12px;border-radius:8px;background:var(--surface);border:1px solid var(--border);color:var(--text1);outline:none">
+            <select id="seo-sort" onchange="seoApplyFilter()" style="padding:6px 10px;font-size:11px;width:auto">
+              <option value="freq">Häufigkeit ↓</option>
+              <option value="az">A → Z</option>
+              <option value="site">Nach Seite</option>
+            </select>
+          </div>
+
+          <div id="seo-kw-grid" style="display:flex;flex-wrap:wrap;gap:6px;min-height:60px"></div>
+
+          <!-- Tabelle der Posts mit Keywords -->
+          <div style="margin-top:20px">
+            <div style="font-size:12px;font-weight:700;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.07em">Posts mit SEO-Daten</div>
+            <div id="seo-posts-table"></div>
+          </div>
+        </div>
+
+        <!-- SEO Ignoriert -->
+        <div id="seotab-ignored" style="display:none">
+          <div class="form-card" style="margin-bottom:16px">
+            <div class="form-card-title">🚫 Keywords zur Ignore-Liste hinzufügen</div>
+            <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
+              Wörter auf dieser Liste werden bei der KI-generierten SEO-Analyse nicht mehr empfohlen. Komma-getrennt eingeben.
+            </div>
+            <div style="display:flex;gap:8px">
+              <input id="seo-ignore-input" placeholder="keyword1, keyword2, keyword3…" style="flex:1">
+              <button class="btn btn-primary" onclick="seoAddIgnore()">+ Hinzufügen</button>
+            </div>
+          </div>
+          <div id="seo-ignore-list">
+            <div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Liste wird geladen…</div>
+          </div>
+        </div>
+
+        <!-- SEO KI-Optimierung -->
+        <div id="seotab-ai" style="display:none">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+            <!-- Linke Seite: Anleitung + Eingabe -->
+            <div>
+              <div class="form-card" style="margin-bottom:12px">
+                <div class="form-card-title">📋 Wie es funktioniert</div>
+                <div style="font-size:12px;color:var(--text2);line-height:1.7">
+                  <div style="margin-bottom:8px">1. Wähle rechts einen Post aus, dessen SEO-Daten du verbessern willst.</div>
+                  <div style="margin-bottom:8px">2. Kopiere den generierten Prompt und füge ihn in deinen KI-Chatbot (Claude, ChatGPT etc.) ein.</div>
+                  <div style="margin-bottom:8px">3. Die KI antwortet in einem festgelegten Format — kopiere die komplette Antwort.</div>
+                  <div>4. Füge die KI-Antwort in das Feld unten ein und klicke auf "Übernehmen".</div>
+                </div>
+              </div>
+
+              <div class="form-card">
+                <div class="form-card-title">🤖 KI-Antwort einfügen</div>
+                <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Erwartetes Format:<br>
+                  <code style="background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px;font-size:11px">META_DESCRIPTION: Deine neue Meta-Description hier</code><br>
+                  <code style="background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px;font-size:11px">META_KEYWORDS: keyword1, keyword2, keyword3</code>
+                </div>
+                <textarea id="seo-ai-paste" rows="6"
+                  placeholder="META_DESCRIPTION: Verbesserte Beschreibung hier…&#10;META_KEYWORDS: keyword1, keyword2, keyword3, …"
+                  style="font-family:'Space Mono',monospace;font-size:12px;margin-bottom:10px"
+                  oninput="seoAiParsePaste()"></textarea>
+
+                <!-- Vorschau der geparsten Daten -->
+                <div id="seo-ai-preview" style="display:none;background:rgba(52,211,153,.05);border:1px solid rgba(52,211,153,.2);border-radius:8px;padding:12px;margin-bottom:12px;font-size:12px">
+                  <div style="font-weight:700;color:#34d399;margin-bottom:6px">✓ Erkannt:</div>
+                  <div><span style="color:var(--text3)">Description:</span> <span id="seo-ai-desc-preview"></span></div>
+                  <div style="margin-top:4px"><span style="color:var(--text3)">Keywords:</span> <span id="seo-ai-kw-preview"></span></div>
+                </div>
+
+                <div style="display:flex;gap:8px;align-items:center">
+                  <button class="btn btn-primary" id="seo-ai-apply-btn" onclick="seoAiApply()" disabled>✓ Übernehmen</button>
+                  <button class="btn btn-ghost" onclick="seoAiClear()">× Leeren</button>
+                  <span id="seo-ai-status" style="font-size:12px;color:var(--text3)"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Rechte Seite: Post-Auswahl + Prompt-Generator -->
+            <div>
+              <div class="form-card">
+                <div class="form-card-title">📄 Post auswählen</div>
+                <select id="seo-ai-site" onchange="seoAiLoadPosts()" style="width:100%;margin-bottom:10px">
+                  <option value="">— Seite wählen —</option>
+                  <option value="framesphere">Frame-Sphere</option>
+                  <option value="brawlmystery">BrawlMystery</option>
+                  <option value="framespell">FrameSpell</option>
+                </select>
+                <select id="seo-ai-post" onchange="seoAiSelectPost()" style="width:100%;margin-bottom:10px">
+                  <option value="">— Post wählen —</option>
+                </select>
+
+                <!-- Generierter Prompt -->
+                <div id="seo-ai-prompt-wrap" style="display:none">
+                  <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px">Prompt für KI:</div>
+                  <div style="position:relative">
+                    <textarea id="seo-ai-prompt" rows="12" readonly
+                      style="font-family:'Space Mono',monospace;font-size:11px;background:var(--bg);color:var(--text2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;width:100%;resize:vertical"></textarea>
+                    <button onclick="seoAiCopyPrompt()" style="position:absolute;top:8px;right:8px;padding:4px 10px;font-size:11px;border-radius:5px;background:var(--surface);border:1px solid var(--border);color:var(--text3);cursor:pointer;font-family:inherit" id="seo-copy-btn">
+                      📋 Kopieren
+                    </button>
+                  </div>
+                  <!-- Aktuell gespeicherte SEO-Daten -->
+                  <div id="seo-ai-current" style="margin-top:10px;font-size:11px;color:var(--text3);background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /tab seo-manager -->
+
+    </div><!-- /tab-content-area -->
+  </div><!-- /main -->
+</div><!-- /layout -->
+
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
+<script src="js/components.js"></script>
+<script>
+// ─────────────────────────────────────────────────────────────
+// Init
+// ─────────────────────────────────────────────────────────────
+(function() {
+  injectLoginScreen();
+  checkAuth(function() {
+    initLayout(null);
+    bvLoadRecentPosts();
+    refreshIcons();
+  });
+  window.initAfterLogin = function() {
+    initLayout(null);
+    bvLoadRecentPosts();
+    refreshIcons();
+  };
+})();
+
+// ─────────────────────────────────────────────────────────────
+// Haupt-Tab Switcher
+// ─────────────────────────────────────────────────────────────
+function bvShowTab(name, btn) {
+  document.querySelectorAll('#bv-tabs .tab-btn').forEach(function(b){ b.classList.remove('active'); });
+  document.querySelectorAll('.tab-content-area .tab-panel').forEach(function(p){ p.classList.remove('active'); });
+  var panel = document.getElementById('bvtab-' + name);
+  if (panel) panel.classList.add('active');
+  if (btn) btn.classList.add('active');
+
+  if (name === 'seo-manager') seoLoad();
+  if (name === 'neuer-beitrag') bvLoadRecentPosts();
+  refreshIcons();
+}
+
+// ─────────────────────────────────────────────────────────────
+// TAB 1 – Neuer Beitrag
+// ─────────────────────────────────────────────────────────────
+function bvAutoSlug() {
+  var title = (document.getElementById('bv-title').value || '').trim();
+  var slug = title.toLowerCase()
+    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
+    .replace(/[^a-z0-9\s-]/g,'')
+    .replace(/\s+/g,'-')
+    .replace(/-+/g,'-')
+    .slice(0, 80);
+  document.getElementById('bv-slug').value = slug;
+}
+
+function bvSiteChanged() {
+  var site = document.getElementById('bv-site').value;
+  // Highlight if no site selected
+  var sel = document.getElementById('bv-site');
+  sel.style.borderColor = site ? 'rgba(245,158,11,.4)' : 'rgba(239,68,68,.5)';
+}
+
+window._bvScheduleISO = null;
+
+function bvOpenSchedule() {
+  _openScheduleModal({
+    currentISO: window._bvScheduleISO,
+    onConfirm: function(iso) {
+      window._bvScheduleISO = iso;
+      var btn = document.getElementById('bv-schedule-btn');
+      if (btn) {
+        var d = new Date(iso);
+        btn.textContent = '⏰ ' + d.toLocaleString('de-DE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+        btn.style.color = '#fbbf24';
+        btn.style.borderColor = 'rgba(251,191,36,.35)';
+      }
+    },
+    onClear: function() {
+      window._bvScheduleISO = null;
+      var btn = document.getElementById('bv-schedule-btn');
+      if (btn) { btn.textContent = '⏰ Zeitplan'; btn.style.color = ''; btn.style.borderColor = ''; }
+    }
+  });
+}
+
+async function bvSubmit() {
+  var siteId = document.getElementById('bv-site').value;
+  if (!siteId) {
+    document.getElementById('bv-site').style.borderColor = 'rgba(239,68,68,.5)';
+    document.getElementById('bv-status').textContent = '✕ Bitte eine Seite auswählen!';
+    document.getElementById('bv-status').style.color = '#f87171';
+    return;
+  }
+  var title = document.getElementById('bv-title').value.trim();
+  if (!title) {
+    document.getElementById('bv-status').textContent = '✕ Titel ist erforderlich.';
+    document.getElementById('bv-status').style.color = '#f87171';
+    return;
+  }
+  var slug    = document.getElementById('bv-slug').value.trim() || title.toLowerCase().replace(/\s+/g,'-').slice(0,80);
+  var lang    = document.getElementById('bv-lang').value;
+  var excerpt = document.getElementById('bv-excerpt').value.trim();
+  var content = document.getElementById('bv-content').value.trim();
+  var tags    = document.getElementById('bv-tags').value.trim();
+  var groupId = document.getElementById('bv-group').value.trim() || ('grp-' + Date.now() + '-' + Math.random().toString(36).slice(2,6));
+  var metaDesc = document.getElementById('bv-meta-desc').value.trim();
+  var metaKw   = document.getElementById('bv-meta-kw').value.trim();
+  var published = document.getElementById('bv-publish').checked ? 1 : 0;
+  var publishAt = window._bvScheduleISO || null;
+
+  var statusEl = document.getElementById('bv-status');
+  statusEl.textContent = 'Wird erstellt…'; statusEl.style.color = 'var(--text3)';
+
+  var body = {
+    site_id: siteId, lang, title, slug, excerpt, content, tags, group_id: groupId,
+    status: published ? 'published' : 'draft',
+    publish_at: publishAt,
+  };
+  if (metaDesc) body.meta_description = metaDesc;
+  if (metaKw)   body.meta_keywords    = metaKw.split(',').map(function(k){return k.trim();}).filter(Boolean);
+
+  var res = await api('/api/blog', { method: 'POST', body: body });
+  if (res && (res.id || res.success)) {
+    statusEl.textContent = '✓ Beitrag erstellt!';
+    statusEl.style.color = '#34d399';
+    // Reset form
+    ['bv-title','bv-slug','bv-excerpt','bv-content','bv-tags','bv-group','bv-meta-desc','bv-meta-kw'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    document.getElementById('bv-publish').checked = false;
+    window._bvScheduleISO = null;
+    var btn = document.getElementById('bv-schedule-btn');
+    if (btn) { btn.textContent = '⏰ Zeitplan'; btn.style.color = ''; btn.style.borderColor = ''; }
+    setTimeout(function() { statusEl.textContent = ''; bvLoadRecentPosts(); }, 2000);
+  } else {
+    statusEl.textContent = '✕ Fehler beim Erstellen.';
+    statusEl.style.color = '#f87171';
+  }
+}
+
+async function bvLoadRecentPosts() {
+  var container = document.getElementById('bv-recent-posts');
+  if (!container) return;
+  container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:12px">Lade…</div>';
+
+  var filterSite = (document.getElementById('bv-filter-site') || {}).value || '';
+  var blogSites = filterSite ? [filterSite] : ['framesphere','brawlmystery','framespell'];
+
+  var allPosts = [];
+  for (var i = 0; i < blogSites.length; i++) {
+    var siteId = blogSites[i];
+    var posts = await api('/api/blog?site_id=' + siteId);
+    if (posts && posts.length) {
+      posts.forEach(function(p){ p._siteId = siteId; });
+      allPosts = allPosts.concat(posts);
+    }
+  }
+
+  if (!allPosts.length) {
+    container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">Keine Beiträge gefunden.</div>';
+    return;
+  }
+
+  // Sort by created_at desc, show last 20
+  allPosts.sort(function(a,b){ return new Date(b.created_at) - new Date(a.created_at); });
+  allPosts = allPosts.slice(0, 30);
+
+  var siteColors = { framesphere: '#a855f7', brawlmystery: '#f97316', framespell: '#6366f1' };
+  var siteNames  = { framesphere: 'Frame-Sphere', brawlmystery: 'BrawlMystery', framespell: 'FrameSpell' };
+  var LANG_FLAGS = { de:'🇩🇪', en:'🇬🇧', fr:'🇫🇷', es:'🇪🇸', it:'🇮🇹' };
+
+  var html = '<div style="display:flex;flex-direction:column;gap:6px">';
+  allPosts.forEach(function(p) {
+    var col = siteColors[p._siteId] || '#888';
+    var isLive = p.status === 'published';
+    var hasKw  = p.meta_keywords && p.meta_keywords.length > 0;
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:11px 14px;display:flex;align-items:center;gap:10px">';
+    html += '<span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:4px;background:' + col + '20;color:' + col + ';flex-shrink:0">' + (siteNames[p._siteId] || p._siteId) + '</span>';
+    html += '<span style="font-size:12px;margin-left:2px">' + (LANG_FLAGS[p.lang] || p.lang) + '</span>';
+    html += '<span style="flex:1;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.title || '(kein Titel)') + '</span>';
+    html += '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:' + (isLive?'rgba(52,211,153,.15)':'rgba(255,255,255,.06)') + ';color:' + (isLive?'#34d399':'var(--text3)') + '">' + (isLive ? '✓ Live' : 'Entwurf') + '</span>';
+    html += '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:' + (hasKw?'rgba(139,92,246,.12)':'rgba(251,191,36,.08)') + ';color:' + (hasKw?'#c084fc':'#fbbf24') + '">' + (hasKw ? '🔍 SEO' : '⚠ kein SEO') + '</span>';
+    html += '<span class="mono" style="font-size:10px;color:var(--text3);flex-shrink:0">' + fmtDate(p.created_at) + '</span>';
+    html += '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// ─────────────────────────────────────────────────────────────
+// TAB 2 – SEO Manager
+// ─────────────────────────────────────────────────────────────
+var _seoAllPosts = [];
+var _seoIgnoreList = [];
+var _seoSelectedPostId = null;
+var _seoSelectedSiteId = null;
+
+// LocalStorage Keys für Ignore-Liste (lokal gespeichert, kein API nötig)
+var SEO_IGNORE_KEY = 'bv_seo_ignore_list';
+
+function seoGetIgnoreList() {
+  try { return JSON.parse(localStorage.getItem(SEO_IGNORE_KEY) || '[]'); } catch(e) { return []; }
+}
+function seoSaveIgnoreList(list) {
+  localStorage.setItem(SEO_IGNORE_KEY, JSON.stringify(list));
+}
+
+async function seoLoad() {
+  var filterSite = (document.getElementById('seo-filter-site') || {}).value || '';
+  var sites = filterSite ? [filterSite] : ['framesphere','brawlmystery','framespell'];
+
+  _seoAllPosts = [];
+  for (var i = 0; i < sites.length; i++) {
+    var siteId = sites[i];
+    var posts = await api('/api/blog?site_id=' + siteId);
+    if (posts && posts.length) {
+      posts.forEach(function(p){ p._siteId = siteId; });
+      _seoAllPosts = _seoAllPosts.concat(posts);
+    }
+  }
+  seoApplyFilter();
+  seoRenderIgnored();
+  seoAiLoadPostsForCurrentSite();
+}
+
+function seoApplyFilter() {
+  var langFilter = (document.getElementById('seo-filter-lang') || {}).value || '';
+  var search = ((document.getElementById('seo-search') || {}).value || '').toLowerCase().trim();
+  var sortBy = (document.getElementById('seo-sort') || {}).value || 'freq';
+
+  var posts = _seoAllPosts;
+  if (langFilter) posts = posts.filter(function(p){ return p.lang === langFilter; });
+
+  // Alle Keywords sammeln + zählen
+  var kwMap = {};
+  posts.forEach(function(p) {
+    var kws = [];
+    if (Array.isArray(p.meta_keywords)) kws = p.meta_keywords;
+    else if (typeof p.meta_keywords === 'string' && p.meta_keywords.trim()) {
+      kws = p.meta_keywords.split(',').map(function(k){ return k.trim(); }).filter(Boolean);
+    }
+    kws.forEach(function(kw) {
+      kw = kw.trim().toLowerCase();
+      if (!kw) return;
+      if (!kwMap[kw]) kwMap[kw] = { kw: kw, count: 0, sites: new Set(), langs: new Set(), posts: [] };
+      kwMap[kw].count++;
+      kwMap[kw].sites.add(p._siteId);
+      kwMap[kw].langs.add(p.lang);
+      kwMap[kw].posts.push(p.id);
+    });
+  });
+
+  var ignoreList = seoGetIgnoreList().map(function(k){ return k.toLowerCase(); });
+  var allKws = Object.values(kwMap);
+
+  // Filter by search
+  if (search) allKws = allKws.filter(function(k){ return k.kw.includes(search); });
+
+  // Sort
+  if (sortBy === 'az') allKws.sort(function(a,b){ return a.kw.localeCompare(b.kw); });
+  else if (sortBy === 'site') allKws.sort(function(a,b){ return b.sites.size - a.sites.size; });
+  else allKws.sort(function(a,b){ return b.count - a.count; });
+
+  // Stats
+  var postsWithSeo = posts.filter(function(p){ return p.meta_keywords && (Array.isArray(p.meta_keywords)?p.meta_keywords.length > 0 : p.meta_keywords.trim()); }).length;
+  var statsEl = document.getElementById('seo-stats-row');
+  if (statsEl) {
+    statsEl.innerHTML = [
+      { label: 'Posts gesamt', val: posts.length, col: 'var(--text1)' },
+      { label: 'Mit SEO', val: postsWithSeo, col: '#34d399' },
+      { label: 'Ohne SEO', val: posts.length - postsWithSeo, col: '#f87171' },
+      { label: 'Unique Keywords', val: allKws.length, col: '#a5b4fc' },
+      { label: 'Ignoriert', val: ignoreList.length, col: '#fbbf24' },
+    ].map(function(s) {
+      return '<div class="kpi-card"><div class="kpi-label">' + s.label + '</div><div class="kpi-value" style="color:' + s.col + '">' + s.val + '</div></div>';
+    }).join('');
+  }
+
+  // Keyword-Cloud
+  var gridEl = document.getElementById('seo-kw-grid');
+  if (gridEl) {
+    if (!allKws.length) {
+      gridEl.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:12px 0">Keine Keywords gefunden.</div>';
+    } else {
+      var maxCount = Math.max.apply(null, allKws.map(function(k){return k.count;})) || 1;
+      gridEl.innerHTML = allKws.slice(0, 200).map(function(k) {
+        var isIgnored = ignoreList.includes(k.kw);
+        var size = Math.round(10 + (k.count / maxCount) * 6);
+        var bg = isIgnored ? 'rgba(239,68,68,.08)' : 'rgba(165,180,252,.08)';
+        var col = isIgnored ? '#f87171' : '#a5b4fc';
+        var brd = isIgnored ? 'rgba(239,68,68,.2)' : 'rgba(165,180,252,.2)';
+        return '<span title="' + k.count + 'x · ' + Array.from(k.sites).join(', ') + '" style="' +
+          'font-size:' + size + 'px;padding:3px 9px;border-radius:20px;cursor:pointer;' +
+          'background:' + bg + ';color:' + col + ';border:1px solid ' + brd + ';' +
+          'transition:all .15s' +
+          '" onclick="seoKwAction(\'' + k.kw.replace(/'/g,'\\\'') + '\',event)">' +
+          esc(k.kw) + (k.count > 1 ? ' <span style="font-size:9px;opacity:.6">×' + k.count + '</span>' : '') +
+          '</span>';
+      }).join('');
+    }
+  }
+
+  // Posts-Tabelle
+  var tableEl = document.getElementById('seo-posts-table');
+  if (tableEl) {
+    var postsWithData = posts.filter(function(p){ return p.meta_keywords || p.meta_description; });
+    if (!postsWithData.length) {
+      tableEl.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:12px 0">Noch keine Posts mit SEO-Daten.</div>';
+    } else {
+      var siteColors = { framesphere: '#a855f7', brawlmystery: '#f97316', framespell: '#6366f1' };
+      var LANG_FLAGS = { de:'🇩🇪', en:'🇬🇧', fr:'🇫🇷', es:'🇪🇸', it:'🇮🇹' };
+      tableEl.innerHTML = '<div style="overflow-x:auto"><table class="data-table"><thead><tr>' +
+        '<th>Site</th><th>Lang</th><th>Titel</th><th>Keywords</th><th>Description</th>' +
+        '</tr></thead><tbody>' +
+        postsWithData.slice(0, 50).map(function(p) {
+          var kws = Array.isArray(p.meta_keywords) ? p.meta_keywords : (p.meta_keywords||'').split(',').map(function(k){return k.trim();}).filter(Boolean);
+          var col = siteColors[p._siteId] || '#888';
+          return '<tr>' +
+            '<td><span style="font-size:9px;font-weight:800;padding:1px 6px;border-radius:3px;background:' + col + '20;color:' + col + '">' + p._siteId + '</span></td>' +
+            '<td style="font-size:14px">' + (LANG_FLAGS[p.lang]||p.lang) + '</td>' +
+            '<td style="max-width:180px;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.title||'–') + '</td>' +
+            '<td style="max-width:200px">' + kws.map(function(k){ var isIgn=ignoreList.includes(k.toLowerCase()); return '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:' + (isIgn?'rgba(239,68,68,.12)':'rgba(139,92,246,.12)') + ';color:' + (isIgn?'#f87171':'#c084fc') + ';margin:1px">' + esc(k) + '</span>'; }).join('') + '</td>' +
+            '<td style="max-width:200px;font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.meta_description||'–') + '</td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody></table></div>';
+    }
+  }
+}
+
+window.seoKwAction = function(kw, event) {
+  // Rechtsklick oder shift-klick → ignore-toggle
+  var ignoreList = seoGetIgnoreList();
+  var lower = kw.toLowerCase();
+  var idx = ignoreList.indexOf(lower);
+  if (idx >= 0) {
+    ignoreList.splice(idx, 1);
+    seoSaveIgnoreList(ignoreList);
+    showToast('🔓 "' + kw + '" aus Ignore entfernt', '#34d399');
+  } else {
+    ignoreList.push(lower);
+    seoSaveIgnoreList(ignoreList);
+    showToast('🚫 "' + kw + '" zu Ignore hinzugefügt', '#f87171');
+  }
+  seoApplyFilter();
+  seoRenderIgnored();
+};
+
+function seoAddIgnore() {
+  var input = document.getElementById('seo-ignore-input');
+  var val = (input ? input.value : '').trim();
+  if (!val) return;
+  var ignoreList = seoGetIgnoreList();
+  val.split(',').forEach(function(k) {
+    k = k.trim().toLowerCase();
+    if (k && !ignoreList.includes(k)) ignoreList.push(k);
+  });
+  seoSaveIgnoreList(ignoreList);
+  input.value = '';
+  seoRenderIgnored();
+  seoApplyFilter();
+}
+
+function seoRenderIgnored() {
+  var el = document.getElementById('seo-ignore-list');
+  if (!el) return;
+  var list = seoGetIgnoreList();
+  if (!list.length) {
+    el.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Keine ignorierten Keywords.</div>';
+    return;
+  }
+  el.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0">' +
+    list.map(function(kw) {
+      return '<span style="font-size:12px;padding:4px 10px;border-radius:20px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#f87171;display:flex;align-items:center;gap:6px">' +
+        esc(kw) +
+        '<button onclick="seoRemoveIgnore(\'' + kw.replace(/'/g,'\\\'') + '\')" style="background:none;border:none;color:#f87171;cursor:pointer;font-size:14px;padding:0;line-height:1;opacity:.7" title="Entfernen">×</button>' +
+        '</span>';
+    }).join('') +
+    '</div>' +
+    '<div style="margin-top:12px">' +
+    '<button class="btn btn-danger btn-sm" onclick="seoClearIgnore()">× Alle löschen</button>' +
+    '</div>';
+}
+
+window.seoRemoveIgnore = function(kw) {
+  var list = seoGetIgnoreList().filter(function(k){ return k !== kw; });
+  seoSaveIgnoreList(list);
+  seoRenderIgnored();
+  seoApplyFilter();
+};
+
+window.seoClearIgnore = function() {
+  if (!confirm('Alle ignorierten Keywords löschen?')) return;
+  seoSaveIgnoreList([]);
+  seoRenderIgnored();
+  seoApplyFilter();
+};
+
+// Sub-Tabs
+function seoSubTab(name, btn) {
+  ['overview','ignored','ai'].forEach(function(n) {
+    var el = document.getElementById('seotab-' + n);
+    var b  = document.getElementById('seotab-btn-' + n);
+    if (el) el.style.display = (n === name) ? '' : 'none';
+    if (b)  { b.classList.toggle('active', n === name); }
+  });
+  if (name === 'ignored') seoRenderIgnored();
+}
+
+// ─────────────────────────────────────────────────────────────
+// KI-Optimierung
+// ─────────────────────────────────────────────────────────────
+var _seoAiPosts = [];
+var _seoAiCurrentPost = null;
+
+async function seoAiLoadPosts() {
+  var siteId = document.getElementById('seo-ai-site').value;
+  var sel = document.getElementById('seo-ai-post');
+  sel.innerHTML = '<option value="">— wird geladen —</option>';
+  if (!siteId) return;
+
+  var posts = await api('/api/blog?site_id=' + siteId);
+  _seoAiPosts = posts || [];
+  sel.innerHTML = '<option value="">— Post wählen —</option>';
+  if (!_seoAiPosts.length) { sel.innerHTML = '<option value="">Keine Posts gefunden</option>'; return; }
+
+  var LANG_FLAGS = { de:'🇩🇪', en:'🇬🇧', fr:'🇫🇷', es:'🇪🇸', it:'🇮🇹' };
+  _seoAiPosts.forEach(function(p) {
+    var opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = (LANG_FLAGS[p.lang]||'') + ' ' + (p.title || 'Post #' + p.id);
+    sel.appendChild(opt);
+  });
+}
+
+function seoAiLoadPostsForCurrentSite() {
+  // Keine automatische Aktion — nur laden wenn Seite aktiv
+}
+
+function seoAiSelectPost() {
+  var postId = parseInt(document.getElementById('seo-ai-post').value);
+  var siteId = document.getElementById('seo-ai-site').value;
+  _seoAiCurrentPost = _seoAiPosts.find(function(p){ return p.id === postId; }) || null;
+  if (!_seoAiCurrentPost) {
+    document.getElementById('seo-ai-prompt-wrap').style.display = 'none';
+    return;
+  }
+  var p = _seoAiCurrentPost;
+
+  // Aktuell gespeicherte SEO-Daten anzeigen
+  var kws = Array.isArray(p.meta_keywords) ? p.meta_keywords : (p.meta_keywords||'').split(',').map(function(k){return k.trim();}).filter(Boolean);
+  var currentEl = document.getElementById('seo-ai-current');
+  if (currentEl) {
+    currentEl.innerHTML = '<div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px">Aktuell gespeichert:</div>' +
+      '<div style="margin-bottom:3px"><span style="color:var(--text3)">Description:</span> ' + esc(p.meta_description || '(leer)') + '</div>' +
+      '<div><span style="color:var(--text3)">Keywords:</span> ' +
+      (kws.length ? kws.map(function(k){ return '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(139,92,246,.12);color:#c084fc;margin:1px">' + esc(k) + '</span>'; }).join('') : '<span style="color:var(--text3)">(keine)</span>') +
+      '</div>';
+  }
+
+  // Prompt generieren
+  var LANG_NAMES = { de: 'Deutsch', en: 'Englisch', fr: 'Französisch', es: 'Spanisch', it: 'Italienisch' };
+  var ignoreList = seoGetIgnoreList();
+
+  var contentRaw = (p.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 600);
+  var excerpt = (p.excerpt || '').replace(/<[^>]+>/g, ' ').trim().slice(0, 200);
+
+  var prompt = 'Du bist ein SEO-Experte. Analysiere den folgenden Blog-Beitrag und erstelle optimierte SEO-Metadaten.\n\n';
+  prompt += 'TITEL: ' + (p.title || '') + '\n';
+  prompt += 'SPRACHE: ' + (LANG_NAMES[p.lang] || p.lang) + '\n';
+  if (excerpt) prompt += 'EXCERPT: ' + excerpt + '\n';
+  if (contentRaw) prompt += 'INHALT (Ausschnitt): ' + contentRaw + '\n';
+  if (p.tags) prompt += 'TAGS: ' + p.tags + '\n';
+  if (kws.length) prompt += 'AKTUELLE KEYWORDS: ' + kws.join(', ') + '\n';
+  if (ignoreList.length) prompt += '\nZU VERMEIDENDE WÖRTER (Ignore-Liste):\n' + ignoreList.join(', ') + '\n';
+  prompt += '\nErstelle eine optimierte Meta-Description (ca. 150 Zeichen) und 6-10 relevante Meta-Keywords.\n';
+  prompt += '\nAntworte NUR in diesem exakten Format (keine anderen Zeilen, keine Erklärungen):\n';
+  prompt += 'META_DESCRIPTION: [deine optimierte Beschreibung hier]\n';
+  prompt += 'META_KEYWORDS: [keyword1, keyword2, keyword3, ...]';
+
+  document.getElementById('seo-ai-prompt').value = prompt;
+  document.getElementById('seo-ai-prompt-wrap').style.display = 'block';
+
+  // Reset paste area
+  document.getElementById('seo-ai-paste').value = '';
+  document.getElementById('seo-ai-preview').style.display = 'none';
+  document.getElementById('seo-ai-apply-btn').disabled = true;
+  document.getElementById('seo-ai-status').textContent = '';
+}
+
+function seoAiCopyPrompt() {
+  var ta = document.getElementById('seo-ai-prompt');
+  if (!ta) return;
+  navigator.clipboard.writeText(ta.value).then(function() {
+    var btn = document.getElementById('seo-copy-btn');
+    if (btn) { btn.textContent = '✓ Kopiert!'; btn.style.color = '#34d399'; setTimeout(function(){ btn.textContent = '📋 Kopieren'; btn.style.color = ''; }, 2000); }
+  });
+}
+
+function seoAiParsePaste() {
+  var raw = document.getElementById('seo-ai-paste').value || '';
+  var descMatch = raw.match(/META_DESCRIPTION:\s*(.+)/i);
+  var kwMatch   = raw.match(/META_KEYWORDS:\s*(.+)/i);
+
+  var desc = descMatch ? descMatch[1].trim() : '';
+  var kws  = kwMatch  ? kwMatch[1].trim()  : '';
+
+  var preview = document.getElementById('seo-ai-preview');
+  var descPrev = document.getElementById('seo-ai-desc-preview');
+  var kwPrev   = document.getElementById('seo-ai-kw-preview');
+  var applyBtn = document.getElementById('seo-ai-apply-btn');
+
+  if (desc || kws) {
+    if (descPrev) descPrev.textContent = desc || '(nicht gefunden)';
+    if (kwPrev)   kwPrev.textContent   = kws  || '(nicht gefunden)';
+    if (preview)  preview.style.display = 'block';
+    if (applyBtn) applyBtn.disabled = false;
+  } else {
+    if (preview)  preview.style.display = 'none';
+    if (applyBtn) applyBtn.disabled = true;
+  }
+}
+
+async function seoAiApply() {
+  if (!_seoAiCurrentPost) {
+    document.getElementById('seo-ai-status').textContent = '✕ Kein Post ausgewählt.';
+    return;
+  }
+  var raw = document.getElementById('seo-ai-paste').value || '';
+  var descMatch = raw.match(/META_DESCRIPTION:\s*(.+)/i);
+  var kwMatch   = raw.match(/META_KEYWORDS:\s*(.+)/i);
+
+  var desc = descMatch ? descMatch[1].trim() : '';
+  var kwStr = kwMatch  ? kwMatch[1].trim()  : '';
+  var kws   = kwStr.split(',').map(function(k){ return k.trim(); }).filter(Boolean);
+
+  if (!desc && !kws.length) {
+    document.getElementById('seo-ai-status').textContent = '✕ Keine gültigen Daten gefunden.';
+    document.getElementById('seo-ai-status').style.color = '#f87171';
+    return;
+  }
+
+  var statusEl = document.getElementById('seo-ai-status');
+  statusEl.textContent = 'Speichert…'; statusEl.style.color = 'var(--text3)';
+
+  var body = {};
+  if (desc) body.meta_description = desc;
+  if (kws.length) body.meta_keywords = kws;
+
+  var res = await api('/api/blog/' + _seoAiCurrentPost.id, { method: 'PATCH', body: body });
+  if (res && res.success !== false) {
+    statusEl.textContent = '✓ SEO-Daten gespeichert!'; statusEl.style.color = '#34d399';
+    // Post-Daten aktualisieren
+    _seoAiCurrentPost.meta_description = desc;
+    _seoAiCurrentPost.meta_keywords    = kws;
+    seoAiSelectPost(); // refresh current display
+    seoAiClear();
+    setTimeout(function(){ statusEl.textContent = ''; }, 3000);
+  } else {
+    statusEl.textContent = '✕ Fehler beim Speichern.'; statusEl.style.color = '#f87171';
+  }
+}
+
+function seoAiClear() {
+  document.getElementById('seo-ai-paste').value = '';
+  document.getElementById('seo-ai-preview').style.display = 'none';
+  document.getElementById('seo-ai-apply-btn').disabled = true;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Toast Helper
+// ─────────────────────────────────────────────────────────────
+function showToast(msg, color) {
+  var t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;padding:10px 18px;border-radius:9px;font-size:12px;font-weight:700;background:rgba(0,0,0,.8);border:1px solid ' + (color||'var(--border)') + ';color:' + (color||'var(--text1)') + ';box-shadow:0 8px 24px rgba(0,0,0,.4)';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function(){ t.remove(); }, 2500);
+}
+</script>
+</body>
+</html>
