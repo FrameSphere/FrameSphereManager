@@ -20,7 +20,6 @@
       </div>
     </div>
 
-    <!-- Haupt-Tabs -->
     <div class="site-tabs" id="bv-tabs">
       <button class="tab-btn active" onclick="bvShowTab('neuer-beitrag',this)">
         <i data-lucide="pencil" style="width:12px;height:12px"></i> Neuer Beitrag
@@ -32,13 +31,11 @@
 
     <div class="tab-content-area">
 
-      <!-- ══════════════════════════════════════════════════════ TAB 1: Neuer Beitrag -->
+      <!-- TAB 1: Neuer Beitrag -->
       <div id="bvtab-neuer-beitrag" class="tab-panel active">
-
         <div class="form-card">
           <div class="form-card-title">📝 Neuen Blog-Beitrag erstellen</div>
 
-          <!-- Ziel-Seite -->
           <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:10px;padding:14px 16px;margin-bottom:18px">
             <label style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#f59e0b;display:block;margin-bottom:8px">
               <i data-lucide="globe" style="width:12px;height:12px;display:inline-block;vertical-align:-1px;margin-right:4px"></i>
@@ -49,24 +46,20 @@
               <option value="wordify">📝 Wordify</option>
               <option value="traitora">🧠 Traitora</option>
               <option value="brawlmystery">⚔️ BrawlMystery</option>
-              <option value="framesphere">🎬 Frame-Sphere</option>
-              <option value="framespell">✨ FrameSpell</option>
             </select>
           </div>
 
-          <!-- Tags + Gruppe (geteilt über alle Sprachen) -->
           <div class="form-row" style="margin-bottom:14px">
             <div class="form-group">
-              <label>Tags <span style="color:var(--text3);font-weight:400">(komma-getrennt, geteilt über Sprachen)</span></label>
+              <label>Tags <span style="color:var(--text3);font-weight:400">(komma-getrennt, alle Sprachen teilen sich diese)</span></label>
               <input id="bv-tags" placeholder="tutorial, guide, tipps">
             </div>
             <div class="form-group">
-              <label>Gruppen-ID <span style="color:var(--text3);font-weight:400">(leer = neue Gruppe)</span></label>
+              <label>Gruppen-ID <span style="color:var(--text3);font-weight:400">(leer = neue Gruppe auto)</span></label>
               <input id="bv-group" placeholder="grp-… (leer = automatisch)">
             </div>
           </div>
 
-          <!-- Mehrsprachige Tabs -->
           <div style="margin-bottom:16px">
             <div style="font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:10px">
               Sprachen <span style="font-weight:400;text-transform:none;letter-spacing:0">(✓ = aktiviert, mindestens DE)</span>
@@ -75,7 +68,6 @@
             <div id="bv-lang-panels"></div>
           </div>
 
-          <!-- Aktionen -->
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-top:4px">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
               <input type="checkbox" id="bv-publish" style="width:16px;height:16px">
@@ -91,21 +83,18 @@
             <span id="bv-status" style="font-size:12px;color:var(--text3)"></span>
           </div>
           <div style="font-size:11px;color:var(--text3);margin-top:6px">
-            🔍 SEO auto: Keywords werden automatisch nach dem Erstellen via <code style="background:rgba(255,255,255,.07);padding:1px 5px;border-radius:3px">/api/seo/regenerate</code> generiert
+            🔍 SEO auto: Slug + Keywords werden automatisch generiert (<code style="background:rgba(255,255,255,.07);padding:1px 5px;border-radius:3px">/api/seo/regenerate</code>)
           </div>
         </div>
 
-        <!-- Letzte Beiträge -->
         <div class="actions-bar" style="margin-top:24px;margin-bottom:10px">
-          <div style="font-size:13px;font-weight:700">📋 Letzte Beiträge (alle Sites)</div>
+          <div style="font-size:13px;font-weight:700">📋 Letzte Beiträge</div>
           <div class="flex-1"></div>
           <select id="bv-filter-site" onchange="bvLoadRecentPosts()" style="padding:4px 10px;font-size:11px;width:auto">
             <option value="">Alle Seiten</option>
             <option value="wordify">Wordify</option>
             <option value="traitora">Traitora</option>
             <option value="brawlmystery">BrawlMystery</option>
-            <option value="framesphere">Frame-Sphere</option>
-            <option value="framespell">FrameSpell</option>
           </select>
           <button class="btn btn-ghost btn-sm" onclick="bvLoadRecentPosts()">↻ Aktualisieren</button>
         </div>
@@ -114,10 +103,9 @@
         </div>
       </div>
 
-      <!-- ══════════════════════════════════════════════════════ TAB 2: SEO Manager -->
+      <!-- TAB 2: SEO Manager -->
       <div id="bvtab-seo-manager" class="tab-panel">
 
-        <!-- Toolbar -->
         <div class="actions-bar" style="margin-bottom:12px">
           <div style="font-size:13px;font-weight:700">🔍 SEO Keyword Manager</div>
           <div class="flex-1"></div>
@@ -126,8 +114,6 @@
             <option value="wordify">Wordify</option>
             <option value="traitora">Traitora</option>
             <option value="brawlmystery">BrawlMystery</option>
-            <option value="framesphere">Frame-Sphere</option>
-            <option value="framespell">FrameSpell</option>
           </select>
           <select id="seo-filter-lang" onchange="seoApplyFilter()" style="padding:4px 10px;font-size:11px;width:auto">
             <option value="">Alle Sprachen</option>
@@ -140,7 +126,6 @@
           <button class="btn btn-ghost btn-sm" onclick="seoLoad()">↻ Laden</button>
         </div>
 
-        <!-- Sub-Tabs -->
         <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0">
           <button class="tab-btn active" id="seotab-btn-overview" onclick="seoSubTab('overview',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">📊 Übersicht</button>
           <button class="tab-btn" id="seotab-btn-posts" onclick="seoSubTab('posts',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">📝 Post-Keywords</button>
@@ -148,7 +133,7 @@
           <button class="tab-btn" id="seotab-btn-ai" onclick="seoSubTab('ai',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">🤖 KI-Batch</button>
         </div>
 
-        <!-- Sub-Tab: Übersicht -->
+        <!-- Übersicht -->
         <div id="seotab-overview">
           <div id="seo-stats-row" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px"></div>
           <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
@@ -161,28 +146,28 @@
             </select>
           </div>
           <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
-            💡 Klick auf Keyword = zur Ignore-Liste hinzufügen / entfernen &nbsp;·&nbsp; 🔴 = bereits ignoriert
+            💡 Klick = zur Ignore-Liste hinzufügen/entfernen &nbsp;·&nbsp; 🔴 = ignoriert &nbsp;·&nbsp; Longtail-Keywords (mehrere Wörter) = besonders wertvoll für SEO
           </div>
           <div id="seo-kw-grid" style="display:flex;flex-wrap:wrap;gap:6px;min-height:60px;margin-bottom:20px"></div>
         </div>
 
-        <!-- Sub-Tab: Post-Keywords -->
+        <!-- Post-Keywords -->
         <div id="seotab-posts" style="display:none">
           <div style="font-size:12px;color:var(--text3);margin-bottom:14px">
-            Alle Posts mit Keywords. Direkt per × entfernen. 🔄 SEO neu = KI-Regenerierung für einzelnen Post.
+            Alle Posts mit Keywords. × = Keyword direkt entfernen · 🔄 SEO neu = KI-Regenerierung für einzelnen Post.
           </div>
           <div id="seo-posts-table"></div>
         </div>
 
-        <!-- Sub-Tab: Ignoriert -->
+        <!-- Ignoriert -->
         <div id="seotab-ignored" style="display:none">
           <div class="form-card" style="margin-bottom:16px">
             <div class="form-card-title">🚫 Keywords zur Ignore-Liste hinzufügen</div>
             <div style="font-size:12px;color:var(--text3);margin-bottom:12px">
-              Ignorierte Keywords werden in der Übersicht rot markiert und im KI-Prompt als verboten aufgeführt.
+              Ignorierte Keywords werden in der Übersicht rot markiert und im KI-Batch-Prompt als verboten aufgeführt.
             </div>
             <div style="display:flex;gap:8px">
-              <input id="seo-ignore-input" placeholder="keyword1, keyword2, keyword3…" style="flex:1">
+              <input id="seo-ignore-input" placeholder="keyword1, keyword2, …" style="flex:1">
               <button class="btn btn-primary" onclick="seoAddIgnore()">+ Hinzufügen</button>
             </div>
           </div>
@@ -191,22 +176,22 @@
           </div>
         </div>
 
-        <!-- Sub-Tab: KI-Batch -->
+        <!-- KI-Batch -->
         <div id="seotab-ai" style="display:none">
-
           <div class="form-card" style="margin-bottom:16px;background:rgba(99,102,241,.05);border-color:rgba(99,102,241,.2)">
             <div class="form-card-title" style="color:#818cf8">🤖 KI-Batch SEO – kein API Key nötig</div>
             <div style="font-size:12px;color:var(--text2);line-height:1.85">
-              <strong style="color:#a5b4fc">1.</strong> Seite &amp; Sprache filtern, Posts auswählen (⚠ = kein SEO, vorausgewählt)<br>
-              <strong style="color:#a5b4fc">2.</strong> "Prompt generieren" → kompakten Prompt kopieren<br>
-              <strong style="color:#a5b4fc">3.</strong> In Claude/ChatGPT einfügen → KI antwortet mit JSON-Array<br>
-              <strong style="color:#a5b4fc">4.</strong> JSON hier einfügen → Preview → "Alles übernehmen" speichert auf einmal
+              <strong style="color:#a5b4fc">1.</strong> Posts filtern &amp; auswählen (⚠ = kein SEO, vorausgewählt)<br>
+              <strong style="color:#a5b4fc">2.</strong> "Prompt generieren" → kopieren<br>
+              <strong style="color:#a5b4fc">3.</strong> In Claude/ChatGPT einfügen → JSON-Antwort erhalten<br>
+              <strong style="color:#a5b4fc">4.</strong> JSON einfügen → Preview → "Alles übernehmen"<br>
+              <div style="margin-top:8px;padding:8px 12px;background:rgba(52,211,153,.05);border:1px solid rgba(52,211,153,.15);border-radius:6px;font-size:11px;color:#34d399">
+                💡 Longtail-Keywords (z.B. "brawl stars tipps anfänger deutsch") sind SEO-Gold: niedrigere Konkurrenz, höhere Suchintention, einfacher rankbar als einzelne Wörter.
+              </div>
             </div>
           </div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-
-            <!-- Links: Post-Auswahl -->
             <div class="form-card">
               <div class="form-card-title">📋 Posts auswählen</div>
               <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
@@ -215,8 +200,6 @@
                   <option value="wordify">Wordify</option>
                   <option value="traitora">Traitora</option>
                   <option value="brawlmystery">BrawlMystery</option>
-                  <option value="framesphere">Frame-Sphere</option>
-                  <option value="framespell">FrameSpell</option>
                 </select>
                 <select id="ai-filter-lang" onchange="aiApplyPostFilter()" style="flex:1;padding:6px 10px;font-size:12px">
                   <option value="">Alle Sprachen</option>
@@ -237,9 +220,7 @@
               </div>
             </div>
 
-            <!-- Rechts: Prompt + Response -->
             <div style="display:flex;flex-direction:column;gap:12px">
-
               <div class="form-card">
                 <div class="form-card-title">📤 KI-Prompt</div>
                 <div id="ai-selected-count" style="font-size:11px;color:var(--text3);margin-bottom:8px">0 Posts ausgewählt</div>
@@ -254,22 +235,20 @@
               </div>
 
               <div class="form-card">
-                <div class="form-card-title">📥 KI-Antwort einfügen</div>
+                <div class="form-card-title">📥 KI-Antwort (JSON)</div>
                 <div style="font-size:11px;color:var(--text3);margin-bottom:8px">
-                  Erwartetes Format (reines JSON, keine Backticks):<br>
-                  <code style="background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px;font-size:10px;display:block;margin-top:4px;line-height:1.7">[{"id":123,"meta_description":"…","meta_keywords":["kw1","kw2"]}]</code>
+                  Reines JSON-Array (keine Backticks):<br>
+                  <code style="background:rgba(255,255,255,.06);padding:2px 6px;border-radius:4px;font-size:10px;display:block;margin-top:4px;line-height:1.7">[{"id":123,"meta_description":"…","meta_keywords":["longtail kw 1","kw2"]}]</code>
                 </div>
                 <textarea id="ai-response-text" rows="6"
-                  placeholder='[{"id": 123, "meta_description": "Beschreibung…", "meta_keywords": ["kw1", "kw2"]}]'
+                  placeholder='[{"id": 123, "meta_description": "…", "meta_keywords": ["longtail keyword 1", "kw2"]}]'
                   style="font-family:'Space Mono',monospace;font-size:11px;margin-bottom:8px"
                   oninput="aiParseResponse()"></textarea>
-
                 <div id="ai-preview-box" style="display:none;background:rgba(52,211,153,.05);border:1px solid rgba(52,211,153,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;max-height:180px;overflow-y:auto">
                   <div style="font-weight:700;color:#34d399;margin-bottom:6px">✓ Erkannt:</div>
                   <div id="ai-preview-list"></div>
                 </div>
                 <div id="ai-error-box" style="display:none;background:rgba(239,68,68,.05);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#f87171"></div>
-
                 <div style="display:flex;gap:8px;align-items:center">
                   <button class="btn btn-primary" id="ai-apply-btn" onclick="aiApplyAll()" disabled>✓ Alles übernehmen</button>
                   <button class="btn btn-ghost" onclick="aiClearResponse()">× Leeren</button>
@@ -280,10 +259,10 @@
           </div>
         </div>
 
-      </div><!-- /tab seo-manager -->
-    </div><!-- /tab-content-area -->
-  </div><!-- /main -->
-</div><!-- /layout -->
+      </div>
+    </div>
+  </div>
+</div>
 
 <script src="js/utils.js"></script>
 <script src="js/api.js"></script>
@@ -291,15 +270,10 @@
 <script src="js/layout.js"></script>
 <script src="js/components.js"></script>
 <script>
-// ─────────────────────────────────────────────────────────────
-// Konstanten
-// ─────────────────────────────────────────────────────────────
 var BV_SITES = [
   { id: 'wordify',      name: 'Wordify',      color: '#22c55e' },
   { id: 'traitora',     name: 'Traitora',     color: '#8b5cf6' },
   { id: 'brawlmystery', name: 'BrawlMystery', color: '#f97316' },
-  { id: 'framesphere',  name: 'Frame-Sphere', color: '#a855f7' },
-  { id: 'framespell',   name: 'FrameSpell',   color: '#6366f1' },
 ];
 var BV_BLOG_LANGS = [
   { code: 'de', flag: '🇩🇪', label: 'Deutsch'   },
@@ -311,18 +285,15 @@ var BV_BLOG_LANGS = [
 var LANG_FLAGS     = { de:'🇩🇪', en:'🇬🇧', fr:'🇫🇷', es:'🇪🇸', it:'🇮🇹' };
 var SEO_IGNORE_KEY = 'bv_seo_ignore_list';
 
-// State
 var _bvSeoAuto      = true;
 var _bvScheduleISO  = null;
 var _bvActiveLang   = 'de';
 var _bvEnabledLangs = { de:true, en:false, fr:false, es:false, it:false };
 var _seoAllPosts    = [];
+var _seoLoading     = false;
 var _aiAllPosts     = [];
 var _aiParsed       = [];
 
-// ─────────────────────────────────────────────────────────────
-// Init
-// ─────────────────────────────────────────────────────────────
 (function() {
   injectLoginScreen();
   checkAuth(function() {
@@ -339,23 +310,18 @@ var _aiParsed       = [];
   };
 })();
 
-// ─────────────────────────────────────────────────────────────
-// Haupt-Tab Switcher
-// ─────────────────────────────────────────────────────────────
 function bvShowTab(name, btn) {
   document.querySelectorAll('#bv-tabs .tab-btn').forEach(function(b){ b.classList.remove('active'); });
   document.querySelectorAll('.tab-content-area .tab-panel').forEach(function(p){ p.classList.remove('active'); });
   var panel = document.getElementById('bvtab-' + name);
   if (panel) panel.classList.add('active');
   if (btn) btn.classList.add('active');
-  if (name === 'seo-manager')  seoLoad();
+  if (name === 'seo-manager')   seoLoad();
   if (name === 'neuer-beitrag') bvLoadRecentPosts();
   refreshIcons();
 }
 
-// ─────────────────────────────────────────────────────────────
-// TAB 1 – Neuer Beitrag: Mehrsprachige Tabs
-// ─────────────────────────────────────────────────────────────
+// ── Neuer Beitrag: Mehrsprachige Tabs ──────────────────────────────
 function bvInitLangTabs() {
   var tabsEl   = document.getElementById('bv-lang-tabs');
   var panelsEl = document.getElementById('bv-lang-panels');
@@ -381,10 +347,9 @@ function bvInitLangTabs() {
   }).join('');
   panelsEl.innerHTML = panelsHtml;
 
-  // Slug auto-gen
   BV_BLOG_LANGS.forEach(function(l) {
     var inp = document.getElementById('bv-title-' + l.code);
-    if (inp) inp.addEventListener('input', function(){ bvAutoSlug(l.code); });
+    if (inp) inp.addEventListener('input', function(){ /* slug auto */ });
   });
 }
 
@@ -398,12 +363,6 @@ function bvLangPanelHtml(l) {
     '</div>',
     '<div class="form-row">',
     '  <div class="form-group form-full">',
-    '    <label>Slug <span style="color:var(--text3);font-weight:400">(wird automatisch generiert)</span></label>',
-    '    <input id="bv-slug-' + l.code + '" placeholder="mein-beitrag-slug" style="font-family:\'Space Mono\',monospace;font-size:12px">',
-    '  </div>',
-    '</div>',
-    '<div class="form-row">',
-    '  <div class="form-group form-full">',
     '    <label>Excerpt / Teaser</label>',
     '    <textarea id="bv-excerpt-' + l.code + '" rows="2" placeholder="Kurze Zusammenfassung…"></textarea>',
     '  </div>',
@@ -411,18 +370,9 @@ function bvLangPanelHtml(l) {
     '<div class="form-row">',
     '  <div class="form-group form-full">',
     '    <label>Inhalt <span style="color:var(--text3);font-weight:400">(HTML erlaubt)</span></label>',
-    '    <textarea id="bv-content-' + l.code + '" rows="8" placeholder="&lt;p&gt;Inhalt hier…&lt;/p&gt;" style="font-family:\'Space Mono\',monospace;font-size:12px"></textarea>',
+    '    <textarea id="bv-content-' + l.code + '" rows="10" placeholder="&lt;p&gt;Inhalt hier…&lt;/p&gt;" style="font-family:\'Space Mono\',monospace;font-size:12px"></textarea>',
     '  </div>',
     '</div>',
-    '<details style="margin-top:8px">',
-    '  <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--text3);padding:6px 0;user-select:none">🔍 SEO-Felder manuell (optional – werden sonst auto-generiert)</summary>',
-    '  <div style="padding-top:10px;display:flex;flex-direction:column;gap:10px">',
-    '    <div class="form-group"><label>Meta-Description</label>',
-    '      <textarea id="bv-metadesc-' + l.code + '" rows="2" placeholder="ca. 150–160 Zeichen…"></textarea></div>',
-    '    <div class="form-group"><label>Meta-Keywords <span style="color:var(--text3);font-weight:400">(komma-getrennt, leer = KI generiert)</span></label>',
-    '      <input id="bv-metakw-' + l.code + '" placeholder="keyword1, keyword2, …"></div>',
-    '  </div>',
-    '</details>',
   ].join('');
 }
 
@@ -452,16 +402,6 @@ function bvToggleLang(code) {
     tab.style.opacity = _bvEnabledLangs[code] ? '1' : '.45';
     tab.style.color   = _bvEnabledLangs[code] ? 'var(--text2)' : 'var(--text3)';
   }
-}
-
-function bvAutoSlug(lang) {
-  var el    = document.getElementById('bv-title-' + lang);
-  var slugEl = document.getElementById('bv-slug-'  + lang);
-  if (!el || !slugEl) return;
-  var slug = el.value.trim().toLowerCase()
-    .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
-    .replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-').replace(/-+/g,'-').slice(0,80);
-  slugEl.value = slug;
 }
 
 function bvSiteChanged() {
@@ -524,11 +464,12 @@ async function bvSubmit() {
   for (var i = 0; i < langs.length; i++) {
     var l       = langs[i];
     var title   = document.getElementById('bv-title-'   + l.code).value.trim();
-    var slug    = document.getElementById('bv-slug-'    + l.code).value.trim() || title.toLowerCase().replace(/\s+/g,'-').slice(0,80);
+    // Slug auto aus Titel
+    var slug    = title.toLowerCase()
+      .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
+      .replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-').replace(/-+/g,'-').slice(0,80);
     var excerpt = document.getElementById('bv-excerpt-' + l.code).value.trim();
     var content = document.getElementById('bv-content-' + l.code).value.trim();
-    var metaDesc= document.getElementById('bv-metadesc-' + l.code).value.trim();
-    var metaKw  = document.getElementById('bv-metakw-'   + l.code).value.trim();
 
     var body = {
       site_id: siteId, lang: l.code, title: title, slug: slug,
@@ -536,32 +477,29 @@ async function bvSubmit() {
       status: published ? 'published' : 'draft',
       publish_at: publishAt,
     };
-    if (metaDesc) body.meta_description = metaDesc;
-    if (metaKw)   body.meta_keywords = metaKw.split(',').map(function(k){ return k.trim(); }).filter(Boolean);
 
     var res = await api('/api/blog', { method: 'POST', body: body });
     if (res && (res.id || res.post_id)) createdIds.push(res.id || res.post_id);
     statusEl.textContent = (i+1) + '/' + langs.length + ' erstellt…';
   }
 
-  // Auto SEO
+  // Auto-SEO via /api/seo/regenerate
   if (_bvSeoAuto && createdIds.length) {
-    statusEl.textContent = 'Generiere SEO…';
+    statusEl.textContent = 'Generiere SEO-Keywords…';
     var seoOk = 0;
     for (var j = 0; j < createdIds.length; j++) {
       if (!createdIds[j]) continue;
       var r = await api('/api/seo/regenerate/' + createdIds[j], { method: 'POST' }).catch(function(){ return null; });
       if (r && r.success) seoOk++;
     }
-    statusEl.textContent = '✓ ' + langs.length + ' Version(en) erstellt · ' + seoOk + '/' + createdIds.length + ' SEO generiert';
+    statusEl.textContent = '✓ ' + langs.length + ' Version(en) · ' + seoOk + '/' + createdIds.length + ' SEO generiert';
   } else {
     statusEl.textContent = '✓ ' + langs.length + ' Sprachversion(en) erstellt!';
   }
   statusEl.style.color = '#34d399';
 
-  // Formular leeren
   BV_BLOG_LANGS.forEach(function(l) {
-    ['bv-title-','bv-slug-','bv-excerpt-','bv-content-','bv-metadesc-','bv-metakw-'].forEach(function(pre) {
+    ['bv-title-','bv-excerpt-','bv-content-'].forEach(function(pre) {
       var el = document.getElementById(pre + l.code);
       if (el) el.value = '';
     });
@@ -620,9 +558,7 @@ async function bvLoadRecentPosts() {
   container.innerHTML = html;
 }
 
-// ─────────────────────────────────────────────────────────────
-// TAB 2 – SEO Manager: Helpers
-// ─────────────────────────────────────────────────────────────
+// ── SEO Manager ────────────────────────────────────────────────────
 function seoGetIgnoreList() {
   try { return JSON.parse(localStorage.getItem(SEO_IGNORE_KEY) || '[]'); } catch(e) { return []; }
 }
@@ -631,6 +567,8 @@ function seoSaveIgnoreList(list) {
 }
 
 async function seoLoad() {
+  if (_seoLoading) return;
+  _seoLoading = true;
   var filterSite = (document.getElementById('seo-filter-site')||{}).value || '';
   var sites = filterSite ? [filterSite] : BV_SITES.map(function(s){ return s.id; });
   _seoAllPosts = [];
@@ -641,28 +579,40 @@ async function seoLoad() {
       _seoAllPosts = _seoAllPosts.concat(posts);
     }
   }
+  _seoLoading = false;
   seoApplyFilter();
   seoRenderIgnored();
   seoRenderPostsTab();
 }
 
 function seoApplyFilter() {
+  // If not yet loaded, trigger load and bail
+  if (!_seoAllPosts.length && !_seoLoading) { seoLoad(); return; }
+
   var langFilter = (document.getElementById('seo-filter-lang')||{}).value || '';
   var search     = ((document.getElementById('seo-search')||{}).value||'').toLowerCase().trim();
   var sortBy     = (document.getElementById('seo-sort')||{}).value || 'freq';
   var posts      = _seoAllPosts;
-  if (langFilter) posts = posts.filter(function(p){ return p.lang === langFilter; });
+  // Filter: compare against p.lang (may be null for old posts, default 'de')
+  if (langFilter) posts = posts.filter(function(p){ return (p.lang || 'de') === langFilter; });
 
   var kwMap = {};
   posts.forEach(function(p) {
     var kws = [];
     if (Array.isArray(p.meta_keywords)) kws = p.meta_keywords;
-    else if (typeof p.meta_keywords === 'string' && p.meta_keywords.trim())
-      kws = p.meta_keywords.split(',').map(function(k){ return k.trim(); }).filter(Boolean);
-    kws.forEach(function(kw) {
+    else if (typeof p.meta_keywords === 'string' && p.meta_keywords.trim()) {
+      // Handle JSON-encoded arrays
+      var raw = p.meta_keywords.trim();
+      if (raw.charAt(0) === '[') {
+        try { kws = JSON.parse(raw); } catch(e) { kws = raw.split(',').map(function(k){ return k.trim(); }); }
+      } else {
+        kws = raw.split(',').map(function(k){ return k.trim(); });
+      }
+    }
+    kws.filter(Boolean).forEach(function(kw) {
       kw = kw.trim().toLowerCase();
       if (!kw) return;
-      if (!kwMap[kw]) kwMap[kw] = { kw: kw, count: 0, sites: new Set() };
+      if (!kwMap[kw]) kwMap[kw] = { kw: kw, count: 0, sites: new Set(), isLongtail: kw.indexOf(' ') >= 0 };
       kwMap[kw].count++;
       kwMap[kw].sites.add(p._siteId);
     });
@@ -672,43 +622,59 @@ function seoApplyFilter() {
   var allKws     = Object.values(kwMap);
   if (search) allKws = allKws.filter(function(k){ return k.kw.includes(search); });
 
-  if (sortBy === 'az')   allKws.sort(function(a,b){ return a.kw.localeCompare(b.kw); });
+  if (sortBy === 'az')        allKws.sort(function(a,b){ return a.kw.localeCompare(b.kw); });
   else if (sortBy === 'site') allKws.sort(function(a,b){ return b.sites.size - a.sites.size; });
   else allKws.sort(function(a,b){ return b.count - a.count; });
 
   var postsWithSeo = posts.filter(function(p){
     return p.meta_keywords && (Array.isArray(p.meta_keywords) ? p.meta_keywords.length > 0 : p.meta_keywords.trim());
   }).length;
+  var longtailCount = allKws.filter(function(k){ return k.isLongtail; }).length;
+
   var statsEl = document.getElementById('seo-stats-row');
   if (statsEl) {
     statsEl.innerHTML = [
       { label:'Posts gesamt',    val:posts.length,              col:'var(--text1)' },
       { label:'Mit SEO',         val:postsWithSeo,              col:'#34d399' },
       { label:'Ohne SEO',        val:posts.length - postsWithSeo, col:'#f87171' },
-      { label:'Unique Keywords', val:allKws.length,             col:'#a5b4fc' },
-      { label:'Ignoriert',       val:ignoreList.length,         col:'#fbbf24' },
+      { label:'Keywords gesamt', val:allKws.length,             col:'#a5b4fc' },
+      { label:'Longtail 🏆',     val:longtailCount,             col:'#fbbf24' },
+      { label:'Ignoriert',       val:ignoreList.length,         col:'#f87171' },
     ].map(function(s){
       return '<div class="kpi-card"><div class="kpi-label">' + s.label + '</div><div class="kpi-value" style="color:' + s.col + '">' + s.val + '</div></div>';
     }).join('');
   }
 
   var gridEl = document.getElementById('seo-kw-grid');
-  if (!gridEl) return;
-  if (!allKws.length) { gridEl.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:12px 0">Keine Keywords gefunden.</div>'; return; }
+  if (!gridEl) { seoRenderPostsTab(); return; }
+
+  if (!allKws.length) {
+    gridEl.innerHTML = _seoAllPosts.length
+      ? '<div style="color:var(--text3);font-size:12px;padding:12px 0">Keine Keywords für diesen Filter. Versuche "Alle Sprachen".</div>'
+      : '<div style="color:var(--text3);font-size:12px;padding:12px 0">Lade Daten…</div>';
+    seoRenderPostsTab();
+    return;
+  }
   var maxCount = Math.max.apply(null, allKws.map(function(k){ return k.count; })) || 1;
   gridEl.innerHTML = allKws.slice(0, 300).map(function(k) {
-    var isIgn = ignoreList.indexOf(k.kw) >= 0;
+    var isIgn     = ignoreList.indexOf(k.kw) >= 0;
+    var isLongtail = k.isLongtail;
     var size  = Math.round(10 + (k.count / maxCount) * 6);
-    var bg    = isIgn ? 'rgba(239,68,68,.1)'  : 'rgba(165,180,252,.08)';
-    var col   = isIgn ? '#f87171'              : '#a5b4fc';
-    var brd   = isIgn ? 'rgba(239,68,68,.25)' : 'rgba(165,180,252,.2)';
-    return '<span title="' + k.count + 'x · ' + Array.from(k.sites).join(', ') + ' · Klick = ignore" ' +
+    // Longtail keywords get a gold tint, ignored = red, normal = purple
+    var bg    = isIgn ? 'rgba(239,68,68,.1)'  : (isLongtail ? 'rgba(251,191,36,.1)'  : 'rgba(165,180,252,.08)');
+    var col   = isIgn ? '#f87171'              : (isLongtail ? '#fbbf24'              : '#a5b4fc');
+    var brd   = isIgn ? 'rgba(239,68,68,.25)' : (isLongtail ? 'rgba(251,191,36,.25)' : 'rgba(165,180,252,.2)');
+    var title = k.count + 'x · ' + Array.from(k.sites).join(', ') + (isLongtail ? ' · 🏆 Longtail' : '') + ' · Klick = ignore';
+    return '<span title="' + title + '" ' +
       'style="font-size:' + size + 'px;padding:3px 9px;border-radius:20px;cursor:pointer;' +
       'background:' + bg + ';color:' + col + ';border:1px solid ' + brd + ';transition:all .15s" ' +
       'onclick="seoKwToggleIgnore(\'' + k.kw.replace(/\\/g,'\\\\').replace(/'/g,"\\'") + '\')">' +
       esc(k.kw) + (k.count > 1 ? ' <span style="font-size:9px;opacity:.6">×' + k.count + '</span>' : '') +
       '</span>';
   }).join('');
+
+  // Also update post tab
+  seoRenderPostsTab();
 }
 
 window.seoKwToggleIgnore = function(kw) {
@@ -717,10 +683,10 @@ window.seoKwToggleIgnore = function(kw) {
   var idx   = list.indexOf(lower);
   if (idx >= 0) { list.splice(idx,1); seoSaveIgnoreList(list); seoShowToast('🔓 "' + kw + '" aus Ignore entfernt', '#34d399'); }
   else           { list.push(lower);  seoSaveIgnoreList(list); seoShowToast('🚫 "' + kw + '" ignoriert', '#fbbf24'); }
-  seoApplyFilter(); seoRenderIgnored(); seoRenderPostsTab();
+  seoApplyFilter(); seoRenderIgnored();
 };
 
-// ── Post-Keywords Tab ──────────────────────────────────────────
+// ── Post-Keywords Tab ──────────────────────────────────────────────
 function seoRenderPostsTab() {
   var el = document.getElementById('seo-posts-table');
   if (!el) return;
@@ -728,17 +694,30 @@ function seoRenderPostsTab() {
   var ignoreList = seoGetIgnoreList();
   var siteMap    = {}; BV_SITES.forEach(function(s){ siteMap[s.id] = s; });
   var posts = _seoAllPosts.slice();
-  if (langFilter) posts = posts.filter(function(p){ return p.lang === langFilter; });
+  if (langFilter) posts = posts.filter(function(p){ return (p.lang||'de') === langFilter; });
   posts.sort(function(a,b){
-    var aH = a.meta_keywords && (Array.isArray(a.meta_keywords)?a.meta_keywords.length:a.meta_keywords.trim()?1:0);
-    var bH = b.meta_keywords && (Array.isArray(b.meta_keywords)?b.meta_keywords.length:b.meta_keywords.trim()?1:0);
+    var aH = a.meta_keywords && (Array.isArray(a.meta_keywords)?a.meta_keywords.length:(a.meta_keywords||'').trim()?1:0);
+    var bH = b.meta_keywords && (Array.isArray(b.meta_keywords)?b.meta_keywords.length:(b.meta_keywords||'').trim()?1:0);
     return (bH?1:0) - (aH?1:0);
   });
-  if (!posts.length) { el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:20px 0">Keine Posts.</div>'; return; }
+  if (!posts.length) {
+    el.innerHTML = _seoAllPosts.length
+      ? '<div style="color:var(--text3);font-size:12px;padding:20px 0">Keine Posts für diesen Filter.</div>'
+      : '<div style="color:var(--text3);font-size:12px;padding:20px 0">Lade…</div>';
+    return;
+  }
+
+  function parseKws(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(Boolean);
+    var s = raw.trim();
+    if (s.charAt(0) === '[') { try { return JSON.parse(s).filter(Boolean); } catch(e) {} }
+    return s.split(',').map(function(k){ return k.trim(); }).filter(Boolean);
+  }
 
   var html = '<div style="display:flex;flex-direction:column;gap:8px">';
   posts.forEach(function(p) {
-    var kws  = Array.isArray(p.meta_keywords) ? p.meta_keywords : ((p.meta_keywords||'').split(',').map(function(k){ return k.trim(); }).filter(Boolean));
+    var kws  = parseKws(p.meta_keywords);
     var site = siteMap[p._siteId] || {};
     var col  = site.color || '#888';
     html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:12px 14px">';
@@ -749,12 +728,19 @@ function seoRenderPostsTab() {
     html +=   '<button onclick="seoRegenPost(' + p.id + ',this)" class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px;flex-shrink:0">🔄 SEO neu</button>';
     html += '</div>';
     if (kws.length) {
+      var longtailCount = kws.filter(function(k){ return k.indexOf(' ') >= 0; }).length;
+      if (longtailCount > 0) {
+        html += '<div style="font-size:10px;color:#fbbf24;margin-bottom:5px">🏆 ' + longtailCount + ' Longtail-Keyword' + (longtailCount > 1 ? 's' : '') + '</div>';
+      }
       html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">';
       kws.forEach(function(kw) {
-        var isIgn = ignoreList.indexOf(kw.toLowerCase()) >= 0;
+        var isIgn     = ignoreList.indexOf(kw.toLowerCase()) >= 0;
+        var isLongtail = kw.indexOf(' ') >= 0;
         html += '<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 8px;border-radius:4px;background:' +
-          (isIgn?'rgba(239,68,68,.12)':'rgba(139,92,246,.12)') + ';color:' + (isIgn?'#f87171':'#c084fc') +
-          ';border:1px solid ' + (isIgn?'rgba(239,68,68,.25)':'rgba(139,92,246,.25)') + '">' +
+          (isIgn?'rgba(239,68,68,.12)':(isLongtail?'rgba(251,191,36,.12)':'rgba(139,92,246,.12)')) +
+          ';color:' + (isIgn?'#f87171':(isLongtail?'#fbbf24':'#c084fc')) +
+          ';border:1px solid ' + (isIgn?'rgba(239,68,68,.25)':(isLongtail?'rgba(251,191,36,.25)':'rgba(139,92,246,.25)')) + '" ' +
+          'title="' + (isLongtail?'Longtail-Keyword 🏆':'') + (isIgn?' · Ignoriert':'') + '">' +
           esc(kw) +
           '<button onclick="seoRemoveKeyword(' + p.id + ',\'' + esc(kw).replace(/\\/g,'\\\\').replace(/'/g,"\\'") + '\',this)" ' +
           'title="Keyword entfernen" style="background:none;border:none;color:inherit;cursor:pointer;font-size:13px;padding:0;margin-left:2px;opacity:.6;line-height:1">×</button>' +
@@ -762,10 +748,10 @@ function seoRenderPostsTab() {
       });
       html += '</div>';
     } else {
-      html += '<div style="font-size:11px;color:#fbbf24;margin-bottom:6px">⚠ Keine Keywords</div>';
+      html += '<div style="font-size:11px;color:#fbbf24;margin-bottom:6px">⚠ Keine Keywords – SEO neu generieren</div>';
     }
     if (p.meta_description) {
-      html += '<div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.meta_description.slice(0,130)) + (p.meta_description.length>130?'…':'') + '</div>';
+      html += '<div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.meta_description.slice(0,140)) + (p.meta_description.length>140?'…':'') + '</div>';
     }
     html += '</div>';
   });
@@ -776,7 +762,16 @@ function seoRenderPostsTab() {
 window.seoRemoveKeyword = async function(postId, kw, btn) {
   var post = _seoAllPosts.find(function(p){ return p.id === postId; });
   if (!post) return;
-  var kws     = Array.isArray(post.meta_keywords) ? post.meta_keywords.slice() : ((post.meta_keywords||'').split(',').map(function(k){ return k.trim(); }).filter(Boolean));
+
+  function parseKws(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(Boolean);
+    var s = raw.trim();
+    if (s.charAt(0) === '[') { try { return JSON.parse(s).filter(Boolean); } catch(e) {} }
+    return s.split(',').map(function(k){ return k.trim(); }).filter(Boolean);
+  }
+
+  var kws     = parseKws(post.meta_keywords);
   var updated = kws.filter(function(k){ return k.toLowerCase() !== kw.toLowerCase(); });
   btn.disabled = true;
   var res = await api('/api/blog/' + postId, { method: 'PATCH', body: { meta_keywords: updated } });
@@ -804,7 +799,6 @@ window.seoRegenPost = async function(postId, btn) {
   }
 };
 
-// Sub-Tab Switcher
 function seoSubTab(name, btn) {
   ['overview','posts','ignored','ai'].forEach(function(n) {
     var el = document.getElementById('seotab-' + n);
@@ -816,7 +810,6 @@ function seoSubTab(name, btn) {
   if (name === 'posts')   seoRenderPostsTab();
 }
 
-// ── Ignoriert-Tab ──────────────────────────────────────────────
 function seoAddIgnore() {
   var input = document.getElementById('seo-ignore-input');
   var val   = (input ? input.value : '').trim();
@@ -828,7 +821,7 @@ function seoAddIgnore() {
   });
   seoSaveIgnoreList(list);
   input.value = '';
-  seoRenderIgnored(); seoApplyFilter(); seoRenderPostsTab();
+  seoRenderIgnored(); seoApplyFilter();
 }
 
 function seoRenderIgnored() {
@@ -845,16 +838,14 @@ function seoRenderIgnored() {
 }
 window.seoRemoveIgnored = function(kw) {
   seoSaveIgnoreList(seoGetIgnoreList().filter(function(k){ return k !== kw; }));
-  seoRenderIgnored(); seoApplyFilter(); seoRenderPostsTab();
+  seoRenderIgnored(); seoApplyFilter();
 };
 window.seoClearIgnored = function() {
   if (!confirm('Alle ignorierten Keywords löschen?')) return;
   seoSaveIgnoreList([]); seoRenderIgnored(); seoApplyFilter();
 };
 
-// ─────────────────────────────────────────────────────────────
-// KI-Batch Sub-Tab
-// ─────────────────────────────────────────────────────────────
+// ── KI-Batch ──────────────────────────────────────────────────────
 async function aiLoadPosts() {
   var siteFilter = (document.getElementById('ai-filter-site')||{}).value || '';
   var sites = siteFilter ? [siteFilter] : BV_SITES.map(function(s){ return s.id; });
@@ -874,7 +865,7 @@ function aiApplyPostFilter() {
   var container  = document.getElementById('ai-post-list');
   if (!container) return;
   var posts = _aiAllPosts;
-  if (langFilter) posts = posts.filter(function(p){ return p.lang === langFilter; });
+  if (langFilter) posts = posts.filter(function(p){ return (p.lang||'de') === langFilter; });
   if (!posts.length) { container.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:12px 0">Keine Posts.</div>'; aiUpdateCount(); return; }
 
   var siteMap = {}; BV_SITES.forEach(function(s){ siteMap[s.id] = s; });
@@ -882,7 +873,7 @@ function aiApplyPostFilter() {
   posts.forEach(function(p) {
     var site  = siteMap[p._siteId] || {};
     var col   = site.color || '#888';
-    var hasKw = p.meta_keywords && (Array.isArray(p.meta_keywords) ? p.meta_keywords.length > 0 : p.meta_keywords.trim());
+    var hasKw = p.meta_keywords && (Array.isArray(p.meta_keywords) ? p.meta_keywords.length > 0 : (p.meta_keywords||'').trim());
     html += '<label style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:7px;cursor:pointer;border:1px solid var(--border);background:var(--bg);' +
       (!hasKw ? 'border-color:rgba(251,191,36,.2);' : '') + '">' +
       '<input type="checkbox" data-postid="' + p.id + '" onchange="aiUpdateCount()" style="flex-shrink:0"' + (!hasKw ? ' checked' : '') + '>' +
@@ -899,7 +890,7 @@ function aiApplyPostFilter() {
 function aiFilterNoSeo() {
   document.querySelectorAll('#ai-post-list input[type=checkbox]').forEach(function(cb) {
     var post = _aiAllPosts.find(function(p){ return p.id === parseInt(cb.dataset.postid); });
-    cb.checked = !(post && post.meta_keywords && (Array.isArray(post.meta_keywords) ? post.meta_keywords.length > 0 : post.meta_keywords.trim()));
+    cb.checked = !(post && post.meta_keywords && (Array.isArray(post.meta_keywords) ? post.meta_keywords.length > 0 : (post.meta_keywords||'').trim()));
   });
   aiUpdateCount();
 }
@@ -926,28 +917,36 @@ function aiGeneratePrompt() {
     return (html||'').replace(/<br\s*\/?>/gi,'\n').replace(/<\/p>/gi,'\n').replace(/<[^>]+>/g,' ')
       .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/\s+/g,' ').trim().slice(0,350);
   }
+  function parseKws(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(Boolean);
+    var s = raw.trim();
+    if (s.charAt(0) === '[') { try { return JSON.parse(s).filter(Boolean); } catch(e) {} }
+    return s.split(',').map(function(k){ return k.trim(); }).filter(Boolean);
+  }
 
-  var prompt = 'Du bist ein SEO-Experte. Analysiere die folgenden Blog-Beiträge und erstelle für JEDEN optimierte SEO-Metadaten.\n\n';
+  var prompt = 'Du bist ein SEO-Experte. Erstelle für jeden Blog-Beitrag optimierte SEO-Metadaten.\n\n';
   if (ignoreList.length) prompt += '⛔ VERBOTENE KEYWORDS (niemals verwenden):\n' + ignoreList.join(', ') + '\n\n';
   prompt += '📋 BLOG-BEITRÄGE (' + posts.length + ' Stück):\n' + '─'.repeat(60) + '\n\n';
 
   posts.forEach(function(p, i) {
-    var kws = Array.isArray(p.meta_keywords) ? p.meta_keywords : ((p.meta_keywords||'').split(',').map(function(k){ return k.trim(); }).filter(Boolean));
+    var kws = parseKws(p.meta_keywords);
     prompt += (i+1) + '. ID: ' + p.id + ' | Sprache: ' + (LANG_NAMES[p.lang]||p.lang) + ' | Site: ' + p._siteId + '\n';
     prompt += '   Titel: ' + (p.title||'') + '\n';
     if (p.excerpt) prompt += '   Excerpt: ' + htmlToText(p.excerpt) + '\n';
     else if (p.content) prompt += '   Inhalt (Auszug): ' + htmlToText(p.content) + '\n';
     if (p.tags)    prompt += '   Tags: ' + p.tags + '\n';
-    if (kws.length) prompt += '   Bestehende Keywords: ' + kws.join(', ') + ' (verbessern/ergänzen)\n';
+    if (kws.length) prompt += '   Bestehende Keywords (verbessern): ' + kws.join(', ') + '\n';
     prompt += '\n';
   });
 
   prompt += '─'.repeat(60) + '\n\n';
-  prompt += '📤 AUFGABE für jeden Post:\n';
-  prompt += '• Meta-Description: 140–160 Zeichen, in der jeweiligen Sprache\n';
-  prompt += '• Meta-Keywords: 6–10 longtail Keywords, in der jeweiligen Sprache\n\n';
-  prompt += '⚠️ Antworte NUR mit einem JSON-Array (kein Text davor/danach, keine Markdown-Backticks):\n\n';
-  prompt += '[\n  {\n    "id": ' + posts[0].id + ',\n    "meta_description": "Deine Beschreibung hier",\n    "meta_keywords": ["keyword1", "longtail keyword 2", "keyword3"]\n  }';
+  prompt += '📤 AUFGABE:\n';
+  prompt += '• Meta-Description: 140–160 Zeichen in der Sprache des Posts\n';
+  prompt += '• Meta-Keywords: 6–10 Keywords, BEVORZUGE Longtail-Phrasen (2–4 Wörter)!\n';
+  prompt += '  Longtail-Beispiele: "brawl stars anfänger guide deutsch", "5-buchstaben worträtsel tipps"\n\n';
+  prompt += '⚠️ Antworte NUR mit JSON-Array (kein Text, keine Backticks):\n\n';
+  prompt += '[\n  {\n    "id": ' + posts[0].id + ',\n    "meta_description": "Beschreibung (140-160 Zeichen)",\n    "meta_keywords": ["longtail phrase eins", "longtail phrase zwei", "einzelwort"]\n  }';
   if (posts.length > 1) prompt += ',\n  ... (' + (posts.length - 1) + ' weitere)';
   prompt += '\n]';
 
@@ -983,17 +982,22 @@ function aiParseResponse() {
     var data = JSON.parse(clean);
     if (!Array.isArray(data)) throw new Error('Kein Array – erwartet [...]');
     data = data.filter(function(d){ return d && d.id && (d.meta_description || (d.meta_keywords && d.meta_keywords.length)); });
-    if (!data.length) throw new Error('Keine gültigen Einträge (id + meta_description/meta_keywords benötigt)');
+    if (!data.length) throw new Error('Keine gültigen Einträge');
     _aiParsed = data;
 
     if (listEl) {
       listEl.innerHTML = data.map(function(d) {
         var kws = Array.isArray(d.meta_keywords) ? d.meta_keywords : ((d.meta_keywords||'').split(',').map(function(k){ return k.trim(); }).filter(Boolean));
+        var longtails = kws.filter(function(k){ return k.indexOf(' ') >= 0; }).length;
         return '<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(52,211,153,.1)">' +
           '<span style="font-weight:700;color:var(--text1)">ID ' + d.id + '</span>' +
+          (longtails ? ' <span style="font-size:10px;color:#fbbf24">🏆 ' + longtails + ' Longtail</span>' : '') +
           (d.meta_description ? '<div style="color:var(--text2);font-size:11px;margin-top:3px">' + esc(d.meta_description.slice(0,100)) + (d.meta_description.length>100?'…':'') + '</div>' : '') +
           '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px">' +
-          kws.map(function(k){ return '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(139,92,246,.15);color:#c084fc">' + esc(k) + '</span>'; }).join('') +
+          kws.map(function(k){
+            var lt = k.indexOf(' ') >= 0;
+            return '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:' + (lt?'rgba(251,191,36,.15)':'rgba(139,92,246,.15)') + ';color:' + (lt?'#fbbf24':'#c084fc') + '">' + esc(k) + '</span>';
+          }).join('') +
           '</div></div>';
       }).join('');
     }
@@ -1035,14 +1039,11 @@ async function aiApplyAll() {
   }
 
   if (failed === 0) {
-    statusEl.textContent = '✓ ' + ok + ' Posts aktualisiert!';
-    statusEl.style.color = '#34d399';
-    aiClearResponse();
-    seoApplyFilter(); seoRenderPostsTab(); aiApplyPostFilter();
+    statusEl.textContent = '✓ ' + ok + ' Posts aktualisiert!'; statusEl.style.color = '#34d399';
+    aiClearResponse(); seoApplyFilter(); seoRenderPostsTab(); aiApplyPostFilter();
     setTimeout(function(){ statusEl.textContent=''; btn.disabled=false; }, 3000);
   } else {
-    statusEl.textContent = '⚠ ' + ok + ' ok, ' + failed + ' Fehler';
-    statusEl.style.color = '#fbbf24';
+    statusEl.textContent = '⚠ ' + ok + ' ok, ' + failed + ' Fehler'; statusEl.style.color = '#fbbf24';
     btn.disabled = false;
   }
 }
@@ -1059,9 +1060,6 @@ function aiClearResponse() {
   _aiParsed = [];
 }
 
-// ─────────────────────────────────────────────────────────────
-// Toast
-// ─────────────────────────────────────────────────────────────
 function seoShowToast(msg, color) {
   var t = document.createElement('div');
   t.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;padding:10px 18px;border-radius:9px;font-size:12px;font-weight:700;background:rgba(0,0,0,.85);border:1px solid ' + (color||'var(--border)') + ';color:' + (color||'var(--text1)') + ';box-shadow:0 8px 24px rgba(0,0,0,.4)';
