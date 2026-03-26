@@ -1,0 +1,884 @@
+var BV_SITES = [
+  { id: 'wordify',      name: 'Wordify',      color: '#22c55e' },
+  { id: 'traitora',     name: 'Traitora',     color: '#8b5cf6' },
+  { id: 'brawlmystery', name: 'BrawlMystery', color: '#f97316' },
+];
+var BV_BLOG_LANGS = [
+  { code: 'de', flag: '🇩🇪', label: 'Deutsch'   },
+  { code: 'en', flag: '🇬🇧', label: 'English'   },
+  { code: 'fr', flag: '🇫🇷', label: 'Français'  },
+  { code: 'es', flag: '🇪🇸', label: 'Español'   },
+  { code: 'it', flag: '🇮🇹', label: 'Italiano'  },
+];
+var LANG_FLAGS     = { de:'🇩🇪', en:'🇬🇧', fr:'🇫🇷', es:'🇪🇸', it:'🇮🇹' };
+var SEO_IGNORE_KEY = 'bv_seo_ignore_list';
+
+var _bvSeoAuto      = true;
+var _bvScheduleISO  = null;
+var _bvActiveLang   = 'de';
+var _bvEnabledLangs = { de:true, en:false, fr:false, es:false, it:false };
+var _seoAllPosts    = [];
+var _seoLoading     = false;
+var _aiAllPosts     = [];
+var _aiParsed       = [];
+
+(function() {
+  injectLoginScreen();
+  checkAuth(function() {
+    initLayout(null);
+    bvInitLangTabs();
+    bvLoadRecentPosts();
+    refreshIcons();
+  });
+  window.initAfterLogin = function() {
+    initLayout(null);
+    bvInitLangTabs();
+    bvLoadRecentPosts();
+    refreshIcons();
+  };
+})();
+
+function bvShowTab(name, btn) {
+  document.querySelectorAll('#bv-tabs .tab-btn').forEach(function(b){ b.classList.remove('active'); });
+  document.querySelectorAll('.tab-content-area .tab-panel').forEach(function(p){ p.classList.remove('active'); });
+  var panel = document.getElementById('bvtab-' + name);
+  if (panel) panel.classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'seo-manager')   seoLoad();
+  if (name === 'neuer-beitrag') bvLoadRecentPosts();
+  refreshIcons();
+}
+
+// ── Neuer Beitrag: Mehrsprachige Tabs ──────────────────────────────
+function bvInitLangTabs() {
+  var tabsEl   = document.getElementById('bv-lang-tabs');
+  var panelsEl = document.getElementById('bv-lang-panels');
+  if (!tabsEl || !panelsEl) return;
+
+  var tabsHtml = BV_BLOG_LANGS.map(function(l) {
+    var active = l.code === 'de';
+    return '<div id="bvt-tab-' + l.code + '" onclick="bvSwitchLang(\'' + l.code + '\')" style="' +
+      'padding:7px 14px;cursor:pointer;font-size:13px;font-weight:600;border-radius:6px 6px 0 0;' +
+      'display:flex;align-items:center;gap:6px;user-select:none;transition:all .15s;' +
+      (active ? 'background:var(--surface);border:1px solid var(--border);border-bottom:1px solid var(--surface);color:var(--text1)' : 'color:var(--text3)') +
+      '">' + l.flag + ' ' + l.code.toUpperCase() +
+      '<span id="bvt-enable-' + l.code + '" onclick="event.stopPropagation();bvToggleLang(\'' + l.code + '\')" title="Sprache ein/aus" ' +
+      'style="width:14px;height:14px;border-radius:3px;border:1px solid currentColor;display:flex;align-items:center;justify-content:center;font-size:10px;opacity:.75;flex-shrink:0">' +
+      (active ? '✓' : '') + '</span></div>';
+  }).join('');
+  tabsEl.innerHTML = tabsHtml;
+
+  var panelsHtml = BV_BLOG_LANGS.map(function(l) {
+    return '<div id="bvt-panel-' + l.code + '" style="display:' + (l.code==='de'?'block':'none') + ';' +
+      'background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 6px 6px 6px;padding:16px">' +
+      bvLangPanelHtml(l) + '</div>';
+  }).join('');
+  panelsEl.innerHTML = panelsHtml;
+
+  BV_BLOG_LANGS.forEach(function(l) {
+    var inp = document.getElementById('bv-title-' + l.code);
+    if (inp) inp.addEventListener('input', function(){ /* slug auto */ });
+  });
+}
+
+function bvLangPanelHtml(l) {
+  return [
+    '<div class="form-row">',
+    '  <div class="form-group form-full">',
+    '    <label>' + l.flag + ' Titel</label>',
+    '    <input id="bv-title-' + l.code + '" placeholder="Titel auf ' + l.label + '…">',
+    '  </div>',
+    '</div>',
+    '<div class="form-row">',
+    '  <div class="form-group form-full">',
+    '    <label>Excerpt / Teaser</label>',
+    '    <textarea id="bv-excerpt-' + l.code + '" rows="2" placeholder="Kurze Zusammenfassung…"></textarea>',
+    '  </div>',
+    '</div>',
+    '<div class="form-row">',
+    '  <div class="form-group form-full">',
+    '    <label>Inhalt <span style="color:var(--text3);font-weight:400">(HTML erlaubt)</span></label>',
+    '    <textarea id="bv-content-' + l.code + '" rows="10" placeholder="&lt;p&gt;Inhalt hier…&lt;/p&gt;" style="font-family:\'Space Mono\',monospace;font-size:12px"></textarea>',
+    '  </div>',
+    '</div>',
+  ].join('');
+}
+
+function bvSwitchLang(code) {
+  _bvActiveLang = code;
+  BV_BLOG_LANGS.forEach(function(l) {
+    var tab   = document.getElementById('bvt-tab-'   + l.code);
+    var panel = document.getElementById('bvt-panel-' + l.code);
+    var active = l.code === code;
+    if (panel) panel.style.display = active ? 'block' : 'none';
+    if (tab) {
+      tab.style.background   = active ? 'var(--surface)' : 'transparent';
+      tab.style.color        = active ? 'var(--text1)'   : (_bvEnabledLangs[l.code] ? 'var(--text2)' : 'var(--text3)');
+      tab.style.border       = active ? '1px solid var(--border)' : 'none';
+      tab.style.borderBottom = active ? '1px solid var(--surface)' : 'none';
+    }
+  });
+}
+
+function bvToggleLang(code) {
+  if (code === 'de') return;
+  _bvEnabledLangs[code] = !_bvEnabledLangs[code];
+  var enableEl = document.getElementById('bvt-enable-' + code);
+  var tab      = document.getElementById('bvt-tab-'    + code);
+  if (enableEl) enableEl.textContent = _bvEnabledLangs[code] ? '✓' : '';
+  if (tab && code !== _bvActiveLang) {
+    tab.style.opacity = _bvEnabledLangs[code] ? '1' : '.45';
+    tab.style.color   = _bvEnabledLangs[code] ? 'var(--text2)' : 'var(--text3)';
+  }
+}
+
+function bvSiteChanged() {
+  var sel = document.getElementById('bv-site');
+  if (sel) sel.style.borderColor = sel.value ? 'rgba(245,158,11,.4)' : 'rgba(239,68,68,.5)';
+}
+
+function bvToggleSeoAuto() {
+  _bvSeoAuto = !_bvSeoAuto;
+  var ind = document.getElementById('bv-seo-auto-indicator');
+  var btn = document.getElementById('bv-seo-auto-btn');
+  if (ind) ind.style.background = _bvSeoAuto ? '#34d399' : '#f87171';
+  if (btn) btn.style.color = _bvSeoAuto ? '' : '#f87171';
+}
+
+function bvOpenSchedule() {
+  _openScheduleModal({
+    currentISO: _bvScheduleISO,
+    onConfirm: function(iso) {
+      _bvScheduleISO = iso;
+      var btn = document.getElementById('bv-schedule-btn');
+      var d = new Date(iso);
+      if (btn) { btn.textContent = '⏰ ' + d.toLocaleString('de-DE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); btn.style.color='#fbbf24'; }
+    },
+    onClear: function() {
+      _bvScheduleISO = null;
+      var btn = document.getElementById('bv-schedule-btn');
+      if (btn) { btn.textContent = '⏰ Zeitplan'; btn.style.color=''; }
+    }
+  });
+}
+
+async function bvSubmit() {
+  var siteId = document.getElementById('bv-site').value;
+  if (!siteId) {
+    document.getElementById('bv-site').style.borderColor = 'rgba(239,68,68,.5)';
+    document.getElementById('bv-status').textContent = '✕ Bitte eine Seite auswählen!';
+    document.getElementById('bv-status').style.color = '#f87171';
+    return;
+  }
+  var langs = BV_BLOG_LANGS.filter(function(l) {
+    return _bvEnabledLangs[l.code] && ((document.getElementById('bv-title-' + l.code)||{}).value||'').trim();
+  });
+  if (!langs.length) {
+    document.getElementById('bv-status').textContent = '✕ Mindestens DE-Titel benötigt.';
+    document.getElementById('bv-status').style.color = '#f87171';
+    return;
+  }
+
+  var tags      = document.getElementById('bv-tags').value.trim();
+  var groupId   = document.getElementById('bv-group').value.trim() || ('grp-' + Date.now() + '-' + Math.random().toString(36).slice(2,6));
+  var published = document.getElementById('bv-publish').checked ? 1 : 0;
+  var publishAt = _bvScheduleISO || null;
+  var statusEl  = document.getElementById('bv-status');
+
+  statusEl.textContent = 'Erstelle ' + langs.length + ' Version(en)…';
+  statusEl.style.color = 'var(--text3)';
+
+  var createdIds = [];
+  for (var i = 0; i < langs.length; i++) {
+    var l       = langs[i];
+    var title   = document.getElementById('bv-title-'   + l.code).value.trim();
+    // Slug auto aus Titel
+    var slug    = title.toLowerCase()
+      .replace(/ä/g,'ae').replace(/ö/g,'oe').replace(/ü/g,'ue').replace(/ß/g,'ss')
+      .replace(/[^a-z0-9\s-]/g,'').replace(/\s+/g,'-').replace(/-+/g,'-').slice(0,80);
+    var excerpt = document.getElementById('bv-excerpt-' + l.code).value.trim();
+    var content = document.getElementById('bv-content-' + l.code).value.trim();
+
+    var body = {
+      site_id: siteId, lang: l.code, title: title, slug: slug,
+      excerpt: excerpt, content: content, tags: tags, group_id: groupId,
+      status: published ? 'published' : 'draft',
+      publish_at: publishAt,
+    };
+
+    var res = await api('/api/blog', { method: 'POST', body: body });
+    if (res && (res.id || res.post_id)) createdIds.push(res.id || res.post_id);
+    statusEl.textContent = (i+1) + '/' + langs.length + ' erstellt…';
+  }
+
+  // Auto-SEO via /api/seo/regenerate
+  if (_bvSeoAuto && createdIds.length) {
+    statusEl.textContent = 'Generiere SEO-Keywords…';
+    var seoOk = 0;
+    for (var j = 0; j < createdIds.length; j++) {
+      if (!createdIds[j]) continue;
+      var r = await api('/api/seo/regenerate/' + createdIds[j], { method: 'POST' }).catch(function(){ return null; });
+      if (r && r.success) seoOk++;
+    }
+    statusEl.textContent = '✓ ' + langs.length + ' Version(en) · ' + seoOk + '/' + createdIds.length + ' SEO generiert';
+  } else {
+    statusEl.textContent = '✓ ' + langs.length + ' Sprachversion(en) erstellt!';
+  }
+  statusEl.style.color = '#34d399';
+
+  BV_BLOG_LANGS.forEach(function(l) {
+    ['bv-title-','bv-excerpt-','bv-content-'].forEach(function(pre) {
+      var el = document.getElementById(pre + l.code);
+      if (el) el.value = '';
+    });
+  });
+  document.getElementById('bv-tags').value  = '';
+  document.getElementById('bv-group').value = '';
+  document.getElementById('bv-publish').checked = false;
+  _bvScheduleISO = null;
+  var sbtn = document.getElementById('bv-schedule-btn');
+  if (sbtn) { sbtn.textContent='⏰ Zeitplan'; sbtn.style.color=''; }
+
+  setTimeout(function(){ statusEl.textContent=''; bvLoadRecentPosts(); }, 3500);
+}
+
+async function bvLoadRecentPosts() {
+  var container = document.getElementById('bv-recent-posts');
+  if (!container) return;
+  container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text3);font-size:12px">Lade…</div>';
+
+  var filterSite = (document.getElementById('bv-filter-site')||{}).value || '';
+  var sites      = filterSite ? [filterSite] : BV_SITES.map(function(s){ return s.id; });
+  var siteMap    = {};
+  BV_SITES.forEach(function(s){ siteMap[s.id] = s; });
+
+  var allPosts = [];
+  for (var i = 0; i < sites.length; i++) {
+    var posts = await api('/api/blog?site_id=' + sites[i]);
+    if (posts && posts.length) {
+      posts.forEach(function(p){ p._siteId = sites[i]; });
+      allPosts = allPosts.concat(posts);
+    }
+  }
+  if (!allPosts.length) {
+    container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text3);font-size:12px">Keine Beiträge gefunden.</div>';
+    return;
+  }
+  allPosts.sort(function(a,b){ return new Date(b.created_at) - new Date(a.created_at); });
+  allPosts = allPosts.slice(0, 40);
+
+  var html = '<div style="display:flex;flex-direction:column;gap:5px">';
+  allPosts.forEach(function(p) {
+    var site   = siteMap[p._siteId] || {};
+    var col    = site.color || '#888';
+    var isLive = p.status === 'published';
+    var hasSeo = p.meta_keywords && (Array.isArray(p.meta_keywords) ? p.meta_keywords.length > 0 : p.meta_keywords.trim());
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:10px 14px;display:flex;align-items:center;gap:8px">';
+    html += '<span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:4px;background:' + col + '20;color:' + col + ';flex-shrink:0">' + (site.name||p._siteId) + '</span>';
+    html += '<span style="font-size:13px">' + (LANG_FLAGS[p.lang]||p.lang) + '</span>';
+    html += '<span style="flex:1;font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.title||'(kein Titel)') + '</span>';
+    html += '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:' + (isLive?'rgba(52,211,153,.15)':'rgba(255,255,255,.06)') + ';color:' + (isLive?'#34d399':'var(--text3)') + '">' + (isLive?'✓ Live':'Entwurf') + '</span>';
+    html += '<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:' + (hasSeo?'rgba(139,92,246,.12)':'rgba(251,191,36,.08)') + ';color:' + (hasSeo?'#c084fc':'#fbbf24') + '">' + (hasSeo?'🔍 SEO':'⚠ kein SEO') + '</span>';
+    html += '<span class="mono" style="font-size:10px;color:var(--text3);flex-shrink:0">' + fmtDate(p.created_at) + '</span>';
+    html += '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// ── SEO Manager ────────────────────────────────────────────────────
+function seoGetIgnoreList() {
+  try { return JSON.parse(localStorage.getItem(SEO_IGNORE_KEY) || '[]'); } catch(e) { return []; }
+}
+function seoSaveIgnoreList(list) {
+  localStorage.setItem(SEO_IGNORE_KEY, JSON.stringify(list));
+}
+
+async function seoLoad() {
+  if (_seoLoading) return;
+  _seoLoading = true;
+  var filterSite = (document.getElementById('seo-filter-site')||{}).value || '';
+  var sites = filterSite ? [filterSite] : BV_SITES.map(function(s){ return s.id; });
+  _seoAllPosts = [];
+  for (var i = 0; i < sites.length; i++) {
+    var posts = await api('/api/blog?site_id=' + sites[i]);
+    if (posts && posts.length) {
+      posts.forEach(function(p){ p._siteId = sites[i]; });
+      _seoAllPosts = _seoAllPosts.concat(posts);
+    }
+  }
+  _seoLoading = false;
+  seoApplyFilter();
+  seoRenderIgnored();
+  seoRenderPostsTab();
+}
+
+function seoApplyFilter() {
+  // If not yet loaded, trigger load and bail
+  if (!_seoAllPosts.length && !_seoLoading) { seoLoad(); return; }
+
+  var langFilter = (document.getElementById('seo-filter-lang')||{}).value || '';
+  var search     = ((document.getElementById('seo-search')||{}).value||'').toLowerCase().trim();
+  var sortBy     = (document.getElementById('seo-sort')||{}).value || 'freq';
+  var posts      = _seoAllPosts;
+  // Filter: compare against p.lang (may be null for old posts, default 'de')
+  if (langFilter) posts = posts.filter(function(p){ return (p.lang || 'de') === langFilter; });
+
+  var kwMap = {};
+  posts.forEach(function(p) {
+    var kws = [];
+    if (Array.isArray(p.meta_keywords)) kws = p.meta_keywords;
+    else if (typeof p.meta_keywords === 'string' && p.meta_keywords.trim()) {
+      // Handle JSON-encoded arrays
+      var raw = p.meta_keywords.trim();
+      if (raw.charAt(0) === '[') {
+        try { kws = JSON.parse(raw); } catch(e) { kws = raw.split(',').map(function(k){ return k.trim(); }); }
+      } else {
+        kws = raw.split(',').map(function(k){ return k.trim(); });
+      }
+    }
+    kws.filter(Boolean).forEach(function(kw) {
+      kw = kw.trim().toLowerCase();
+      if (!kw) return;
+      if (!kwMap[kw]) kwMap[kw] = { kw: kw, count: 0, sites: new Set(), isLongtail: kw.indexOf(' ') >= 0 };
+      kwMap[kw].count++;
+      kwMap[kw].sites.add(p._siteId);
+    });
+  });
+
+  var ignoreList = seoGetIgnoreList();
+  var allKws     = Object.values(kwMap);
+  if (search) allKws = allKws.filter(function(k){ return k.kw.includes(search); });
+
+  if (sortBy === 'az')        allKws.sort(function(a,b){ return a.kw.localeCompare(b.kw); });
+  else if (sortBy === 'site') allKws.sort(function(a,b){ return b.sites.size - a.sites.size; });
+  else allKws.sort(function(a,b){ return b.count - a.count; });
+
+  var postsWithSeo = posts.filter(function(p){
+    return p.meta_keywords && (Array.isArray(p.meta_keywords) ? p.meta_keywords.length > 0 : p.meta_keywords.trim());
+  }).length;
+  var longtailCount = allKws.filter(function(k){ return k.isLongtail; }).length;
+
+  var statsEl = document.getElementById('seo-stats-row');
+  if (statsEl) {
+    statsEl.innerHTML = [
+      { label:'Posts gesamt',    val:posts.length,              col:'var(--text1)' },
+      { label:'Mit SEO',         val:postsWithSeo,              col:'#34d399' },
+      { label:'Ohne SEO',        val:posts.length - postsWithSeo, col:'#f87171' },
+      { label:'Keywords gesamt', val:allKws.length,             col:'#a5b4fc' },
+      { label:'Longtail 🏆',     val:longtailCount,             col:'#fbbf24' },
+      { label:'Ignoriert',       val:ignoreList.length,         col:'#f87171' },
+    ].map(function(s){
+      return '<div class="kpi-card"><div class="kpi-label">' + s.label + '</div><div class="kpi-value" style="color:' + s.col + '">' + s.val + '</div></div>';
+    }).join('');
+  }
+
+  var gridEl = document.getElementById('seo-kw-grid');
+  if (!gridEl) { seoRenderPostsTab(); return; }
+
+  if (!allKws.length) {
+    gridEl.innerHTML = _seoAllPosts.length
+      ? '<div style="color:var(--text3);font-size:12px;padding:12px 0">Keine Keywords für diesen Filter. Versuche "Alle Sprachen".</div>'
+      : '<div style="color:var(--text3);font-size:12px;padding:12px 0">Lade Daten…</div>';
+    seoRenderPostsTab();
+    return;
+  }
+  var maxCount = Math.max.apply(null, allKws.map(function(k){ return k.count; })) || 1;
+  gridEl.innerHTML = allKws.slice(0, 300).map(function(k) {
+    var isIgn     = ignoreList.indexOf(k.kw) >= 0;
+    var isLongtail = k.isLongtail;
+    var size  = Math.round(10 + (k.count / maxCount) * 6);
+    // Longtail keywords get a gold tint, ignored = red, normal = purple
+    var bg    = isIgn ? 'rgba(239,68,68,.1)'  : (isLongtail ? 'rgba(251,191,36,.1)'  : 'rgba(165,180,252,.08)');
+    var col   = isIgn ? '#f87171'              : (isLongtail ? '#fbbf24'              : '#a5b4fc');
+    var brd   = isIgn ? 'rgba(239,68,68,.25)' : (isLongtail ? 'rgba(251,191,36,.25)' : 'rgba(165,180,252,.2)');
+    var title = k.count + 'x · ' + Array.from(k.sites).join(', ') + (isLongtail ? ' · 🏆 Longtail' : '') + ' · Klick = ignore';
+    return '<span title="' + title + '" ' +
+      'style="font-size:' + size + 'px;padding:3px 9px;border-radius:20px;cursor:pointer;' +
+      'background:' + bg + ';color:' + col + ';border:1px solid ' + brd + ';transition:all .15s" ' +
+      'onclick="seoKwToggleIgnore(\'' + k.kw.replace(/\\/g,'\\\\').replace(/'/g,"\\'") + '\')">' +
+      esc(k.kw) + (k.count > 1 ? ' <span style="font-size:9px;opacity:.6">×' + k.count + '</span>' : '') +
+      '</span>';
+  }).join('');
+
+  // Also update post tab
+  seoRenderPostsTab();
+}
+
+window.seoKwToggleIgnore = function(kw) {
+  var list  = seoGetIgnoreList();
+  var lower = kw.toLowerCase();
+  var idx   = list.indexOf(lower);
+  if (idx >= 0) { list.splice(idx,1); seoSaveIgnoreList(list); seoShowToast('🔓 "' + kw + '" aus Ignore entfernt', '#34d399'); }
+  else           { list.push(lower);  seoSaveIgnoreList(list); seoShowToast('🚫 "' + kw + '" ignoriert', '#fbbf24'); }
+  seoApplyFilter(); seoRenderIgnored();
+};
+
+// ── Post-Keywords Tab ──────────────────────────────────────────────
+function seoRenderPostsTab() {
+  var el = document.getElementById('seo-posts-table');
+  if (!el) return;
+  var langFilter = (document.getElementById('seo-filter-lang')||{}).value || '';
+  var ignoreList = seoGetIgnoreList();
+  var siteMap    = {}; BV_SITES.forEach(function(s){ siteMap[s.id] = s; });
+  var posts = _seoAllPosts.slice();
+  if (langFilter) posts = posts.filter(function(p){ return (p.lang||'de') === langFilter; });
+  posts.sort(function(a,b){
+    var aH = a.meta_keywords && (Array.isArray(a.meta_keywords)?a.meta_keywords.length:(a.meta_keywords||'').trim()?1:0);
+    var bH = b.meta_keywords && (Array.isArray(b.meta_keywords)?b.meta_keywords.length:(b.meta_keywords||'').trim()?1:0);
+    return (bH?1:0) - (aH?1:0);
+  });
+  if (!posts.length) {
+    el.innerHTML = _seoAllPosts.length
+      ? '<div style="color:var(--text3);font-size:12px;padding:20px 0">Keine Posts für diesen Filter.</div>'
+      : '<div style="color:var(--text3);font-size:12px;padding:20px 0">Lade…</div>';
+    return;
+  }
+
+  function parseKws(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(Boolean);
+    var s = raw.trim();
+    if (s.charAt(0) === '[') { try { return JSON.parse(s).filter(Boolean); } catch(e) {} }
+    return s.split(',').map(function(k){ return k.trim(); }).filter(Boolean);
+  }
+
+  var html = '<div style="display:flex;flex-direction:column;gap:8px">';
+  posts.forEach(function(p) {
+    var kws  = parseKws(p.meta_keywords);
+    var site = siteMap[p._siteId] || {};
+    var col  = site.color || '#888';
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:12px 14px">';
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">';
+    html +=   '<span style="font-size:9px;font-weight:800;padding:2px 7px;border-radius:4px;background:' + col + '20;color:' + col + '">' + (site.name||p._siteId) + '</span>';
+    html +=   '<span style="font-size:13px">' + (LANG_FLAGS[p.lang]||p.lang) + '</span>';
+    html +=   '<span style="font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.title||'(kein Titel)') + '</span>';
+    html +=   '<button onclick="seoRegenPost(' + p.id + ',this)" class="btn btn-ghost btn-sm" style="font-size:10px;padding:2px 8px;flex-shrink:0">🔄 SEO neu</button>';
+    html += '</div>';
+    if (kws.length) {
+      var longtailCount = kws.filter(function(k){ return k.indexOf(' ') >= 0; }).length;
+      if (longtailCount > 0) {
+        html += '<div style="font-size:10px;color:#fbbf24;margin-bottom:5px">🏆 ' + longtailCount + ' Longtail-Keyword' + (longtailCount > 1 ? 's' : '') + '</div>';
+      }
+      html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">';
+      kws.forEach(function(kw) {
+        var isIgn     = ignoreList.indexOf(kw.toLowerCase()) >= 0;
+        var isLongtail = kw.indexOf(' ') >= 0;
+        html += '<span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 8px;border-radius:4px;background:' +
+          (isIgn?'rgba(239,68,68,.12)':(isLongtail?'rgba(251,191,36,.12)':'rgba(139,92,246,.12)')) +
+          ';color:' + (isIgn?'#f87171':(isLongtail?'#fbbf24':'#c084fc')) +
+          ';border:1px solid ' + (isIgn?'rgba(239,68,68,.25)':(isLongtail?'rgba(251,191,36,.25)':'rgba(139,92,246,.25)')) + '" ' +
+          'title="' + (isLongtail?'Longtail-Keyword 🏆':'') + (isIgn?' · Ignoriert':'') + '">' +
+          esc(kw) +
+          '<button onclick="seoRemoveKeyword(' + p.id + ',\'' + esc(kw).replace(/\\/g,'\\\\').replace(/'/g,"\\'") + '\',this)" ' +
+          'title="Keyword entfernen" style="background:none;border:none;color:inherit;cursor:pointer;font-size:13px;padding:0;margin-left:2px;opacity:.6;line-height:1">×</button>' +
+          '</span>';
+      });
+      html += '</div>';
+    } else {
+      html += '<div style="font-size:11px;color:#fbbf24;margin-bottom:6px">⚠ Keine Keywords – SEO neu generieren</div>';
+    }
+    if (p.meta_description) {
+      html += '<div style="font-size:11px;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(p.meta_description.slice(0,140)) + (p.meta_description.length>140?'…':'') + '</div>';
+    }
+    html += '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+window.seoRemoveKeyword = async function(postId, kw, btn) {
+  var post = _seoAllPosts.find(function(p){ return p.id === postId; });
+  if (!post) return;
+
+  function parseKws(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(Boolean);
+    var s = raw.trim();
+    if (s.charAt(0) === '[') { try { return JSON.parse(s).filter(Boolean); } catch(e) {} }
+    return s.split(',').map(function(k){ return k.trim(); }).filter(Boolean);
+  }
+
+  var kws     = parseKws(post.meta_keywords);
+  var updated = kws.filter(function(k){ return k.toLowerCase() !== kw.toLowerCase(); });
+  btn.disabled = true;
+  var res = await api('/api/blog/' + postId, { method: 'PATCH', body: { meta_keywords: updated } });
+  if (res && res.success !== false) {
+    post.meta_keywords = updated;
+    // Einzelwort (kein Leerzeichen) → automatisch zur Ignore-Liste hinzufügen
+    // Longtail-Phrase (mehrere Wörter) → nur entfernen, NICHT ignorieren
+    var isLongtail = kw.trim().indexOf(' ') >= 0;
+    if (!isLongtail) {
+      var ignoreList = seoGetIgnoreList();
+      var lower = kw.trim().toLowerCase();
+      if (ignoreList.indexOf(lower) < 0) {
+        ignoreList.push(lower);
+        seoSaveIgnoreList(ignoreList);
+        seoShowToast('"' + kw + '" entfernt + ignoriert 🚫', '#fbbf24');
+      } else {
+        seoShowToast('"' + kw + '" entfernt', '#34d399');
+      }
+    } else {
+      seoShowToast('"' + kw + '" (Long-Tail) entfernt', '#34d399');
+    }
+    seoApplyFilter(); seoRenderPostsTab();
+    seoRenderIgnored();
+  } else { btn.disabled = false; }
+};
+
+window.seoRegenPost = async function(postId, btn) {
+  var orig = btn.textContent; btn.disabled = true; btn.textContent = '⏳';
+  var res = await api('/api/seo/regenerate/' + postId, { method: 'POST' }).catch(function(){ return null; });
+  if (res && res.success) {
+    var post = _seoAllPosts.find(function(p){ return p.id === postId; });
+    if (post && res.seo) {
+      if (res.seo.metaDescription) post.meta_description = res.seo.metaDescription;
+      if (res.seo.metaKeywords)    post.meta_keywords    = res.seo.metaKeywords;
+    }
+    btn.textContent = '✓'; btn.style.color = '#34d399';
+    setTimeout(function(){ btn.textContent=orig; btn.style.color=''; btn.disabled=false; seoApplyFilter(); seoRenderPostsTab(); }, 1500);
+  } else {
+    btn.textContent = '✗'; btn.style.color = '#f87171';
+    setTimeout(function(){ btn.textContent=orig; btn.style.color=''; btn.disabled=false; }, 1500);
+  }
+};
+
+function seoSubTab(name, btn) {
+  ['overview','posts','ignored','ai'].forEach(function(n) {
+    var el = document.getElementById('seotab-' + n);
+    var b  = document.getElementById('seotab-btn-' + n);
+    if (el) el.style.display = (n === name) ? '' : 'none';
+    if (b)  b.classList.toggle('active', n === name);
+  });
+  if (name === 'ignored') seoRenderIgnored();
+  if (name === 'posts')   seoRenderPostsTab();
+}
+
+function seoAddIgnore() {
+  var input = document.getElementById('seo-ignore-input');
+  var val   = (input ? input.value : '').trim();
+  if (!val) return;
+  var list  = seoGetIgnoreList();
+  val.split(',').forEach(function(k) {
+    k = k.trim().toLowerCase();
+    if (k && list.indexOf(k) < 0) list.push(k);
+  });
+  seoSaveIgnoreList(list);
+  input.value = '';
+  seoRenderIgnored(); seoApplyFilter();
+}
+
+function seoRenderIgnored() {
+  var el = document.getElementById('seo-ignore-list');
+  if (!el) return;
+  var list = seoGetIgnoreList();
+
+  if (!list.length) {
+    el.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:12px;padding:20px">Keine ignorierten Keywords.<br><span style="font-size:11px">Klicke in der Übersicht oder Post-Keywords auf ein Einzelwort um es zu ignorieren.</span></div>';
+    return;
+  }
+
+  // Export-Bereich (oben)
+  var exportHtml =
+    '<div style="background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:14px 16px;margin-bottom:16px">' +
+    '<div style="font-size:12px;font-weight:700;color:#fbbf24;margin-bottom:8px">📤 Export für worker/seo.js</div>' +
+    '<div style="font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.6">' +
+    '1. Sprache wählen → 2. "Format kopieren" klicken → 3. In <code style="background:rgba(255,255,255,.07);padding:1px 5px;border-radius:3px">worker/seo.js</code> in das STOPWORDS-Array der Sprache einfügen → 4. "Implementiert – leeren" klicken.' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+    '  <select id="seo-export-lang" style="padding:6px 10px;font-size:12px;border-radius:7px;background:var(--surface);border:1px solid var(--border);color:var(--text1)">' +
+    '    <option value="de">🇩🇪 Deutsch (de)</option>' +
+    '    <option value="en">🇬🇧 English (en)</option>' +
+    '    <option value="fr">🇫🇷 Français (fr)</option>' +
+    '    <option value="es">🇪🇸 Español (es)</option>' +
+    '    <option value="it">🇮🇹 Italiano (it)</option>' +
+    '  </select>' +
+    '  <button class="btn btn-primary" onclick="seoExportIgnored()" style="font-size:12px">📋 Format kopieren</button>' +
+    '  <button class="btn btn-ghost btn-sm" onclick="seoClearIgnored()" style="font-size:12px;color:#f87171">× Alle löschen</button>' +
+    '</div>' +
+    '<div id="seo-export-preview" style="display:none;margin-top:12px">' +
+    '  <div style="font-size:11px;font-weight:700;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Ausgabe (kopieren in STOPWORDS):' +
+    '    <button onclick="seoMarkImplemented()" class="btn btn-ghost btn-sm" style="font-size:10px;margin-left:8px;color:#34d399">✓ Implementiert – leeren</button>' +
+    '  </div>' +
+    '  <textarea id="seo-export-text" readonly rows="4" ' +
+    '    style="width:100%;font-family:\u0027Space Mono\u0027,monospace;font-size:11px;background:var(--bg);border:1px solid rgba(251,191,36,.3);border-radius:7px;padding:10px 12px;color:#fbbf24;resize:vertical"></textarea>' +
+    '</div>' +
+    '</div>';
+
+  // Keyword-Liste
+  var listHtml =
+    '<div style="margin-bottom:8px;font-size:11px;color:var(--text3)">' + list.length + ' ignorierte Wörter &nbsp;· Klick × = entfernen (bleibt in der Liste bis "Implementiert")</div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;padding:4px 0">' +
+    list.map(function(kw) {
+      var safe = kw.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      return '<span style="font-size:12px;padding:4px 10px;border-radius:20px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.2);color:#f87171;display:flex;align-items:center;gap:6px">' +
+        esc(kw) +
+        '<button onclick="seoRemoveIgnored(\'' + safe + '\')" title="Einzeln entfernen" ' +
+        'style="background:none;border:none;color:#f87171;cursor:pointer;font-size:14px;padding:0;line-height:1;opacity:.7">×</button>' +
+        '</span>';
+    }).join('') +
+    '</div>';
+
+  el.innerHTML = exportHtml + listHtml;
+}
+
+window.seoExportIgnored = function() {
+  var list = seoGetIgnoreList();
+  if (!list.length) { seoShowToast('Keine Wörter zum Exportieren', '#f87171'); return; }
+  // Format: ,'wort1','wort2','wort3'
+  var formatted = list.map(function(w){ return ",'" + w + "'"; }).join('');
+  var ta = document.getElementById('seo-export-text');
+  var wrap = document.getElementById('seo-export-preview');
+  if (ta) ta.value = formatted;
+  if (wrap) wrap.style.display = 'block';
+  // Direkt in Clipboard
+  navigator.clipboard.writeText(formatted).then(function() {
+    seoShowToast('📋 ' + list.length + ' Wörter kopiert!', '#fbbf24');
+  }).catch(function() {
+    // Clipboard fehlgeschlagen – Nutzer kann manuell kopieren
+  });
+};
+
+window.seoMarkImplemented = function() {
+  var langEl = document.getElementById('seo-export-lang');
+  var lang   = langEl ? langEl.options[langEl.selectedIndex].text : '';
+  var list   = seoGetIgnoreList();
+  if (!confirm('Alle ' + list.length + ' Wörter als implementiert markieren und aus dem Speicher löschen?\n\nDiese Wörter sollten bereits in worker/seo.js eingetragen sein.')) return;
+  seoSaveIgnoreList([]);
+  seoRenderIgnored();
+  seoApplyFilter();
+  seoShowToast('✓ ' + list.length + ' Wörter aus Speicher entfernt (implementiert)', '#34d399');
+};
+
+window.seoRemoveIgnored = function(kw) {
+  seoSaveIgnoreList(seoGetIgnoreList().filter(function(k){ return k !== kw; }));
+  seoRenderIgnored(); seoApplyFilter();
+};
+
+window.seoClearIgnored = function() {
+  if (!confirm('Alle ignorierten Keywords endgültig löschen? (Nur wenn sie NICHT noch in worker/seo.js eingetragen werden sollen)')) return;
+  seoSaveIgnoreList([]); seoRenderIgnored(); seoApplyFilter();
+};
+
+// ── KI-Batch ──────────────────────────────────────────────────────
+async function aiLoadPosts() {
+  var siteFilter = (document.getElementById('ai-filter-site')||{}).value || '';
+  var sites = siteFilter ? [siteFilter] : BV_SITES.map(function(s){ return s.id; });
+  _aiAllPosts = [];
+  for (var i = 0; i < sites.length; i++) {
+    var posts = await api('/api/blog?site_id=' + sites[i]);
+    if (posts && posts.length) {
+      posts.forEach(function(p){ p._siteId = sites[i]; });
+      _aiAllPosts = _aiAllPosts.concat(posts);
+    }
+  }
+  aiApplyPostFilter();
+}
+
+function aiApplyPostFilter() {
+  var langFilter = (document.getElementById('ai-filter-lang')||{}).value || '';
+  var container  = document.getElementById('ai-post-list');
+  if (!container) return;
+  var posts = _aiAllPosts;
+  if (langFilter) posts = posts.filter(function(p){ return (p.lang||'de') === langFilter; });
+  if (!posts.length) { container.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:12px 0">Keine Posts.</div>'; aiUpdateCount(); return; }
+
+  var siteMap = {}; BV_SITES.forEach(function(s){ siteMap[s.id] = s; });
+  var html = '';
+  posts.forEach(function(p) {
+    var site  = siteMap[p._siteId] || {};
+    var col   = site.color || '#888';
+    var hasKw = p.meta_keywords && (Array.isArray(p.meta_keywords) ? p.meta_keywords.length > 0 : (p.meta_keywords||'').trim());
+    html += '<label style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:7px;cursor:pointer;border:1px solid var(--border);background:var(--bg);' +
+      (!hasKw ? 'border-color:rgba(251,191,36,.2);' : '') + '">' +
+      '<input type="checkbox" data-postid="' + p.id + '" onchange="aiUpdateCount()" style="flex-shrink:0"' + (!hasKw ? ' checked' : '') + '>' +
+      '<span style="font-size:9px;font-weight:800;padding:1px 6px;border-radius:4px;background:' + col + '20;color:' + col + ';flex-shrink:0">' + (site.name||p._siteId) + '</span>' +
+      '<span style="font-size:12px">' + (LANG_FLAGS[p.lang]||p.lang) + '</span>' +
+      '<span style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">' + esc(p.title||'(kein Titel)') + '</span>' +
+      (!hasKw ? '<span style="font-size:10px;color:#fbbf24;flex-shrink:0">⚠ kein SEO</span>' : '<span style="font-size:10px;color:#c084fc;flex-shrink:0">🔍</span>') +
+      '</label>';
+  });
+  container.innerHTML = html;
+  aiUpdateCount();
+}
+
+function aiFilterNoSeo() {
+  document.querySelectorAll('#ai-post-list input[type=checkbox]').forEach(function(cb) {
+    var post = _aiAllPosts.find(function(p){ return p.id === parseInt(cb.dataset.postid); });
+    cb.checked = !(post && post.meta_keywords && (Array.isArray(post.meta_keywords) ? post.meta_keywords.length > 0 : (post.meta_keywords||'').trim()));
+  });
+  aiUpdateCount();
+}
+function aiSelectAll()  { document.querySelectorAll('#ai-post-list input[type=checkbox]').forEach(function(cb){ cb.checked=true;  }); aiUpdateCount(); }
+function aiSelectNone() { document.querySelectorAll('#ai-post-list input[type=checkbox]').forEach(function(cb){ cb.checked=false; }); aiUpdateCount(); }
+
+function aiGetSelectedPosts() {
+  var ids = [];
+  document.querySelectorAll('#ai-post-list input[type=checkbox]:checked').forEach(function(cb){ ids.push(parseInt(cb.dataset.postid)); });
+  return _aiAllPosts.filter(function(p){ return ids.indexOf(p.id) >= 0; });
+}
+function aiUpdateCount() {
+  var el = document.getElementById('ai-selected-count');
+  if (el) el.textContent = aiGetSelectedPosts().length + ' Posts ausgewählt';
+}
+
+function aiGeneratePrompt() {
+  var posts = aiGetSelectedPosts();
+  if (!posts.length) { seoShowToast('Keine Posts ausgewählt', '#f87171'); return; }
+  var LANG_NAMES = { de:'Deutsch', en:'Englisch', fr:'Französisch', es:'Spanisch', it:'Italienisch' };
+  var ignoreList = seoGetIgnoreList();
+
+  function htmlToText(html) {
+    return (html||'').replace(/<br\s*\/?>/gi,'\n').replace(/<\/p>/gi,'\n').replace(/<[^>]+>/g,' ')
+      .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/\s+/g,' ').trim().slice(0,350);
+  }
+  function parseKws(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(Boolean);
+    var s = raw.trim();
+    if (s.charAt(0) === '[') { try { return JSON.parse(s).filter(Boolean); } catch(e) {} }
+    return s.split(',').map(function(k){ return k.trim(); }).filter(Boolean);
+  }
+
+  var prompt = 'Du bist ein SEO-Experte. Erstelle für jeden Blog-Beitrag optimierte SEO-Metadaten.\n\n';
+  if (ignoreList.length) prompt += '⛔ VERBOTENE KEYWORDS (niemals verwenden):\n' + ignoreList.join(', ') + '\n\n';
+  prompt += '📋 BLOG-BEITRÄGE (' + posts.length + ' Stück):\n' + '─'.repeat(60) + '\n\n';
+
+  posts.forEach(function(p, i) {
+    var kws = parseKws(p.meta_keywords);
+    prompt += (i+1) + '. ID: ' + p.id + ' | Sprache: ' + (LANG_NAMES[p.lang]||p.lang) + ' | Site: ' + p._siteId + '\n';
+    prompt += '   Titel: ' + (p.title||'') + '\n';
+    if (p.excerpt) prompt += '   Excerpt: ' + htmlToText(p.excerpt) + '\n';
+    else if (p.content) prompt += '   Inhalt (Auszug): ' + htmlToText(p.content) + '\n';
+    if (p.tags)    prompt += '   Tags: ' + p.tags + '\n';
+    if (kws.length) prompt += '   Bestehende Keywords (verbessern): ' + kws.join(', ') + '\n';
+    prompt += '\n';
+  });
+
+  prompt += '─'.repeat(60) + '\n\n';
+  prompt += '📤 AUFGABE:\n';
+  prompt += '• Meta-Description: 140–160 Zeichen in der Sprache des Posts\n';
+  prompt += '• Meta-Keywords: 6–10 Keywords, BEVORZUGE Longtail-Phrasen (2–4 Wörter)!\n';
+  prompt += '  Longtail-Beispiele: "brawl stars anfänger guide deutsch", "5-buchstaben worträtsel tipps"\n\n';
+  prompt += '⚠️ Antworte NUR mit JSON-Array (kein Text, keine Backticks):\n\n';
+  prompt += '[\n  {\n    "id": ' + posts[0].id + ',\n    "meta_description": "Beschreibung (140-160 Zeichen)",\n    "meta_keywords": ["longtail phrase eins", "longtail phrase zwei", "einzelwort"]\n  }';
+  if (posts.length > 1) prompt += ',\n  ... (' + (posts.length - 1) + ' weitere)';
+  prompt += '\n]';
+
+  var ta = document.getElementById('ai-prompt-text');
+  if (ta) ta.value = prompt;
+  var wrap = document.getElementById('ai-prompt-wrap');
+  if (wrap) wrap.style.display = 'block';
+  var cpBtn = document.getElementById('ai-copy-btn');
+  if (cpBtn) cpBtn.style.display = '';
+}
+
+function aiCopyPrompt() {
+  var ta = document.getElementById('ai-prompt-text');
+  if (!ta) return;
+  navigator.clipboard.writeText(ta.value).then(function() {
+    var btn = document.getElementById('ai-copy-btn');
+    if (btn) { btn.textContent='✓ Kopiert!'; btn.style.color='#34d399'; setTimeout(function(){ btn.textContent='📋 Kopieren'; btn.style.color=''; }, 2000); }
+  });
+}
+
+function aiParseResponse() {
+  var raw  = (document.getElementById('ai-response-text')||{}).value || '';
+  var errEl  = document.getElementById('ai-error-box');
+  var prevEl = document.getElementById('ai-preview-box');
+  var listEl = document.getElementById('ai-preview-list');
+  var applyBtn = document.getElementById('ai-apply-btn');
+  _aiParsed = [];
+
+  var clean = raw.trim().replace(/^```[a-z]*\s*/i,'').replace(/```\s*$/,'').trim();
+  if (!clean) { if(errEl) errEl.style.display='none'; if(prevEl) prevEl.style.display='none'; if(applyBtn) applyBtn.disabled=true; return; }
+
+  try {
+    var data = JSON.parse(clean);
+    if (!Array.isArray(data)) throw new Error('Kein Array – erwartet [...]');
+    data = data.filter(function(d){ return d && d.id && (d.meta_description || (d.meta_keywords && d.meta_keywords.length)); });
+    if (!data.length) throw new Error('Keine gültigen Einträge');
+    _aiParsed = data;
+
+    if (listEl) {
+      listEl.innerHTML = data.map(function(d) {
+        var kws = Array.isArray(d.meta_keywords) ? d.meta_keywords : ((d.meta_keywords||'').split(',').map(function(k){ return k.trim(); }).filter(Boolean));
+        var longtails = kws.filter(function(k){ return k.indexOf(' ') >= 0; }).length;
+        return '<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid rgba(52,211,153,.1)">' +
+          '<span style="font-weight:700;color:var(--text1)">ID ' + d.id + '</span>' +
+          (longtails ? ' <span style="font-size:10px;color:#fbbf24">🏆 ' + longtails + ' Longtail</span>' : '') +
+          (d.meta_description ? '<div style="color:var(--text2);font-size:11px;margin-top:3px">' + esc(d.meta_description.slice(0,100)) + (d.meta_description.length>100?'…':'') + '</div>' : '') +
+          '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px">' +
+          kws.map(function(k){
+            var lt = k.indexOf(' ') >= 0;
+            return '<span style="font-size:10px;padding:1px 6px;border-radius:4px;background:' + (lt?'rgba(251,191,36,.15)':'rgba(139,92,246,.15)') + ';color:' + (lt?'#fbbf24':'#c084fc') + '">' + esc(k) + '</span>';
+          }).join('') +
+          '</div></div>';
+      }).join('');
+    }
+    if (prevEl)   prevEl.style.display = 'block';
+    if (errEl)    errEl.style.display  = 'none';
+    if (applyBtn) applyBtn.disabled    = false;
+  } catch(e) {
+    if (errEl)    { errEl.style.display='block'; errEl.textContent='✕ JSON-Fehler: ' + e.message; }
+    if (prevEl)   prevEl.style.display  = 'none';
+    if (applyBtn) applyBtn.disabled     = true;
+    _aiParsed = [];
+  }
+}
+
+async function aiApplyAll() {
+  if (!_aiParsed.length) return;
+  var statusEl = document.getElementById('ai-apply-status');
+  var btn      = document.getElementById('ai-apply-btn');
+  btn.disabled = true;
+  statusEl.textContent = 'Speichere…'; statusEl.style.color = 'var(--text3)';
+
+  var ok = 0; var failed = 0;
+  for (var i = 0; i < _aiParsed.length; i++) {
+    var d   = _aiParsed[i];
+    var kws = Array.isArray(d.meta_keywords) ? d.meta_keywords : ((d.meta_keywords||'').split(',').map(function(k){ return k.trim(); }).filter(Boolean));
+    var body = {};
+    if (d.meta_description) body.meta_description = d.meta_description;
+    if (kws.length)          body.meta_keywords    = kws;
+
+    var res = await api('/api/blog/' + d.id, { method: 'PATCH', body: body }).catch(function(){ return null; });
+    if (res && res.success !== false) {
+      ok++;
+      var post = _seoAllPosts.find(function(p){ return p.id === d.id; });
+      if (post) { if(d.meta_description) post.meta_description=d.meta_description; if(kws.length) post.meta_keywords=kws; }
+      var aiPost = _aiAllPosts.find(function(p){ return p.id === d.id; });
+      if (aiPost) { if(d.meta_description) aiPost.meta_description=d.meta_description; if(kws.length) aiPost.meta_keywords=kws; }
+    } else { failed++; }
+    statusEl.textContent = ok + '/' + _aiParsed.length + ' gespeichert…';
+  }
+
+  if (failed === 0) {
+    statusEl.textContent = '✓ ' + ok + ' Posts aktualisiert!'; statusEl.style.color = '#34d399';
+    aiClearResponse(); seoApplyFilter(); seoRenderPostsTab(); aiApplyPostFilter();
+    setTimeout(function(){ statusEl.textContent=''; btn.disabled=false; }, 3000);
+  } else {
+    statusEl.textContent = '⚠ ' + ok + ' ok, ' + failed + ' Fehler'; statusEl.style.color = '#fbbf24';
+    btn.disabled = false;
+  }
+}
+
+function aiClearResponse() {
+  var ta = document.getElementById('ai-response-text');
+  if (ta) ta.value = '';
+  var prevEl = document.getElementById('ai-preview-box');
+  var errEl  = document.getElementById('ai-error-box');
+  if (prevEl) prevEl.style.display = 'none';
+  if (errEl)  errEl.style.display  = 'none';
+  var applyBtn = document.getElementById('ai-apply-btn');
+  if (applyBtn) applyBtn.disabled = true;
+  _aiParsed = [];
+}
+
+function seoShowToast(msg, color) {
+  var t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;padding:10px 18px;border-radius:9px;font-size:12px;font-weight:700;background:rgba(0,0,0,.85);border:1px solid ' + (color||'var(--border)') + ';color:' + (color||'var(--text1)') + ';box-shadow:0 8px 24px rgba(0,0,0,.4)';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function(){ t.remove(); }, 2500);
+}
