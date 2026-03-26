@@ -1211,9 +1211,19 @@ async function handleRequest(request, env) {
     if (body.lang       !== undefined) { sets.push('lang=?');       params.push(body.lang); }
     if (body.group_id   !== undefined) { sets.push('group_id=?');   params.push(body.group_id); }
     if (body.publish_at        !== undefined) { sets.push('publish_at=?');        params.push(body.publish_at || null); }
-    if (body.meta_keywords      !== undefined) { sets.push('meta_keywords=?');      params.push(body.meta_keywords); }
+    if (body.meta_keywords      !== undefined) {
+      sets.push('meta_keywords=?');
+      // D1 akzeptiert keine Arrays – immer als String speichern
+      const mkRaw = body.meta_keywords;
+      params.push(Array.isArray(mkRaw) ? mkRaw.filter(Boolean).join(',') : (mkRaw || ''));
+    }
     if (body.meta_description   !== undefined) { sets.push('meta_description=?');   params.push(body.meta_description); }
-    if (body.longtail_keywords  !== undefined) { sets.push('longtail_keywords=?');  params.push(body.longtail_keywords); }
+    if (body.longtail_keywords  !== undefined) {
+      sets.push('longtail_keywords=?');
+      const ltRaw = body.longtail_keywords;
+      // JSON-Array bevorzugt, Fallback: komma-getrennt
+      params.push(Array.isArray(ltRaw) ? JSON.stringify(ltRaw) : (ltRaw || ''));
+    }
     if (body.status === 'published') { sets.push('published_at=?'); params.push(new Date().toISOString()); }
     if (!sets.length) return err('Nothing to update');
     // Auto-regenerate SEO nur wenn Inhalt/Titel/Sprache geändert wird

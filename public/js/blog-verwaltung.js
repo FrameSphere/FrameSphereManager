@@ -324,23 +324,37 @@ function seoApplyFilter() {
   // Filter: compare against p.lang (may be null for old posts, default 'de')
   if (langFilter) posts = posts.filter(function(p){ return (p.lang || 'de') === langFilter; });
 
+  // Hilfsfunktion: field -> String-Array
+  function _parseKwField(raw) {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(Boolean).map(function(k){ return k.trim(); });
+    var s = raw.trim();
+    if (!s) return [];
+    if (s.charAt(0) === '[') { try { return JSON.parse(s).filter(Boolean).map(function(k){ return k.trim(); }); } catch(e) {} }
+    return s.split(',').map(function(k){ return k.trim(); }).filter(Boolean);
+  }
+
   var kwMap = {};
   posts.forEach(function(p) {
-    var kws = [];
-    if (Array.isArray(p.meta_keywords)) kws = p.meta_keywords;
-    else if (typeof p.meta_keywords === 'string' && p.meta_keywords.trim()) {
-      // Handle JSON-encoded arrays
-      var raw = p.meta_keywords.trim();
-      if (raw.charAt(0) === '[') {
-        try { kws = JSON.parse(raw); } catch(e) { kws = raw.split(',').map(function(k){ return k.trim(); }); }
-      } else {
-        kws = raw.split(',').map(function(k){ return k.trim(); });
-      }
-    }
-    kws.filter(Boolean).forEach(function(kw) {
+    // Short-Keywords aus meta_keywords
+    var shortKws = _parseKwField(p.meta_keywords);
+    // Long-Tail-Keywords aus longtail_keywords (eigenes Feld)
+    var longKws  = _parseKwField(p.longtail_keywords);
+
+    shortKws.filter(Boolean).forEach(function(kw) {
       kw = kw.trim().toLowerCase();
       if (!kw) return;
       if (!kwMap[kw]) kwMap[kw] = { kw: kw, count: 0, sites: new Set(), isLongtail: kw.indexOf(' ') >= 0 };
+      kwMap[kw].count++;
+      kwMap[kw].sites.add(p._siteId);
+    });
+
+    // Long-Tails separat — erzwinge isLongtail:true auch wenn Phrase ohne Leerzeichen
+    longKws.filter(Boolean).forEach(function(kw) {
+      kw = kw.trim().toLowerCase();
+      if (!kw) return;
+      if (!kwMap[kw]) kwMap[kw] = { kw: kw, count: 0, sites: new Set(), isLongtail: true };
+      else            kwMap[kw].isLongtail = true; // sicherheitshalber setzen
       kwMap[kw].count++;
       kwMap[kw].sites.add(p._siteId);
     });
