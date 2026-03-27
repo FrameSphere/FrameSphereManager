@@ -131,6 +131,7 @@
           <button class="tab-btn" id="seotab-btn-posts" onclick="seoSubTab('posts',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">📝 Post-Keywords</button>
           <button class="tab-btn" id="seotab-btn-ignored" onclick="seoSubTab('ignored',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">🚫 Ignoriert</button>
           <button class="tab-btn" id="seotab-btn-ai" onclick="seoSubTab('ai',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">🤖 KI-Batch</button>
+          <button class="tab-btn" id="seotab-btn-tinder" onclick="seoSubTab('tinder',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">🃏 Schnell-Review</button>
         </div>
 
         <!-- Übersicht -->
@@ -157,6 +158,11 @@
             Alle Posts mit Keywords. × = Keyword direkt entfernen · 🔄 SEO neu = KI-Regenerierung für einzelnen Post.
           </div>
           <div id="seo-posts-table"></div>
+        </div>
+
+        <!-- Tinder-Review -->
+        <div id="seotab-tinder" style="display:none">
+          <div id="tinder-root"></div>
         </div>
 
         <!-- Ignoriert -->
