@@ -2,7 +2,7 @@
 // SITES registry – single source of truth
 const SITES = [
   { id: 'framesphere',  name: 'Frame-Sphere',  url: 'https://frame-sphere.vercel.app',   icon: 'layers',       color: '#a855f7', tabs: ['support','blog','daten'] },
-  { id: 'frametrain',   name: 'FrameTrain',     url: 'https://frame-train.vercel.app',    icon: 'train-front',  color: '#f59e0b', tabs: ['support','changelog','daten'] },
+  { id: 'frametrain',   name: 'FrameTrain',     url: 'https://frame-train.vercel.app',    icon: 'train-front',  color: '#f59e0b', tabs: ['support','changelog','errors','notifications','daten'] },
   { id: 'wordify',      name: 'Wordify',         url: 'https://wordify.pages.dev',         icon: 'pen-line',     color: '#22c55e', tabs: ['wortanfragen','daten'] },
   { id: 'flaggues',     name: 'Flaggues',        url: 'https://flaggues.pages.dev',        icon: 'flag',         color: '#ef4444', tabs: ['daten'] },
   { id: 'spinselector', name: 'SpinSelector',    url: 'https://spinselector.pages.dev',    icon: 'shuffle',      color: '#06b6d4', tabs: ['vorschläge','daten'] },

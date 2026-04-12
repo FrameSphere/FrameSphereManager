@@ -447,6 +447,9 @@ async function sendNotif(siteId) {
 
 // ── ERRORS ────────────────────────────────────────────────────────
 async function renderErrors(siteId, panel) {
+  // FrameTrain nutzt App-Errors (Desktop App Crashes) statt Web-Errors
+  if (siteId === 'frametrain') { return renderAppErrors(siteId, panel); }
+
   const errors = await api(`/api/errors?site_id=${siteId}`);
   if (!errors) { panel.innerHTML = errState(); return; }
   const unresolved = errors.filter(e => !e.resolved);
@@ -480,6 +483,135 @@ async function renderErrors(siteId, panel) {
 
 async function resolveError(id, siteId) {
   await api(`/api/errors/${id}/resolve`, { method: 'PATCH' });
+  reloadPanel(siteId, 'errors');
+}
+
+// ── APP ERRORS (FrameTrain Desktop App) ──────────────────────────
+async function renderAppErrors(siteId, panel) {
+  const data = await api(`/api/app-errors?site_id=${siteId}`);
+  if (!data) { panel.innerHTML = errState(); return; }
+  const { errors, stats } = data;
+  const openErrors = errors.filter(e => !e.resolved);
+
+  // Active filter state (held in closure)
+  let _filterResolved = 'open';
+
+  function renderList(list) {
+    if (!list.length) return `<div style="padding:48px;text-align:center;color:var(--text3)">${icon('check-circle-2',32,'color:var(--text3);margin-bottom:12px;display:block')}<div style="font-size:13px">Keine App-Fehler 🎉</div></div>`;
+    return list.map(e => {
+      const typeColor = e.error_type.includes('ram') || e.error_type.includes('oom') || e.error_type.includes('memory')
+        ? '#f97316' : e.error_type.includes('lora') || e.error_type.includes('config') ? '#a78bfa' : '#f87171';
+      const badgeStyle = `font-size:10px;font-weight:800;letter-spacing:.04em;padding:2px 8px;border-radius:5px;background:${e.resolved ? 'rgba(52,211,153,.15)' : 'rgba(248,113,113,.15)'};color:${e.resolved ? '#34d399' : '#f87171'};border:1px solid ${e.resolved ? 'rgba(52,211,153,.3)' : 'rgba(248,113,113,.3)'}`;
+      return `
+      <div id="aerr-${e.id}" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:0;overflow:hidden;margin-bottom:8px;transition:opacity .2s">
+        <!-- Header -->
+        <div style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px 12px;border-bottom:1px solid var(--border)">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+              <span style="font-family:'Space Mono',monospace;font-size:11px;font-weight:700;color:${typeColor}">${esc(e.error_type)}</span>
+              <span style="${badgeStyle}">${e.resolved ? '✓ Gelöst' : '● Offen'}</span>
+              ${e.platform ? `<span style="font-size:10px;color:var(--text3);font-family:'Space Mono',monospace">${esc(e.platform)}</span>` : ''}
+              ${e.app_version ? `<span style="font-size:10px;color:var(--text3)">${esc(e.app_version)}</span>` : ''}
+            </div>
+            <div style="font-weight:700;font-size:13px;color:var(--text1);margin-bottom:2px">${esc(e.title)}</div>
+            <div style="font-size:12px;color:var(--text2);line-height:1.5">${esc(e.message)}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0;align-items:flex-start">
+            <span style="font-size:10px;color:var(--text3);white-space:nowrap;padding-top:2px">${fmtDate(e.created_at)}</span>
+            ${!e.resolved ? `<button class="btn btn-ghost btn-sm" style="color:#34d399;border-color:rgba(52,211,153,.3)" onclick="resolveAppError(${e.id},'${siteId}')">✓ Lösen</button>` : ''}
+            <button class="btn btn-ghost btn-sm" style="color:var(--red);border-color:rgba(248,113,113,.2)" onclick="deleteAppError(${e.id},'${siteId}')">🗑</button>
+          </div>
+        </div>
+        <!-- Details expandable -->
+        ${e.details || e.logs || e.config_snapshot ? `
+        <div>
+          <button onclick="toggleAppErrorDetails(${e.id})" style="width:100%;padding:8px 16px;background:none;border:none;text-align:left;font-size:11px;color:var(--text3);cursor:pointer;display:flex;align-items:center;gap:6px;font-family:inherit;transition:background .1s" onmouseover="this.style.background='rgba(255,255,255,.04)'" onmouseout="this.style.background='none'">
+            ${icon('chevron-down',12)} Details &amp; Logs anzeigen
+          </button>
+          <div id="aerr-details-${e.id}" style="display:none;padding:0 16px 14px">
+            ${e.details ? `
+            <div style="margin-bottom:10px">
+              <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin-bottom:6px">Fehlerdetails</div>
+              <pre style="margin:0;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:11px;color:#f87171;white-space:pre-wrap;word-break:break-word;line-height:1.6;max-height:300px;overflow-y:auto">${esc(e.details)}</pre>
+            </div>` : ''}
+            ${e.logs ? `
+            <div style="margin-bottom:10px">
+              <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin-bottom:6px">Logs</div>
+              <pre style="margin:0;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:11px;color:var(--text2);white-space:pre-wrap;word-break:break-word;line-height:1.6;max-height:400px;overflow-y:auto">${esc(e.logs)}</pre>
+            </div>` : ''}
+            ${e.config_snapshot ? `
+            <div>
+              <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin-bottom:6px">Config zum Zeitpunkt des Fehlers</div>
+              <pre style="margin:0;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:11px;color:#a78bfa;white-space:pre-wrap;word-break:break-word;line-height:1.6;max-height:250px;overflow-y:auto">${esc(e.config_snapshot)}</pre>
+            </div>` : ''}
+          </div>
+        </div>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  panel.innerHTML = `
+    <div class="actions-bar">
+      <div style="display:flex;align-items:center;gap:16px">
+        <div style="font-size:13px;font-weight:700">💥 App-Fehler
+          ${openErrors.length > 0 ? `<span class="nav-badge" style="margin-left:6px">${openErrors.length} offen</span>` : `<span style="color:#34d399;font-size:11px;margin-left:6px">✓ Alle gelöst</span>`}
+        </div>
+        <div style="display:flex;gap:4px">
+          <div style="font-size:11px;padding:3px 10px;border-radius:5px;background:rgba(248,113,113,.12);color:#f87171">${stats.total} gesamt</div>
+          <div style="font-size:11px;padding:3px 10px;border-radius:5px;background:rgba(52,211,153,.12);color:#34d399">${stats.resolved_count || 0} gelöst</div>
+        </div>
+      </div>
+      <div class="flex-1"></div>
+      <select id="aerr-filter" onchange="_aerrFilter('${siteId}')" style="padding:4px 10px;font-size:11px;width:auto">
+        <option value="open">Offen (${openErrors.length})</option>
+        <option value="all">Alle (${errors.length})</option>
+        <option value="resolved">Gelöst (${stats.resolved_count || 0})</option>
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','errors')">↻ Aktualisieren</button>
+    </div>
+    <div id="aerr-list" style="margin-top:8px">${renderList(openErrors)}</div>
+  `;
+
+  // Attach filter handler to window so onclick can find it
+  window._aerrAllErrors   = errors;
+  window._aerrFilter = function(sid) {
+    const val  = document.getElementById('aerr-filter')?.value || 'open';
+    const list = val === 'all' ? window._aerrAllErrors
+               : val === 'resolved' ? window._aerrAllErrors.filter(e => e.resolved)
+               : window._aerrAllErrors.filter(e => !e.resolved);
+    const el = document.getElementById('aerr-list');
+    if (el) { el.innerHTML = renderList(list); refreshIcons(); }
+  };
+
+  refreshIcons();
+}
+
+window.toggleAppErrorDetails = function(id) {
+  const d = document.getElementById('aerr-details-' + id);
+  if (!d) return;
+  const btn = d.previousElementSibling;
+  if (d.style.display === 'none') {
+    d.style.display = 'block';
+    if (btn) btn.innerHTML = icon('chevron-up',12) + ' Details ausblenden';
+  } else {
+    d.style.display = 'none';
+    if (btn) btn.innerHTML = icon('chevron-down',12) + ' Details &amp; Logs anzeigen';
+  }
+  refreshIcons();
+};
+
+async function resolveAppError(id, siteId) {
+  const el = document.getElementById('aerr-' + id);
+  if (el) el.style.opacity = '0.4';
+  await api(`/api/app-errors/${id}`, { method: 'PATCH', body: { resolved: true } });
+  reloadPanel(siteId, 'errors');
+}
+
+async function deleteAppError(id, siteId) {
+  if (!confirm('Diesen Fehlereintrag löschen?')) return;
+  const el = document.getElementById('aerr-' + id);
+  if (el) el.style.opacity = '0.4';
+  await api(`/api/app-errors/${id}`, { method: 'DELETE' });
   reloadPanel(siteId, 'errors');
 }
 
@@ -1083,7 +1215,10 @@ function _startLivePolling(siteId) {
     const notifPanel = document.getElementById('tab-notifications');
 
     // Errors: reload silently in background, update badge
-    const errors = await api(`/api/errors?site_id=${siteId}`);
+    // FrameTrain nutzt /api/app-errors statt /api/errors
+    const errEndpoint = siteId === 'frametrain' ? `/api/app-errors?site_id=${siteId}` : `/api/errors?site_id=${siteId}`;
+    const errData = await api(errEndpoint);
+    const errors = siteId === 'frametrain' ? errData?.errors : errData;
     if (errors) {
       const unresolved = errors.filter(e => !e.resolved).length;
       // Update sidebar badge

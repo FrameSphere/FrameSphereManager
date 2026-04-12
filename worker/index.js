@@ -139,6 +139,24 @@ async function ensureErrorTable(db) {
   )`).run();
 }
 
+// ── Auto-create app_errors table (FrameTrain Desktop App Errors) ──
+async function ensureAppErrorsTable(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS app_errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id TEXT NOT NULL DEFAULT 'frametrain',
+    error_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    details TEXT,
+    logs TEXT,
+    config_snapshot TEXT,
+    platform TEXT,
+    app_version TEXT,
+    resolved INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`).run();
+}
+
 // ── Auto-create wordify_wins table ──────────────────────────────
 async function ensureWinsTable(db) {
   await db.prepare(`CREATE TABLE IF NOT EXISTS wordify_wins (
@@ -220,6 +238,80 @@ async function handleRequest(request, env) {
     ).run();
     await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
       .bind(site_id, 'error', `🚨 ${error_type}`, String(message).slice(0, 120)).run();
+    return json({ success: true });
+  }
+
+  // POST /api/app-errors ── FrameTrain Desktop: App crash/training error reporting (public, no auth)
+  if (request.method === 'POST' && path === '/api/app-errors') {
+    const db = env.DB;
+    await ensureAppErrorsTable(db);
+    const body = await request.json().catch(() => ({}));
+    const { site_id, error_type, title, message, details, logs, config_snapshot, platform, app_version } = body;
+    if (!error_type || !message) return err('Missing fields: error_type and message required');
+    const siteId = (site_id || 'frametrain').slice(0, 40);
+    // Dedup: gleicher Fehler (gleicher type+message) max. 1x pro 5 Minuten
+    const dupe = await db.prepare(
+      `SELECT id FROM app_errors WHERE site_id=? AND error_type=? AND message=? AND created_at > datetime('now','-5 minutes') LIMIT 1`
+    ).bind(siteId, error_type, String(message).slice(0, 500)).first();
+    if (dupe) return json({ success: true, skipped: true });
+    await db.prepare(
+      `INSERT INTO app_errors (site_id, error_type, title, message, details, logs, config_snapshot, platform, app_version)
+       VALUES (?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      siteId,
+      error_type.slice(0, 100),
+      (title || error_type).slice(0, 200),
+      String(message).slice(0, 1000),
+      details ? String(details).slice(0, 5000) : null,
+      logs ? String(logs).slice(0, 10000) : null,
+      config_snapshot ? String(config_snapshot).slice(0, 5000) : null,
+      (platform || 'unknown').slice(0, 100),
+      (app_version || 'unknown').slice(0, 50)
+    ).run();
+    // Notification im Dashboard
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind(siteId, 'error', `💥 App-Fehler: ${(title || error_type).slice(0, 60)}`, String(message).slice(0, 120)).run().catch(() => {});
+    return json({ success: true });
+  }
+
+  // GET /api/app-errors ── Dashboard: App-Fehler abrufen (auth required)
+  if (request.method === 'GET' && path === '/api/app-errors') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureAppErrorsTable(db);
+    const siteId  = url.searchParams.get('site_id') || 'frametrain';
+    const resolved = url.searchParams.get('resolved'); // '0', '1', or null (all)
+    const limit   = Math.min(parseInt(url.searchParams.get('limit') || '100'), 200);
+    let q = 'SELECT * FROM app_errors WHERE site_id=?';
+    const params = [siteId];
+    if (resolved !== null) { q += ' AND resolved=?'; params.push(parseInt(resolved)); }
+    q += ' ORDER BY created_at DESC LIMIT ?';
+    params.push(limit);
+    const rows = await db.prepare(q).bind(...params).all();
+    const stats = await db.prepare(
+      `SELECT COUNT(*) as total, SUM(CASE WHEN resolved=0 THEN 1 ELSE 0 END) as open,
+       SUM(CASE WHEN resolved=1 THEN 1 ELSE 0 END) as resolved_count FROM app_errors WHERE site_id=?`
+    ).bind(siteId).first();
+    return json({ errors: rows.results || [], stats: stats || { total: 0, open: 0, resolved_count: 0 } });
+  }
+
+  // PATCH /api/app-errors/:id ── Dashboard: als gelöst markieren
+  if (request.method === 'PATCH' && segments[1] === 'app-errors' && segments[2]) {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    const errorId = parseInt(segments[2]);
+    const body = await request.json().catch(() => ({}));
+    const resolved = body.resolved === true ? 1 : 0;
+    await db.prepare('UPDATE app_errors SET resolved=? WHERE id=?').bind(resolved, errorId).run();
+    return json({ success: true });
+  }
+
+  // DELETE /api/app-errors/:id ── Dashboard: Eintrag löschen
+  if (request.method === 'DELETE' && segments[1] === 'app-errors' && segments[2]) {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    const errorId = parseInt(segments[2]);
+    await db.prepare('DELETE FROM app_errors WHERE id=?').bind(errorId).run();
     return json({ success: true });
   }
 
