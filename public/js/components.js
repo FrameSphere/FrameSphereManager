@@ -1173,6 +1173,7 @@ function loadTabContent(siteId, tabName) {
     case 'errors':        renderErrors(siteId, panel);        break;
     case 'notifications': renderNotifications(siteId, panel); break;
     case 'hfmonitor':    renderHfMonitor(siteId, panel);    break;
+    case 'scripts':      renderScripts(siteId, panel);      break;
   }
 }
 
