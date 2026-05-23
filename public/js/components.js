@@ -3314,3 +3314,392 @@ window._wdtPatchHandlers = function(siteId) {
     window._wdtLoadWordlist(lang).then(function(){ window._wdtPreviewValidated(lang); });
   });
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── FRAMETRAIN: OPEN LIBRARY SCRIPT VERIFICATION ─────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Admin-Token und API-Base: hier eintragen
+const FT_ADMIN_TOKEN = '4ae169a854e60ecf40a40a8f2512df5322ecc5dc3d6b423a3804c566177cd736'; // muss mit LIBRARY_ADMIN_SECRET auf Vercel übereinstimmen
+const FT_API = 'https://frame-train.vercel.app/api/library/admin';
+
+async function ftAdmin(path, opts = {}) {
+  try {
+    const r = await fetch(FT_API + path, {
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Token': FT_ADMIN_TOKEN },
+      ...opts,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); console.error('ftAdmin', r.status, e); return null; }
+    return await r.json();
+  } catch (e) { console.error('ftAdmin error:', e); return null; }
+}
+
+// Globaler State
+window._ftScripts      = [];   // aktuell geladene Scripts
+window._ftActiveScript = null; // geöffnetes Script
+window._ftStatusFilter = 'pending';
+
+async function renderScripts(siteId, panel) {
+  panel.innerHTML = loadingState();
+
+  const data = await ftAdmin(`/pending?status=${window._ftStatusFilter}`);
+  if (!data) { panel.innerHTML = errState(); return; }
+
+  window._ftScripts = data.scripts || [];
+  const scripts = window._ftScripts;
+
+  // Badge aktualisieren
+  const pendingCount = data.count || 0;
+  const badge = document.getElementById('nav-badge-scripts');
+  if (badge) {
+    if (window._ftStatusFilter === 'pending' && pendingCount > 0) {
+      badge.style.display = 'inline-flex'; badge.textContent = pendingCount;
+    } else { badge.style.display = 'none'; }
+  }
+
+  panel.innerHTML = `
+    <div class="actions-bar">
+      <div style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:10px">
+        ${icon('shield-check', 15, 'color:#f59e0b')} Open Library Scripts
+        ${pendingCount > 0 && window._ftStatusFilter === 'pending'
+          ? `<span class="nav-badge">${pendingCount} ausstehend</span>`
+          : `<span style="color:var(--text3);font-weight:400">(${pendingCount})</span>`}
+      </div>
+      <div class="flex-1"></div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <select id="ft-status-filter" onchange="ftChangeStatus()" style="padding:4px 10px;font-size:11px;width:auto">
+          <option value="pending"   ${window._ftStatusFilter === 'pending'   ? 'selected' : ''}>⏳ Ausstehend</option>
+          <option value="approved"  ${window._ftStatusFilter === 'approved'  ? 'selected' : ''}>✅ Genehmigt</option>
+          <option value="rejected"  ${window._ftStatusFilter === 'rejected'  ? 'selected' : ''}>❌ Abgelehnt</option>
+          <option value="all"       ${window._ftStatusFilter === 'all'       ? 'selected' : ''}>📋 Alle</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" onclick="reloadPanel('frametrain','scripts')">&#8635; Reload</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:0;height:680px;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:12px">
+
+      <!-- Linke Script-Liste -->
+      <div id="ft-script-list"
+           style="width:300px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--border);background:var(--surface)">
+        ${scripts.length === 0
+          ? `<div style="padding:40px 16px;text-align:center;color:var(--text3);font-size:13px">
+               ${icon('inbox', 28, 'color:var(--text3);margin-bottom:8px;display:block')}
+               <br>Keine Scripts in dieser Ansicht
+             </div>`
+          : scripts.map(s => ftScriptListItem(s)).join('')}
+      </div>
+
+      <!-- Rechtes Detail-Panel -->
+      <div id="ft-detail-panel"
+           style="flex:1;display:flex;flex-direction:column;background:var(--bg);min-width:0;overflow:hidden">
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text3)">
+          <div style="text-align:center">
+            <div style="font-size:36px;margin-bottom:10px">🛡️</div>
+            <div style="font-size:13px">Script auswählen zum Prüfen</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  refreshIcons();
+  // Erstes Script auto-öffnen wenn vorhanden
+  if (scripts.length > 0) ftOpenScript(scripts[0].id);
+}
+
+function ftChangeStatus() {
+  const sel = document.getElementById('ft-status-filter');
+  if (sel) { window._ftStatusFilter = sel.value; reloadPanel('frametrain', 'scripts'); }
+}
+
+function ftScriptListItem(s) {
+  const statusDot = s.verified
+    ? `<span style="width:7px;height:7px;border-radius:50%;background:#34d399;flex-shrink:0"></span>`
+    : s.rejectedAt
+    ? `<span style="width:7px;height:7px;border-radius:50%;background:#f87171;flex-shrink:0"></span>`
+    : `<span style="width:7px;height:7px;border-radius:50%;background:#fbbf24;flex-shrink:0"></span>`;
+
+  const aiResult = s.aiCheckResult ? JSON.parse(s.aiCheckResult) : null;
+  const aiScore  = aiResult ? `<span class="mono" style="font-size:10px;color:${aiResult.score >= 75 ? '#34d399' : aiResult.score >= 40 ? '#fbbf24' : '#f87171'}">${aiResult.score}/100</span>` : '';
+
+  return `
+    <div class="ticket-item" id="ft-li-${s.id}" onclick="ftOpenScript('${s.id}')"
+         style="padding:11px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s">
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px">
+        ${statusDot}
+        <span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;
+          background:${s.script_type === 'train' ? 'rgba(167,139,250,0.2)' : 'rgba(251,191,36,0.2)'};
+          color:${s.script_type === 'train' ? '#a78bfa' : '#fbbf24'}">
+          ${s.script_type === 'train' ? '🏋️' : '🧪'} ${s.script_type}
+        </span>
+        ${aiScore}
+        <span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">${fmtDate(s.createdAt)}</span>
+      </div>
+      <div style="font-weight:700;font-size:12px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.name)}</div>
+      <div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">@${esc(s.author)} · ${esc(s.framework)}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px">
+        ${(s.tags || []).slice(0, 3).map(t => `<span style="font-size:9px;font-family:monospace;padding:1px 5px;border-radius:3px;background:rgba(167,139,250,0.1);color:#a78bfa">#${esc(t)}</span>`).join('')}
+      </div>
+    </div>`;
+}
+
+async function ftOpenScript(id) {
+  const script = window._ftScripts.find(s => s.id === id);
+  if (!script) return;
+  window._ftActiveScript = script;
+
+  // Highlight in Liste
+  document.querySelectorAll('.ticket-item').forEach(el => el.style.background = '');
+  const li = document.getElementById(`ft-li-${id}`);
+  if (li) li.style.background = 'rgba(255,255,255,0.06)';
+
+  const detail = document.getElementById('ft-detail-panel');
+  if (!detail) return;
+
+  const aiResult = script.aiCheckResult ? JSON.parse(script.aiCheckResult) : null;
+  const statusLabel = script.verified ? '✅ Genehmigt' : script.rejectedAt ? '❌ Abgelehnt' : '⏳ Ausstehend';
+  const statusColor = script.verified ? '#34d399' : script.rejectedAt ? '#f87171' : '#fbbf24';
+
+  detail.innerHTML = `
+    <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;min-height:0">
+
+      <!-- Header -->
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border);flex-shrink:0">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+              <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;
+                border:1px solid ${statusColor}40;background:${statusColor}15;color:${statusColor}">
+                ${statusLabel}
+              </span>
+              <span style="font-size:10px;padding:2px 8px;border-radius:4px;
+                background:${script.script_type === 'train' ? 'rgba(167,139,250,0.15)' : 'rgba(251,191,36,0.15)'};
+                color:${script.script_type === 'train' ? '#a78bfa' : '#fbbf24'};font-weight:700">
+                ${script.script_type === 'train' ? '🏋️ Training' : '🧪 Test'}
+              </span>
+              ${aiResult ? `<span style="font-size:10px;padding:2px 8px;border-radius:4px;
+                background:${aiResult.score >= 75 ? 'rgba(52,211,153,0.15)' : aiResult.score >= 40 ? 'rgba(251,191,36,0.15)' : 'rgba(248,113,113,0.15)'};
+                color:${aiResult.score >= 75 ? '#34d399' : aiResult.score >= 40 ? '#fbbf24' : '#f87171'};
+                font-weight:700">AI: ${aiResult.score}/100</span>` : ''}
+            </div>
+            <div style="font-size:15px;font-weight:800;margin-bottom:4px">${esc(script.name)}</div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:8px">@${esc(script.author)} · ${esc(script.framework)} · ${fmtDate(script.createdAt)}</div>
+            <div style="font-size:12px;color:var(--text2);line-height:1.5">${esc(script.description)}</div>
+          </div>
+        </div>
+
+        <!-- Meta Badges -->
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
+          ${[script.model_type, script.task_type, script.framework].map(m =>
+            `<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:var(--surface);border:1px solid var(--border);color:var(--text2)">${esc(m)}</span>`
+          ).join('')}
+          ${(script.tags||[]).map(t =>
+            `<span style="font-size:10px;font-family:monospace;padding:2px 6px;border-radius:4px;background:rgba(167,139,250,0.1);color:#a78bfa">#${esc(t)}</span>`
+          ).join('')}
+        </div>
+
+        ${script.rejectedAt ? `
+          <div style="margin-top:10px;padding:8px 12px;border-radius:6px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);font-size:11px;color:#f87171">
+            <b>Ablehnungsgrund:</b> ${esc(script.rejectedReason || '–')}
+          </div>` : ''}
+      </div>
+
+      <!-- AI Check Result -->
+      <div id="ft-ai-result-${script.id}" style="flex-shrink:0">
+        ${aiResult ? ftRenderAiResult(aiResult, script.aiCheckedAt) : ''}
+      </div>
+
+      <!-- Script Preview -->
+      <div style="flex-shrink:0;border-bottom:1px solid var(--border)">
+        <div style="padding:8px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <span style="font-size:11px;font-weight:700;color:var(--text3)">script.py (${(script.script||'').split('\n').length} Zeilen)</span>
+          <button class="btn btn-ghost btn-sm" onclick="ftCopyScript('${esc(script.id)}')">${icon('copy',12)} Kopieren</button>
+        </div>
+        <pre id="ft-code-${script.id}" style="margin:0;padding:14px 18px;font-size:10px;font-family:monospace;
+          color:var(--text2);overflow-x:auto;max-height:280px;overflow-y:auto;background:rgba(0,0,0,0.2);
+          line-height:1.55;white-space:pre">${esc(script.script || '')}</pre>
+      </div>
+
+      <!-- Action Buttons -->
+      <div style="padding:14px 18px;display:flex;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface)">
+        <button class="btn btn-sm" onclick="ftRunAiCheck('${script.id}')"
+          style="background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.3);color:#a5b4fc;font-weight:700;display:flex;align-items:center;gap:6px">
+          ${icon('sparkles', 12, 'color:#a5b4fc')} AI Prüfen
+        </button>
+        <button class="btn btn-sm" onclick="ftApprove('${script.id}')"
+          style="background:rgba(52,211,153,0.12);border-color:rgba(52,211,153,0.3);color:#34d399;font-weight:700;display:flex;align-items:center;gap:6px"
+          ${script.verified ? 'disabled title="Bereits genehmigt"' : ''}>
+          ${icon('shield-check', 12, 'color:#34d399')} Genehmigen
+        </button>
+        <button class="btn btn-sm" onclick="ftRejectDialog('${script.id}')"
+          style="background:rgba(248,113,113,0.12);border-color:rgba(248,113,113,0.3);color:#f87171;font-weight:700;display:flex;align-items:center;gap:6px"
+          ${script.rejectedAt ? 'disabled title="Bereits abgelehnt"' : ''}>
+          ${icon('x-circle', 12, 'color:#f87171')} Ablehnen
+        </button>
+        ${!script.verified && !script.rejectedAt ? `
+        <button class="btn btn-sm btn-ghost" onclick="ftRunAiCheck('${script.id}', true)"
+          style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px">
+          ${icon('zap', 12)} Auto-Check + Entscheiden
+        </button>` : ''}
+      </div>
+    </div>
+  `;
+
+  refreshIcons();
+}
+
+function ftRenderAiResult(result, checkedAt) {
+  if (!result) return '';
+
+  const verdictColor = result.verdict === 'approve' ? '#34d399' : result.verdict === 'warn' ? '#fbbf24' : '#f87171';
+  const verdictLabel = result.verdict === 'approve' ? '✅ Approved' : result.verdict === 'warn' ? '⚠️ Warnung' : '❌ Reject';
+  const scoreColor   = result.score >= 75 ? '#34d399' : result.score >= 40 ? '#fbbf24' : '#f87171';
+
+  const checks = result.checks || {};
+  const checkNames = { safety: 'Sicherheit', content: 'Inhalt', consistency: 'Konsistenz', correctness: 'Korrektheit', compatibility: 'FrameTrain-Kompatibel' };
+
+  return `
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);background:rgba(0,0,0,0.15)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        ${icon('sparkles', 12, 'color:#a5b4fc')} <span style="font-size:11px;font-weight:700;color:var(--text2)">AI-Prüfung</span>
+        <span style="font-size:10px;padding:2px 8px;border-radius:4px;
+          background:${verdictColor}15;border:1px solid ${verdictColor}40;color:${verdictColor};font-weight:700">
+          ${verdictLabel}
+        </span>
+        <span style="font-size:11px;font-weight:800;color:${scoreColor}">${result.score}/100</span>
+        <span class="mono" style="font-size:10px;color:var(--text3);margin-left:auto">${fmtDate(checkedAt)}</span>
+      </div>
+
+      <!-- Checks Grid -->
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:10px">
+        ${Object.entries(checkNames).map(([key, label]) => {
+          const c = checks[key] || {};
+          return `
+            <div title="${esc(c.note || '')}" style="padding:6px 8px;border-radius:6px;
+              background:${c.pass ? 'rgba(52,211,153,0.08)' : 'rgba(248,113,113,0.08)'};
+              border:1px solid ${c.pass ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'};
+              cursor:help;text-align:center">
+              <div style="font-size:13px;margin-bottom:2px">${c.pass ? '✅' : '❌'}</div>
+              <div style="font-size:9px;font-weight:700;color:${c.pass ? '#34d399' : '#f87171'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${label}</div>
+            </div>`;
+        }).join('')}
+      </div>
+
+      <!-- Issues -->
+      ${(result.issues && result.issues.length > 0) ? `
+        <div style="margin-bottom:8px">
+          ${result.issues.map(i =>
+            `<div style="font-size:10px;color:#fbbf24;display:flex;align-items:flex-start;gap:5px;margin-bottom:3px">
+              ${icon('alert-triangle',10,'color:#fbbf24;flex-shrink:0;margin-top:1px')} ${esc(i)}
+            </div>`
+          ).join('')}
+        </div>` : ''}
+
+      <!-- Summary -->
+      <div style="font-size:11px;color:var(--text3);line-height:1.5;padding:8px 10px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid var(--border)">
+        ${esc(result.summary || '')}
+      </div>
+
+      <!-- Check Notes Detail (beim Hover) -->
+      <details style="margin-top:8px">
+        <summary style="font-size:10px;color:var(--text3);cursor:pointer;user-select:none">Check-Details anzeigen</summary>
+        <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">
+          ${Object.entries(checkNames).map(([key, label]) => {
+            const c = checks[key] || {};
+            return `<div style="font-size:10px;color:var(--text3);display:flex;gap:6px">
+              <span style="color:${c.pass ? '#34d399' : '#f87171'};flex-shrink:0">${c.pass ? '✓' : '✗'}</span>
+              <b style="color:var(--text2);min-width:90px">${label}:</b>
+              <span>${esc(c.note || '–')}</span>
+            </div>`;
+          }).join('')}
+        </div>
+      </details>
+    </div>
+  `;
+}
+
+async function ftRunAiCheck(id, autoDecide = false) {
+  const btn = event?.target?.closest('button');
+  if (btn) { btn.disabled = true; btn.innerHTML = icon('loader-2', 12) + ' Prüft…'; }
+
+  const res = await ftAdmin('/ai-check', { method: 'POST', body: { id } });
+
+  if (btn) { btn.disabled = false; btn.innerHTML = icon('sparkles', 12, 'color:#a5b4fc') + ' AI Prüfen'; }
+
+  if (!res || !res.result) {
+    alert('AI-Check fehlgeschlagen. Siehe Konsole.');
+    return;
+  }
+
+  // Ergebnis in lokalem State aktualisieren
+  const script = window._ftScripts.find(s => s.id === id);
+  if (script) {
+    script.aiCheckResult = JSON.stringify(res.result);
+    script.aiCheckedAt   = new Date().toISOString();
+  }
+
+  // AI-Result im Detail-Panel live aktualisieren
+  const aiDiv = document.getElementById(`ft-ai-result-${id}`);
+  if (aiDiv) aiDiv.innerHTML = ftRenderAiResult(res.result, new Date().toISOString());
+
+  // AI Score in Liste aktualisieren
+  ftRefreshListItem(id);
+  refreshIcons();
+
+  // Auto-Entscheidung
+  if (autoDecide) {
+    if (res.result.verdict === 'approve') {
+      await ftApprove(id);
+    } else if (res.result.verdict === 'reject') {
+      await ftReject(id, `AI: ${res.result.summary}`);
+    } else {
+      alert(`AI empfiehlt Warnung (Score: ${res.result.score}/100). Manuelle Entscheidung nötig.\n\n${res.result.summary}`);
+    }
+  }
+}
+
+async function ftApprove(id) {
+  const res = await ftAdmin('/approve', { method: 'POST', body: { id } });
+  if (!res?.success) { alert('Fehler beim Genehmigen.'); return; }
+
+  const script = window._ftScripts.find(s => s.id === id);
+  if (script) { script.verified = true; script.rejectedAt = null; script.rejectedReason = null; }
+
+  ftRefreshListItem(id);
+  ftOpenScript(id);
+}
+
+function ftRejectDialog(id) {
+  const reason = prompt('Ablehnungsgrund (optional):') ?? '';
+  ftReject(id, reason);
+}
+
+async function ftReject(id, reason = '') {
+  const res = await ftAdmin('/reject', { method: 'POST', body: { id, reason } });
+  if (!res?.success) { alert('Fehler beim Ablehnen.'); return; }
+
+  const script = window._ftScripts.find(s => s.id === id);
+  if (script) { script.verified = false; script.rejectedAt = new Date().toISOString(); script.rejectedReason = reason; }
+
+  ftRefreshListItem(id);
+  ftOpenScript(id);
+}
+
+function ftRefreshListItem(id) {
+  const script = window._ftScripts.find(s => s.id === id);
+  if (!script) return;
+  const li = document.getElementById(`ft-li-${id}`);
+  if (li) li.outerHTML = ftScriptListItem(script);
+  refreshIcons();
+}
+
+function ftCopyScript(id) {
+  const pre = document.getElementById(`ft-code-${id}`);
+  if (!pre) return;
+  navigator.clipboard.writeText(pre.textContent || '').then(() => {
+    const btn = event?.target?.closest('button');
+    if (btn) { const orig = btn.innerHTML; btn.innerHTML = icon(12) + ' Kopiert!'; setTimeout(() => btn.innerHTML = orig, 1500); }
+  });
+}
