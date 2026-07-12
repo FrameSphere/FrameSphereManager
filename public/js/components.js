@@ -1174,6 +1174,7 @@ function loadTabContent(siteId, tabName) {
     case 'notifications': renderNotifications(siteId, panel); break;
     case 'hfmonitor':    renderHfMonitor(siteId, panel);    break;
     case 'scripts':      renderScripts(siteId, panel);      break;
+    case 'promocodes':   renderPromoCodes(siteId, panel);   break;
   }
 }
 
@@ -3703,4 +3704,331 @@ function ftCopyScript(id) {
     const btn = event?.target?.closest('button');
     if (btn) { const orig = btn.innerHTML; btn.innerHTML = icon(12) + ' Kopiert!'; setTimeout(() => btn.innerHTML = orig, 1500); }
   });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PROMO CODES (FrameTrain) — verwaltet Codes in der Supabase-DB
+// via Worker-Proxy /api/supabase/frametrain/promo_codes
+// ═══════════════════════════════════════════════════════════════════
+
+const PROMO_SB = '/api/supabase/frametrain';
+
+const PROMO_TYPE_META = {
+  percent:     { label: 'Rabatt',       color: '#60a5fa', bg: 'rgba(96,165,250,0.12)'  },
+  free_months: { label: 'Gratismonate', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)'  },
+  lifetime:    { label: 'Lifetime',     color: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
+};
+
+function promoBenefitText(c) {
+  if (c.type === 'percent') {
+    const dur = c.percent_duration === 'forever' ? 'dauerhaft'
+      : c.percent_duration === 'repeating' ? `${c.percent_duration_months} Monate`
+      : 'erste Zahlung';
+    return `${c.percent_off} % Rabatt (${dur})`;
+  }
+  if (c.type === 'free_months') return `${c.free_months} Monat${c.free_months === 1 ? '' : 'e'} gratis`;
+  if (c.type === 'lifetime') return 'Lifetime-Zugang';
+  return c.type;
+}
+
+function promoStatus(c) {
+  if (!c.is_active) return { label: 'Deaktiviert', color: 'var(--text3)', bg: 'var(--surface2)' };
+  if (c.expires_at && new Date(c.expires_at) <= new Date())
+    return { label: 'Abgelaufen', color: 'var(--red)', bg: 'rgba(239,68,68,0.08)' };
+  if (c.max_redemptions !== null && c.redemption_count >= c.max_redemptions)
+    return { label: 'Ausgeschöpft', color: 'var(--yellow)', bg: 'rgba(245,158,11,0.08)' };
+  return { label: 'Aktiv', color: 'var(--green)', bg: 'rgba(34,197,94,0.08)' };
+}
+
+// Gut lesbarer Zufallscode ohne verwechselbare Zeichen (kein O/0/I/1)
+function generatePromoCodeString() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const block = (n) => Array.from(crypto.getRandomValues(new Uint8Array(n)))
+    .map(b => chars[b % chars.length]).join('');
+  return `FT-${block(4)}-${block(4)}`;
+}
+
+async function renderPromoCodes(siteId, panel) {
+  const data = await api(`${PROMO_SB}/promo_codes?order_by=created_at&order_dir=desc&limit=500`);
+  if (!data) { panel.innerHTML = errState(); return; }
+  const codes = data.rows || [];
+
+  const active = codes.filter(c => promoStatus(c).label === 'Aktiv').length;
+  const totalRedemptions = codes.reduce((s, c) => s + (c.redemption_count || 0), 0);
+
+  panel.innerHTML = `
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Codes gesamt</div>
+        <div class="stat-val">${codes.length}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Aktiv</div>
+        <div class="stat-val green">${active}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Einlösungen</div>
+        <div class="stat-val blue">${totalRedemptions}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Lifetime vergeben</div>
+        <div class="stat-val yellow">${codes.filter(c => c.type === 'lifetime').reduce((s, c) => s + (c.redemption_count || 0), 0)}</div>
+      </div>
+    </div>
+
+    <div class="actions-bar" style="margin-top:16px">
+      <div style="font-size:13px;font-weight:700">${icon('ticket', 14)} Promo Codes</div>
+      <div class="flex-1"></div>
+      <button class="btn btn-ghost btn-sm" onclick="reloadPanel('${siteId}','promocodes')">&#8635; Aktualisieren</button>
+      <button class="btn btn-primary btn-sm" onclick="togglePromoForm()">${icon('plus', 12)} Neuer Code</button>
+    </div>
+
+    <!-- Formular: neuen Code anlegen -->
+    <div id="promo-form" style="display:none;margin-top:12px;padding:18px;border:1px solid var(--border);border-radius:10px;background:var(--surface)">
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px">
+        <div>
+          <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">CODE</label>
+          <div style="display:flex;gap:8px">
+            <input id="pf-code" type="text" maxlength="32" placeholder="z.B. LAUNCH50" spellcheck="false"
+                   style="flex:1;text-transform:uppercase;letter-spacing:0.06em"
+                   oninput="this.value = this.value.toUpperCase()">
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('pf-code').value = generatePromoCodeString()" title="Zufälligen Code generieren">${icon('dices', 13)}</button>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">TYP</label>
+          <select id="pf-type" onchange="promoFormTypeChanged()" style="width:100%">
+            <option value="percent">Rabatt (%)</option>
+            <option value="free_months">Gratismonate</option>
+            <option value="lifetime">Lifetime gratis</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="pf-fields-percent" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+        <div>
+          <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">RABATT %</label>
+          <input id="pf-percent" type="number" min="1" max="100" value="50" style="width:100%">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">DAUER</label>
+          <select id="pf-duration" onchange="document.getElementById('pf-dur-months-wrap').style.display = this.value === 'repeating' ? 'block' : 'none'" style="width:100%">
+            <option value="once">Nur erste Zahlung</option>
+            <option value="forever">Dauerhaft</option>
+            <option value="repeating">X Monate</option>
+          </select>
+        </div>
+        <div id="pf-dur-months-wrap" style="display:none">
+          <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">MONATE</label>
+          <input id="pf-dur-months" type="number" min="1" max="36" value="3" style="width:100%">
+        </div>
+      </div>
+
+      <div id="pf-fields-months" style="display:none;margin-bottom:12px">
+        <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">ANZAHL GRATISMONATE</label>
+        <input id="pf-months" type="number" min="1" max="36" value="2" style="width:140px">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:12px;margin-bottom:14px">
+        <div>
+          <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">MAX. EINLÖSUNGEN <span style="opacity:.6">(leer = ∞)</span></label>
+          <input id="pf-max" type="number" min="1" placeholder="∞" style="width:100%">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">GÜLTIG BIS <span style="opacity:.6">(optional)</span></label>
+          <input id="pf-expires" type="date" style="width:100%">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--text3);display:block;margin-bottom:4px">NOTIZ <span style="opacity:.6">(intern)</span></label>
+          <input id="pf-note" type="text" maxlength="200" placeholder="z.B. Influencer-Kampagne Juli" style="width:100%">
+        </div>
+      </div>
+
+      <div id="pf-error" style="display:none;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);color:var(--red);font-size:12px"></div>
+
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary btn-sm" id="pf-submit" onclick="createPromoCode('${siteId}')">${icon('check', 12)} Code anlegen</button>
+        <button class="btn btn-ghost btn-sm" onclick="togglePromoForm(false)">Abbrechen</button>
+      </div>
+    </div>
+
+    <!-- Tabelle -->
+    <div style="margin-top:14px;border:1px solid var(--border);border-radius:10px;overflow:hidden">
+      ${codes.length === 0 ? emptyState('Noch keine Promo-Codes angelegt') : `
+      <table class="data-table">
+        <thead><tr>
+          <th>Code</th><th>Typ</th><th>Vorteil</th><th>Einlösungen</th><th>Gültig bis</th><th>Status</th><th>Notiz</th><th style="text-align:right">Aktionen</th>
+        </tr></thead>
+        <tbody>
+          ${codes.map(c => {
+            const meta = PROMO_TYPE_META[c.type] || { label: c.type, color: 'var(--text2)', bg: 'var(--surface2)' };
+            const st = promoStatus(c);
+            return `
+            <tr>
+              <td>
+                <span class="mono" style="font-weight:700;cursor:pointer" title="Klicken zum Kopieren"
+                      onclick="navigator.clipboard.writeText('${esc(c.code)}');this.style.color='var(--green)';setTimeout(()=>this.style.color='',800)">${esc(c.code)}</span>
+              </td>
+              <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;color:${meta.color};background:${meta.bg}">${meta.label}</span></td>
+              <td style="font-size:12px">${esc(promoBenefitText(c))}</td>
+              <td>
+                <span class="mono" style="font-size:12px;cursor:pointer;text-decoration:underline dotted" title="Einlösungen anzeigen"
+                      onclick="showPromoRedemptions('${esc(c.id)}','${esc(c.code)}')">
+                  ${c.redemption_count || 0}${c.max_redemptions !== null ? ` / ${c.max_redemptions}` : ' / ∞'}
+                </span>
+              </td>
+              <td class="mono" style="font-size:11px;color:var(--text3)">${c.expires_at ? fmtDate(c.expires_at) : '–'}</td>
+              <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;color:${st.color};background:${st.bg}">${st.label}</span></td>
+              <td style="font-size:11px;color:var(--text3);max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(c.note || '')}">${esc(c.note || '–')}</td>
+              <td style="text-align:right;white-space:nowrap">
+                <button class="btn btn-ghost btn-sm" title="${c.is_active ? 'Deaktivieren' : 'Aktivieren'}"
+                        onclick="togglePromoActive('${siteId}','${esc(c.id)}',${c.is_active ? 'false' : 'true'})">
+                  ${icon(c.is_active ? 'pause' : 'play', 12)}
+                </button>
+                <button class="btn btn-ghost btn-sm" title="Löschen" style="color:var(--red)"
+                        onclick="deletePromoCode('${siteId}','${esc(c.id)}','${esc(c.code)}',${c.redemption_count || 0})">
+                  ${icon('trash-2', 12)}
+                </button>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`}
+    </div>
+
+    <!-- Detail-Bereich für Einlösungen -->
+    <div id="promo-redemptions" style="display:none;margin-top:14px;padding:16px;border:1px solid var(--border);border-radius:10px;background:var(--surface)"></div>
+  `;
+  refreshIcons();
+}
+
+function togglePromoForm(show) {
+  const f = document.getElementById('promo-form');
+  if (!f) return;
+  const visible = show !== undefined ? show : f.style.display === 'none';
+  f.style.display = visible ? 'block' : 'none';
+  if (visible && !document.getElementById('pf-code').value) {
+    document.getElementById('pf-code').value = generatePromoCodeString();
+  }
+}
+
+function promoFormTypeChanged() {
+  const type = document.getElementById('pf-type').value;
+  document.getElementById('pf-fields-percent').style.display = type === 'percent' ? 'grid' : 'none';
+  document.getElementById('pf-fields-months').style.display  = type === 'free_months' ? 'block' : 'none';
+}
+
+function promoFormError(msg) {
+  const el = document.getElementById('pf-error');
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+async function createPromoCode(siteId) {
+  promoFormError('');
+  const code = document.getElementById('pf-code').value.trim().toUpperCase();
+  const type = document.getElementById('pf-type').value;
+
+  // Gleiche Format-Regel wie auf der Webseite (src/lib/promo.ts)
+  if (!/^[A-Z0-9][A-Z0-9-]{2,30}[A-Z0-9]$/.test(code)) {
+    promoFormError('Ungültiges Format: 4–32 Zeichen, nur A–Z, 0–9 und Bindestriche.');
+    return;
+  }
+
+  const body = {
+    id: 'pc_' + crypto.randomUUID().replace(/-/g, '').slice(0, 24),
+    code,
+    type,
+    is_active: true,
+    updated_at: new Date().toISOString(), // Prisma-@updatedAt hat keinen DB-Default
+  };
+
+  if (type === 'percent') {
+    const pct = parseInt(document.getElementById('pf-percent').value, 10);
+    if (!(pct >= 1 && pct <= 100)) { promoFormError('Rabatt muss zwischen 1 und 100 % liegen.'); return; }
+    body.percent_off = pct;
+    body.percent_duration = document.getElementById('pf-duration').value;
+    if (body.percent_duration === 'repeating') {
+      const m = parseInt(document.getElementById('pf-dur-months').value, 10);
+      if (!(m >= 1 && m <= 36)) { promoFormError('Dauer muss zwischen 1 und 36 Monaten liegen.'); return; }
+      body.percent_duration_months = m;
+    }
+  } else if (type === 'free_months') {
+    const m = parseInt(document.getElementById('pf-months').value, 10);
+    if (!(m >= 1 && m <= 36)) { promoFormError('Gratismonate müssen zwischen 1 und 36 liegen.'); return; }
+    body.free_months = m;
+  }
+
+  const max = document.getElementById('pf-max').value;
+  if (max) {
+    const m = parseInt(max, 10);
+    if (!(m >= 1)) { promoFormError('Max. Einlösungen muss mindestens 1 sein.'); return; }
+    body.max_redemptions = m;
+  }
+  const expires = document.getElementById('pf-expires').value;
+  if (expires) body.expires_at = `${expires}T23:59:59.000Z`;
+  const note = document.getElementById('pf-note').value.trim();
+  if (note) body.note = note;
+
+  const btn = document.getElementById('pf-submit');
+  btn.disabled = true;
+  const r = await api(`${PROMO_SB}/promo_codes`, { method: 'POST', body });
+  btn.disabled = false;
+
+  if (!r || !r.success) {
+    promoFormError('Fehler beim Anlegen — existiert der Code evtl. schon?');
+    return;
+  }
+  reloadPanel(siteId, 'promocodes');
+}
+
+async function togglePromoActive(siteId, id, activate) {
+  const r = await api(`${PROMO_SB}/promo_codes/${id}`, {
+    method: 'PATCH',
+    body: { is_active: activate === 'true' || activate === true, updated_at: new Date().toISOString() },
+  });
+  if (r?.success) reloadPanel(siteId, 'promocodes');
+}
+
+async function deletePromoCode(siteId, id, code, redemptionCount) {
+  const warn = redemptionCount > 0
+    ? `\n\nACHTUNG: Dieser Code wurde bereits ${redemptionCount}× eingelöst. Die Einlösungs-Historie wird mitgelöscht (bereits gewährte Vorteile bleiben bestehen).\nBesser: Code nur deaktivieren.`
+    : '';
+  if (!confirm(`Code "${code}" wirklich löschen?${warn}`)) return;
+  const r = await api(`${PROMO_SB}/promo_codes/${id}`, { method: 'DELETE' });
+  if (r?.success) reloadPanel(siteId, 'promocodes');
+}
+
+async function showPromoRedemptions(promoCodeId, code) {
+  const box = document.getElementById('promo-redemptions');
+  box.style.display = 'block';
+  box.innerHTML = loadingState();
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  const data = await api(`${PROMO_SB}/promo_code_redemptions?filter_col=promo_code_id&filter_val=${encodeURIComponent(promoCodeId)}&order_by=redeemed_at&order_dir=desc&limit=500`);
+  if (!data) { box.innerHTML = errState(); return; }
+  const rows = data.rows || [];
+
+  box.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <div style="font-size:13px;font-weight:700">${icon('users', 14)} Einlösungen für <span class="mono">${esc(code)}</span> (${rows.length})</div>
+      <div class="flex-1"></div>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('promo-redemptions').style.display='none'">${icon('x', 12)} Schließen</button>
+    </div>
+    ${rows.length === 0 ? emptyState('Noch keine Einlösungen') : `
+    <table class="data-table">
+      <thead><tr><th>User-ID</th><th>Status</th><th>Plan</th><th>Eingelöst am</th><th>Abgeschlossen am</th></tr></thead>
+      <tbody>
+        ${rows.map(r => `
+        <tr>
+          <td class="mono" style="font-size:11px">${esc(r.user_id)}</td>
+          <td><span class="badge ${r.status === 'completed' ? 'approved' : 'pending'}">${r.status === 'completed' ? 'Abgeschlossen' : 'Ausstehend'}</span></td>
+          <td style="font-size:12px">${r.plan ? esc(r.plan) : '–'}</td>
+          <td class="mono" style="font-size:11px;color:var(--text3)">${fmtDate(r.redeemed_at)}</td>
+          <td class="mono" style="font-size:11px;color:var(--text3)">${r.completed_at ? fmtDate(r.completed_at) : '–'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`}
+  `;
+  refreshIcons();
 }
