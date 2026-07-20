@@ -110,6 +110,12 @@ async function ensureChangelogTable(db) {
   await db.prepare("ALTER TABLE changelog_entries ADD COLUMN slug TEXT DEFAULT ''").run().catch(() => {});
   await db.prepare("ALTER TABLE changelog_entries ADD COLUMN publish_at TEXT DEFAULT NULL").run().catch(() => {});
   await db.prepare("ALTER TABLE changelog_entries ADD COLUMN published_at TEXT DEFAULT NULL").run().catch(() => {});
+  // Zweisprachige Einträge + Automation-Metadaten (Changelog-Automation)
+  await db.prepare("ALTER TABLE changelog_entries ADD COLUMN title_en TEXT DEFAULT NULL").run().catch(() => {});
+  await db.prepare("ALTER TABLE changelog_entries ADD COLUMN description_en TEXT DEFAULT NULL").run().catch(() => {});
+  await db.prepare("ALTER TABLE changelog_entries ADD COLUMN commit_from TEXT DEFAULT NULL").run().catch(() => {});
+  await db.prepare("ALTER TABLE changelog_entries ADD COLUMN commit_to TEXT DEFAULT NULL").run().catch(() => {});
+  await db.prepare("ALTER TABLE changelog_entries ADD COLUMN source TEXT DEFAULT 'manual'").run().catch(() => {});
   // Backfill: bereits veröffentlichte Einträge ohne published_at bekommen created_at
   await db.prepare(
     "UPDATE changelog_entries SET published_at = created_at WHERE published = 1 AND published_at IS NULL"
@@ -451,6 +457,53 @@ async function handleRequest(request, env) {
       'SELECT * FROM changelog_entries WHERE site_id=? AND published=1 ORDER BY created_at DESC'
     ).bind(siteId).all();
     return json(result.results);
+  }
+
+  // ── Changelog-Automation (Bearer-Token: CHANGELOG_API_TOKEN) ──────
+  function checkChangelogToken() {
+    const auth = request.headers.get('Authorization') || '';
+    const tok  = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    return Boolean(env.CHANGELOG_API_TOKEN) && tok === env.CHANGELOG_API_TOKEN;
+  }
+
+  // POST /api/changelog/drafts ── Automation reicht zweisprachigen Entwurf ein
+  if (request.method === 'POST' && path === '/api/changelog/drafts') {
+    if (!checkChangelogToken()) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureChangelogTable(db);
+    const body = await request.json().catch(() => ({}));
+    const { project, site_id, commit_from, commit_to, date, de, en, type } = body;
+    const siteId = (site_id || project || 'frametrain').replace(/-/g, '').slice(0, 40);
+    if (!de?.title || !de?.body_md) return err('de.title und de.body_md erforderlich');
+    if (!en?.title || !en?.body_md) return err('en.title und en.body_md erforderlich');
+    if (!commit_to) return err('commit_to erforderlich');
+    const ver = (date || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    const r = await db.prepare(
+      `INSERT INTO changelog_entries
+        (site_id, version, title, slug, description, title_en, description_en,
+         type, published, source, commit_from, commit_to)
+       VALUES (?,?,?,?,?,?,?,?,0,'automation',?,?)`
+    ).bind(
+      siteId, ver, de.title.slice(0, 200), makeSlug(de.title), de.body_md.slice(0, 8000),
+      en.title.slice(0, 200), en.body_md.slice(0, 8000),
+      type || 'feature', commit_from || null, commit_to
+    ).run();
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind(siteId, 'info', `🤖 Changelog-Entwurf: ${de.title.slice(0, 60)}`,
+        'Neuer Automation-Entwurf wartet auf Freigabe im Changelog-Tab').run().catch(() => {});
+    return json({ success: true, id: r.meta.last_row_id, status: 'pending' }, 201);
+  }
+
+  // GET /api/changelog/last-reviewed ── Automation fragt letzten geprüften SHA ab
+  if (request.method === 'GET' && path === '/api/changelog/last-reviewed') {
+    if (!checkChangelogToken()) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureChangelogTable(db);
+    const siteId = (url.searchParams.get('site_id') || url.searchParams.get('project') || 'frametrain').replace(/-/g, '');
+    const row = await db.prepare(
+      "SELECT commit_to, version, created_at FROM changelog_entries WHERE site_id=? AND source='automation' AND commit_to IS NOT NULL ORDER BY id DESC LIMIT 1"
+    ).bind(siteId).first();
+    return json({ sha: row?.commit_to || null, version: row?.version || null, created_at: row?.created_at || null });
   }
 
   // GET /api/changelog/entry ── Public: single entry by slug+site_id
@@ -927,6 +980,8 @@ async function handleRequest(request, env) {
     if (body.published  !== undefined) { sets.push('published=?');  params.push(body.published ? 1 : 0); }
     if (body.title      !== undefined) { sets.push('title=?'); params.push(body.title); sets.push('slug=?'); params.push(makeSlug(body.title)); }
     if (body.description!== undefined) { sets.push('description=?'); params.push(body.description); }
+    if (body.title_en      !== undefined) { sets.push('title_en=?'); params.push(body.title_en); }
+    if (body.description_en!== undefined) { sets.push('description_en=?'); params.push(body.description_en); }
     if (body.type       !== undefined) { sets.push('type=?'); params.push(body.type); }
     if (body.version    !== undefined) { sets.push('version=?'); params.push(body.version); }
     if (body.publish_at !== undefined) { sets.push('publish_at=?'); params.push(body.publish_at || null); }

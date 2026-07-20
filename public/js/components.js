@@ -1622,9 +1622,87 @@ function _renderChangelogAnalytics(data) {
   return html;
 }
 
+// ── Changelog-Automation: Mini-Markdown-Renderer für die Vorschau ──
+window._clMd = function(text) {
+  const lines = String(text || '').split('\n');
+  let html = '', inList = false;
+  const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong style="color:var(--text1)">$1</strong>');
+  for (const line of lines) {
+    const isLi = line.startsWith('- ') || line.startsWith('• ') || line.startsWith('* ');
+    if (isLi && !inList) { html += '<ul style="margin:4px 0 8px 18px;padding:0">'; inList = true; }
+    if (!isLi && inList) { html += '</ul>'; inList = false; }
+    if (line.startsWith('### '))      html += `<div style="font-weight:800;font-size:12px;margin:10px 0 4px">${inline(line.slice(4))}</div>`;
+    else if (line.startsWith('## ')) html += `<div style="font-weight:800;font-size:13px;margin:10px 0 4px">${inline(line.slice(3))}</div>`;
+    else if (isLi)                   html += `<li style="margin-bottom:3px">${inline(line.slice(2))}</li>`;
+    else if (line.trim() === '')     html += '<div style="height:6px"></div>';
+    else                             html += `<div style="margin-bottom:3px">${inline(line)}</div>`;
+  }
+  if (inList) html += '</ul>';
+  return html;
+};
+
+window._clUpdateDraftPreview = function(id, lang) {
+  const ta = document.getElementById(`cl-d-${id}-desc-${lang}`);
+  const pv = document.getElementById(`cl-d-${id}-preview-${lang}`);
+  if (ta && pv) pv.innerHTML = _clMd(ta.value);
+};
+
+window._clSaveDraft = async function(id, siteId, publish) {
+  const g = suffix => document.getElementById(`cl-d-${id}-${suffix}`)?.value ?? '';
+  const title = g('title-de').trim(), title_en = g('title-en').trim();
+  if (!title || !title_en) { alert('Titel (DE und EN) erforderlich'); return; }
+  const body = { title, description: g('desc-de'), title_en, description_en: g('desc-en') };
+  if (publish) body.published = 1;
+  await api(`/api/changelog/${id}`, { method: 'PATCH', body });
+  if (publish) {
+    await api('/api/notifications', {
+      method: 'POST',
+      body: { site_id: siteId, type: 'info', title: `📋 Changelog live: ${title}`, message: 'Automation-Entwurf freigegeben und veröffentlicht auf /changelog' }
+    });
+  }
+  reloadPanel(siteId, 'changelog');
+};
+
+function _renderClDraftCard(e, siteId) {
+  const langCol = (lang, label, title, desc) => `
+    <div style="flex:1;min-width:260px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);font-family:'Space Mono',monospace;margin-bottom:6px">${label}</div>
+      <input id="cl-d-${e.id}-title-${lang}" value="${esc(title || '')}" placeholder="Titel (${label})"
+        style="width:100%;margin-bottom:6px">
+      <textarea id="cl-d-${e.id}-desc-${lang}" rows="7" placeholder="Markdown (${label})"
+        style="width:100%;font-family:'Space Mono',monospace;font-size:11px"
+        oninput="_clUpdateDraftPreview(${e.id},'${lang}')">${esc(desc || '')}</textarea>
+      <div style="font-size:9px;color:var(--text3);margin:8px 0 4px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-family:'Space Mono',monospace">Vorschau</div>
+      <div id="cl-d-${e.id}-preview-${lang}"
+        style="background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--text2);line-height:1.5;min-height:40px">${_clMd(desc || '')}</div>
+    </div>`;
+  return `
+    <div style="background:var(--surface);border:1px solid rgba(167,139,250,.35);border-radius:10px;padding:16px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <span style="font-size:11px;padding:2px 8px;border-radius:5px;background:rgba(167,139,250,.15);color:#a78bfa;font-weight:700">🤖 Automation</span>
+        <span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(251,191,36,.12);color:#fbbf24;font-weight:700">Wartet auf Freigabe</span>
+        <span class="mono" style="color:var(--text3);font-size:10px">${e.version || ''}</span>
+        ${e.commit_to ? `<span class="mono" style="color:var(--text3);font-size:10px" title="Commit-Bereich">${(e.commit_from || 'start').slice(0,7)}..${e.commit_to.slice(0,7)}</span>` : ''}
+        <span class="mono" style="color:var(--text3);font-size:10px;margin-left:auto">${fmtDate(e.created_at)}</span>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        ${langCol('de', '🇩🇪 Deutsch', e.title, e.description)}
+        ${langCol('en', '🇬🇧 English', e.title_en, e.description_en)}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:14px;justify-content:flex-end">
+        <button class="btn btn-danger btn-sm" onclick="deleteChangelog(${e.id}, '${siteId}')">✕ Ablehnen</button>
+        <button class="btn btn-ghost btn-sm" onclick="_clSaveDraft(${e.id}, '${siteId}', false)">💾 Speichern</button>
+        <button class="btn btn-primary btn-sm" onclick="_clSaveDraft(${e.id}, '${siteId}', true)">✅ Freigeben</button>
+      </div>
+    </div>`;
+}
+
 async function renderChangelog(siteId, panel) {
   const entries = await api(`/api/changelog?site_id=${siteId}`);
   if (!entries) { panel.innerHTML = errState(); return; }
+
+  const autoDrafts = entries.filter(e => e.source === 'automation' && !e.published);
+  const restEntries = entries.filter(e => !(e.source === 'automation' && !e.published));
 
   const typeColors = {
     feature:     { bg: 'rgba(99,102,241,.15)',  color: '#818cf8' },
@@ -1642,6 +1720,14 @@ async function renderChangelog(siteId, panel) {
   ];
 
   panel.innerHTML = `
+    ${autoDrafts.length ? `
+    <div style="margin-bottom:24px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px">🤖 Automation-Entwürfe
+        <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:rgba(251,191,36,.12);color:#fbbf24;font-weight:700;margin-left:6px">${autoDrafts.length} offen</span>
+      </div>
+      ${autoDrafts.map(e => _renderClDraftCard(e, siteId)).join('')}
+    </div>` : ''}
+
     <div class="form-card" style="margin-bottom:20px">
       <div class="form-card-title">📋 Neuen Eintrag erstellen</div>
       <div class="form-row">
@@ -1675,8 +1761,8 @@ async function renderChangelog(siteId, panel) {
     </div>
 
     <div class="actions-bar" style="margin-bottom:8px">
-      <div style="font-size:13px;font-weight:700">Einträge (${entries.length})
-        <span style="color:var(--text3);font-weight:400;font-size:11px;margin-left:8px">${entries.filter(e=>e.published).length} live</span>
+      <div style="font-size:13px;font-weight:700">Einträge (${restEntries.length})
+        <span style="color:var(--text3);font-weight:400;font-size:11px;margin-left:8px">${restEntries.filter(e=>e.published).length} live</span>
       </div>
       <div class="flex-1"></div>
       <button class="btn btn-ghost btn-sm" id="cl-analytics-btn" onclick="_clToggleAnalytics('${siteId}')">📊 Analytics</button>
@@ -1687,9 +1773,9 @@ async function renderChangelog(siteId, panel) {
       <div style="padding:20px;text-align:center;color:var(--text3);font-size:12px">Lade Analytics\u2026</div>
     </div>
 
-    ${entries.length ? `
+    ${restEntries.length ? `
       <div style="display:flex;flex-direction:column;gap:8px">
-        ${entries.map(e => {
+        ${restEntries.map(e => {
           const tc = typeColors[e.type] || typeColors.feature;
           const descPreview = (e.description || '').replace(/<[^>]+>/g, '').slice(0, 100);
           return `
