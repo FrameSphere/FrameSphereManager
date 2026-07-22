@@ -189,3 +189,67 @@ CREATE TABLE IF NOT EXISTS site_stats (
   api_calls INTEGER DEFAULT 0,
   FOREIGN KEY (site_id) REFERENCES sites(id)
 );
+
+-- =============================================
+-- AUTO-FIX PIPELINE (FrameTrain Desktop)
+-- =============================================
+
+-- App Errors (Desktop-App Fehler-Reports)
+-- Wird auch vom Worker per ensureAppErrorsTable() angelegt/migriert.
+CREATE TABLE IF NOT EXISTS app_errors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  site_id TEXT NOT NULL DEFAULT 'frametrain',
+  error_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  details TEXT,
+  logs TEXT,
+  config_snapshot TEXT,
+  platform TEXT,
+  app_version TEXT,
+  resolved INTEGER DEFAULT 0,
+  error_group TEXT,                     -- Signatur zum Clustern ähnlicher Fehler
+  triage_status TEXT DEFAULT 'new',     -- 'new' | 'fix_ready' | 'merged' | 'rejected' | 'ignored'
+  occurrences INTEGER DEFAULT 1,
+  screen TEXT,                          -- Screen/Seite in der App, wo der Fehler auftrat
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Fix Proposals (Vorschläge der Triage-Automation)
+CREATE TABLE IF NOT EXISTS fix_proposals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  site_id TEXT NOT NULL DEFAULT 'frametrain',
+  kind TEXT NOT NULL DEFAULT 'fix',     -- 'fix' | 'ignore'
+  category TEXT,                        -- 'ts-react' | 'training' | 'rust-report' | ...
+  title TEXT NOT NULL,
+  summary TEXT,
+  report_markdown TEXT,                 -- vollständiger Report für dein Review
+  test_steps TEXT,                      -- was du manuell prüfen sollst
+  root_cause TEXT,
+  diff_summary TEXT,
+  files_changed TEXT,                   -- JSON-Array
+  error_ids TEXT,                       -- JSON-Array verknüpfter app_errors.id
+  error_group TEXT,
+  branch TEXT,
+  base_branch TEXT DEFAULT 'main',
+  pr_number INTEGER,
+  pr_url TEXT,
+  build_status TEXT,                    -- 'passed' | 'failed' | 'skipped'
+  risk TEXT DEFAULT 'medium',           -- 'low' | 'medium' | 'high'
+  status TEXT NOT NULL DEFAULT 'proposed', -- 'proposed' | 'merged' | 'rejected' | 'error'
+  merge_result TEXT,
+  reject_reason TEXT,
+  created_by TEXT DEFAULT 'automation',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Ignore Rules (selbstlernende Ignore-Liste)
+CREATE TABLE IF NOT EXISTS ignore_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  site_id TEXT NOT NULL DEFAULT 'frametrain',
+  match_type TEXT NOT NULL DEFAULT 'error_type', -- 'error_type' | 'message_prefix' | 'group'
+  pattern TEXT NOT NULL,
+  reason TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);

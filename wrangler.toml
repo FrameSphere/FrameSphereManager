@@ -26,3 +26,10 @@ ENVIRONMENT = "production"
 # DASHBOARD_PASSWORD wird als Secret gesetzt, NICHT hier im File!
 # Befehl: npx wrangler secret put DASHBOARD_PASSWORD
 HF_SPACE_URL = "https://framespherehf-mt5-rechtschreibkorrektur.hf.space"
+
+# ── Auto-Fix Pipeline ────────────────────────────────────────────
+# Repo, in das der "Fix übernehmen"-Button per GitHub-API mergt.
+GITHUB_REPO = "FrameSphere/FrameTrain-App"
+# Zusätzliche Secrets (NICHT hier, per wrangler secret put setzen):
+#   AUTOMATION_SECRET  → Bearer-Token, das die Cloud-Routine nutzt (Export + Vorschläge hochladen)
+#   GITHUB_TOKEN       → fine-grained PAT (nur FrameTrain-App, Contents+Pull-Requests: RW)

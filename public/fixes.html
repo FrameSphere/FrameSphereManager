@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto-Fixes – WebControl HQ</title>
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    .fx-tabs { display:flex; gap:4px; padding:18px 28px 0; border-bottom:1px solid var(--border); }
+    .fx-tab {
+      padding:9px 18px; font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+      background:none; border:none; border-bottom:2px solid transparent; color:var(--text3);
+      cursor:pointer; font-family:inherit; transition:color .15s,border-color .15s; margin-bottom:-1px;
+      display:flex; align-items:center; gap:7px;
+    }
+    .fx-tab.active { color:var(--accent2); border-bottom-color:var(--accent2); }
+    .fx-tab:hover:not(.active) { color:var(--text1); }
+    .fx-count { font-size:10px; font-weight:800; padding:1px 7px; border-radius:20px; background:rgba(255,255,255,.08); color:var(--text2); }
+
+    .fx-scroll { flex:1; overflow-y:auto; padding:18px 28px; display:flex; flex-direction:column; gap:10px; }
+
+    .fx-card {
+      background:var(--surface); border:1px solid var(--border); border-radius:12px;
+      padding:15px 17px; cursor:pointer; transition:border-color .15s,transform .05s;
+      display:flex; flex-direction:column; gap:9px;
+    }
+    .fx-card:hover { border-color:rgba(255,255,255,.22); }
+    .fx-card:active { transform:scale(.998); }
+    .fx-card.merged  { border-left:3px solid var(--green); }
+    .fx-card.rejected{ border-left:3px solid var(--text3); opacity:.7; }
+    .fx-card.error   { border-left:3px solid var(--red); }
+    .fx-card.ignore  { border-left:3px solid #64748b; }
+
+    .fx-card-top { display:flex; align-items:flex-start; gap:10px; }
+    .fx-card-title { flex:1; font-size:14px; font-weight:700; color:var(--text1); line-height:1.35; }
+    .fx-card-sum { font-size:12px; color:var(--text2); line-height:1.5; }
+    .fx-meta { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+
+    .badge { font-size:10px; font-weight:800; padding:2px 8px; border-radius:5px; letter-spacing:.03em; }
+    .b-fix    { background:rgba(245,158,11,.14); color:#fbbf24; }
+    .b-ignore { background:rgba(100,116,139,.18); color:#94a3b8; }
+    .b-cat    { background:rgba(255,255,255,.07); color:var(--text2); }
+    .b-risk-low    { background:rgba(34,197,94,.14); color:#4ade80; }
+    .b-risk-medium { background:rgba(245,158,11,.14); color:#fbbf24; }
+    .b-risk-high   { background:rgba(239,68,68,.15); color:#f87171; }
+    .b-build-passed  { background:rgba(34,197,94,.14); color:#4ade80; }
+    .b-build-failed  { background:rgba(239,68,68,.15); color:#f87171; }
+    .b-build-skipped, .b-build-unknown { background:rgba(255,255,255,.07); color:var(--text3); }
+    .b-st-proposed { background:rgba(96,165,250,.14); color:#60a5fa; }
+    .b-st-merged   { background:rgba(34,197,94,.14); color:#4ade80; }
+    .b-st-rejected { background:rgba(148,163,184,.16); color:#94a3b8; }
+    .b-st-error    { background:rgba(239,68,68,.15); color:#f87171; }
+    .b-occ { background:rgba(239,68,68,.1); color:#f87171; }
+
+    /* Detail overlay */
+    .fx-overlay {
+      display:none; position:fixed; inset:0; z-index:9000;
+      background:rgba(0,0,0,.78); backdrop-filter:blur(5px);
+      align-items:center; justify-content:center; padding:20px;
+    }
+    .fx-overlay.open { display:flex; }
+    .fx-detail {
+      background:var(--surface); border:1px solid var(--border); border-radius:16px;
+      width:min(920px,97vw); max-height:92vh; display:flex; flex-direction:column; overflow:hidden;
+    }
+    .fx-detail-head {
+      padding:20px 26px 16px; border-bottom:1px solid var(--border);
+      display:flex; align-items:flex-start; gap:14px;
+    }
+    .fx-detail-head h2 { font-size:17px; font-weight:800; line-height:1.3; flex:1; }
+    .fx-detail-body { overflow-y:auto; padding:22px 26px; display:flex; flex-direction:column; gap:20px; }
+    .fx-section-label {
+      font-size:10px; font-weight:800; letter-spacing:.09em; text-transform:uppercase;
+      color:var(--text3); margin-bottom:8px; display:flex; align-items:center; gap:6px;
+    }
+    .fx-box {
+      background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:14px 16px;
+      font-size:13px; line-height:1.65; color:var(--text1);
+    }
+    .fx-md h1,.fx-md h2,.fx-md h3 { font-size:14px; font-weight:800; margin:12px 0 6px; color:var(--text1); }
+    .fx-md h1:first-child,.fx-md h2:first-child { margin-top:0; }
+    .fx-md p { margin:6px 0; }
+    .fx-md ul,.fx-md ol { margin:6px 0; padding-left:20px; }
+    .fx-md li { margin:3px 0; }
+    .fx-md code { background:rgba(255,255,255,.08); padding:1px 5px; border-radius:4px; font-family:'Space Mono',monospace; font-size:12px; }
+    .fx-md pre { background:rgba(0,0,0,.35); padding:12px 14px; border-radius:8px; overflow-x:auto; margin:8px 0; }
+    .fx-md pre code { background:none; padding:0; }
+    .fx-md strong { color:var(--text1); font-weight:700; }
+    .fx-md a { color:var(--accent2); }
+
+    .fx-test { border-left:3px solid var(--yellow); }
+    .fx-err-item { background:var(--bg); border:1px solid var(--border); border-radius:9px; padding:11px 14px; margin-bottom:8px; }
+    .fx-err-type { font-family:'Space Mono',monospace; font-size:11px; color:#fbbf24; font-weight:700; }
+    .fx-err-msg { font-size:12px; color:var(--text2); margin-top:4px; line-height:1.5; word-break:break-word; }
+    .fx-err-logs { margin-top:8px; }
+    .fx-err-logs pre { background:rgba(0,0,0,.35); padding:10px 12px; border-radius:7px; font-size:11px; max-height:200px; overflow:auto; color:var(--text2); font-family:'Space Mono',monospace; white-space:pre-wrap; }
+
+    .fx-detail-foot {
+      padding:16px 26px; border-top:1px solid var(--border);
+      display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex-shrink:0;
+    }
+    .fx-pr-link { font-size:11px; color:var(--text3); font-family:'Space Mono',monospace; display:flex; align-items:center; gap:6px; }
+    .fx-pr-link a { color:var(--accent2); }
+    .fx-foot-spacer { flex:1; }
+
+    .btn-approve { background:var(--green); color:#04240f; border:none; font-weight:800; }
+    .btn-approve:hover { filter:brightness(1.08); }
+    .btn-reject { background:none; border:1px solid var(--border); color:var(--text2); }
+    .btn-reject:hover { border-color:var(--red); color:#f87171; }
+    .btn-ignore-p { background:rgba(100,116,139,.18); border:1px solid rgba(148,163,184,.3); color:#cbd5e1; }
+    .fx-btn { padding:9px 20px; border-radius:9px; font-size:13px; cursor:pointer; font-family:inherit; display:flex; align-items:center; gap:7px; }
+    .fx-btn:disabled { opacity:.5; cursor:not-allowed; }
+
+    .close-x { width:30px; height:30px; border-radius:8px; border:none; background:rgba(255,255,255,.06); color:var(--text3); cursor:pointer; font-size:16px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .close-x:hover { background:rgba(255,255,255,.12); }
+
+    .fx-empty { text-align:center; padding:5rem 1rem; color:var(--text3); font-size:13px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+
+    /* Ignore-rules tab */
+    .ir-row { display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:11px 15px; }
+    .ir-pattern { font-family:'Space Mono',monospace; font-size:12px; color:var(--text1); flex:1; word-break:break-all; }
+    .ir-reason { font-size:11px; color:var(--text3); }
+    .fx-banner { margin:14px 28px 0; padding:11px 15px; border-radius:9px; font-size:12px; line-height:1.5; display:none; align-items:center; gap:9px; }
+    .fx-banner.warn { display:flex; background:rgba(245,158,11,.1); border:1px solid rgba(245,158,11,.28); color:#fbbf24; }
+  </style>
+</head>
+<body>
+
+<div id="layout">
+  <div id="main">
+
+    <div class="page-header">
+      <div class="page-title" style="display:flex;align-items:center;gap:10px">
+        <i data-lucide="wrench" style="width:20px;height:20px;color:#f59e0b"></i>
+        Auto-Fixes
+      </div>
+      <div class="page-sub">FrameTrain Desktop · Fehler → automatischer Fix-Vorschlag → dein Review → Merge</div>
+    </div>
+
+    <div id="fx-config-banner" class="fx-banner warn">
+      <i data-lucide="alert-triangle" style="width:15px;height:15px"></i>
+      <span id="fx-config-banner-text"></span>
+    </div>
+
+    <div class="fx-tabs">
+      <button class="fx-tab active" onclick="showFxTab('open',this)">
+        <i data-lucide="inbox" style="width:13px;height:13px"></i> Offen <span class="fx-count" id="cnt-open">0</span>
+      </button>
+      <button class="fx-tab" onclick="showFxTab('history',this)">
+        <i data-lucide="history" style="width:13px;height:13px"></i> Verlauf <span class="fx-count" id="cnt-history">0</span>
+      </button>
+      <button class="fx-tab" onclick="showFxTab('ignore',this)">
+        <i data-lucide="bell-off" style="width:13px;height:13px"></i> Ignore-Liste <span class="fx-count" id="cnt-ignore">0</span>
+      </button>
+    </div>
+
+    <div id="fx-open"    class="fx-scroll"></div>
+    <div id="fx-history" class="fx-scroll" style="display:none"></div>
+    <div id="fx-ignore"  class="fx-scroll" style="display:none"></div>
+
+  </div>
+</div>
+
+<!-- Detail Overlay -->
+<div id="fx-overlay" class="fx-overlay" onclick="if(event.target===this)closeDetail()">
+  <div class="fx-detail">
+    <div class="fx-detail-head">
+      <div style="flex:1">
+        <div id="d-meta" class="fx-meta" style="margin-bottom:9px"></div>
+        <h2 id="d-title"></h2>
+      </div>
+      <button class="close-x" onclick="closeDetail()">✕</button>
+    </div>
+    <div class="fx-detail-body" id="d-body"></div>
+    <div class="fx-detail-foot" id="d-foot"></div>
+  </div>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
+<script>
+let allProposals = [];
+let ignoreRules  = [];
+let currentDetail = null;
+
+// ── Mini-Markdown → HTML (nur für den Report) ─────────────────────
+function mdToHtml(md) {
+  if (!md) return '<p style="color:var(--text3)">Kein Report vorhanden.</p>';
+  let s = esc(md);
+  // Codeblöcke ```
+  s = s.replace(/```([\s\S]*?)```/g, (_, c) => `<pre><code>${c.replace(/^\n/, '')}</code></pre>`);
+  // Inline-Code
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Überschriften
+  s = s.replace(/^### (.*)$/gm, '<h3>$1</h3>')
+       .replace(/^## (.*)$/gm, '<h2>$1</h2>')
+       .replace(/^# (.*)$/gm, '<h1>$1</h1>');
+  // Bold
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Listen
+  s = s.replace(/^(?:- |\* )(.*)$/gm, '<li>$1</li>');
+  s = s.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, m => m.includes('<ul>') ? m : `<ul>${m}</ul>`);
+  // Absätze
+  s = s.split(/\n{2,}/).map(block => {
+    const t = block.trim();
+    if (!t) return '';
+    if (/^<(h[1-3]|ul|ol|pre|li)/.test(t)) return t;
+    return `<p>${t.replace(/\n/g, '<br>')}</p>`;
+  }).join('\n');
+  return s;
+}
+
+function catLabel(c) {
+  return ({ 'ts-react':'TS / React', 'training':'Training', 'devtrain':'DevTrain', 'synapse':'Synapse', 'rust-report':'Rust (Report)', 'ui':'UI' })[c] || c || '–';
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────
+function showFxTab(name, btn) {
+  document.querySelectorAll('.fx-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  ['open','history','ignore'].forEach(n => {
+    document.getElementById('fx-' + n).style.display = n === name ? 'flex' : 'none';
+  });
+  if (name === 'ignore') renderIgnore();
+}
+
+// ── Load ──────────────────────────────────────────────────────────
+async function loadProposals() {
+  const data = await api('/api/fix-proposals?site_id=frametrain');
+  const openEl = document.getElementById('fx-open');
+  const histEl = document.getElementById('fx-history');
+  if (!data) { openEl.innerHTML = errState(); refreshIcons(); return; }
+  allProposals = data.proposals || [];
+  const open = allProposals.filter(p => p.status === 'proposed');
+  const hist = allProposals.filter(p => p.status !== 'proposed');
+  document.getElementById('cnt-open').textContent = open.length;
+  document.getElementById('cnt-history').textContent = hist.length;
+
+  const navBadge = document.getElementById('nav-fixes-badge');
+  if (navBadge) { if (open.length) { navBadge.textContent = open.length; navBadge.style.display = 'inline-flex'; } else navBadge.style.display = 'none'; }
+
+  openEl.innerHTML = open.length ? open.map(cardHtml).join('')
+    : `<div class="fx-empty">${icon('check-circle', 34, 'color:var(--green)')}<span>Keine offenen Vorschläge. Alles sauber.</span></div>`;
+  histEl.innerHTML = hist.length ? hist.map(cardHtml).join('')
+    : `<div class="fx-empty">${icon('history', 30, 'color:var(--text3)')}<span>Noch kein Verlauf.</span></div>`;
+  refreshIcons();
+}
+
+function cardHtml(p) {
+  const kindBadge = ({
+    ignore: `<span class="badge b-ignore">IGNORE-VORSCHLAG</span>`,
+    report: `<span class="badge b-ignore">NUR ANALYSE</span>`,
+    fix:    `<span class="badge b-fix">FIX</span>`,
+  })[p.kind] || `<span class="badge b-fix">FIX</span>`;
+  const stBadge = `<span class="badge b-st-${p.status}">${({proposed:'OFFEN',merged:p.kind==='ignore'?'IGNORIERT':'GEMERGT',rejected:'ABGELEHNT',error:'MERGE-FEHLER'})[p.status] || p.status}</span>`;
+  const risk  = p.kind === 'fix' ? `<span class="badge b-risk-${p.risk||'medium'}">Risiko ${({low:'niedrig',medium:'mittel',high:'hoch'})[p.risk||'medium']}</span>` : '';
+  const build = p.kind === 'fix' && p.build_status ? `<span class="badge b-build-${p.build_status}">Build ${({passed:'grün',failed:'rot',skipped:'übersprungen',unknown:'?'})[p.build_status]||p.build_status}</span>` : '';
+  let errCount = 0; try { errCount = JSON.parse(p.error_ids||'[]').length; } catch {}
+  return `
+    <div class="fx-card ${p.status==='merged'?'merged':''} ${p.status==='rejected'?'rejected':''} ${p.status==='error'?'error':''} ${p.kind==='ignore'?'ignore':''}" onclick="openDetail(${p.id})">
+      <div class="fx-card-top">
+        <div class="fx-card-title">${esc(p.title)}</div>
+        ${stBadge}
+      </div>
+      ${p.summary ? `<div class="fx-card-sum">${esc(p.summary)}</div>` : ''}
+      <div class="fx-meta">
+        ${kindBadge}
+        <span class="badge b-cat">${esc(catLabel(p.category))}</span>
+        ${risk}${build}
+        ${errCount ? `<span class="badge b-occ">${errCount} Fehler</span>` : ''}
+        <span style="flex:1"></span>
+        <span style="font-size:11px;color:var(--text3)">${fmtDate(p.created_at)}</span>
+      </div>
+    </div>`;
+}
+
+// ── Detail ────────────────────────────────────────────────────────
+async function openDetail(id) {
+  const data = await api('/api/fix-proposals/' + id);
+  if (!data || !data.proposal) return;
+  currentDetail = data.proposal;
+  const p = data.proposal;
+  const errs = data.errors || [];
+
+  document.getElementById('d-title').textContent = p.title;
+  document.getElementById('d-meta').innerHTML = `
+    ${({ignore:'<span class="badge b-ignore">IGNORE-VORSCHLAG</span>',report:'<span class="badge b-ignore">NUR ANALYSE</span>',fix:'<span class="badge b-fix">FIX</span>'})[p.kind]||'<span class="badge b-fix">FIX</span>'}
+    <span class="badge b-cat">${esc(catLabel(p.category))}</span>
+    ${p.kind==='fix'?`<span class="badge b-risk-${p.risk||'medium'}">Risiko ${({low:'niedrig',medium:'mittel',high:'hoch'})[p.risk||'medium']}</span>`:''}
+    ${p.kind==='fix'&&p.build_status?`<span class="badge b-build-${p.build_status}">Build ${({passed:'grün',failed:'rot',skipped:'übersprungen',unknown:'?'})[p.build_status]||p.build_status}</span>`:''}
+    <span class="badge b-st-${p.status}">${({proposed:'OFFEN',merged:'ERLEDIGT',rejected:'ABGELEHNT',error:'MERGE-FEHLER'})[p.status]||p.status}</span>`;
+
+  let body = '';
+  if (p.root_cause) body += `<div><div class="fx-section-label">${icon('target',12)} Ursache</div><div class="fx-box">${esc(p.root_cause)}</div></div>`;
+  body += `<div><div class="fx-section-label">${icon('file-text',12)} Report</div><div class="fx-box fx-md">${mdToHtml(p.report_markdown)}</div></div>`;
+  if (p.test_steps) body += `<div><div class="fx-section-label">${icon('flask-conical',12)} Bitte testen</div><div class="fx-box fx-test fx-md">${mdToHtml(p.test_steps)}</div></div>`;
+  if (p.diff_summary) body += `<div><div class="fx-section-label">${icon('git-branch',12)} Änderungen</div><div class="fx-box fx-md">${mdToHtml(p.diff_summary)}</div></div>`;
+  if (errs.length) {
+    body += `<div><div class="fx-section-label">${icon('bug',12)} Zugrundeliegende Fehler (${errs.length})</div>${errs.map(e => `
+      <div class="fx-err-item">
+        <div class="fx-err-type">${esc(e.error_type)}${e.screen?` · ${esc(e.screen)}`:''}${e.occurrences>1?` · ${e.occurrences}×`:''}</div>
+        <div class="fx-err-msg">${esc(e.message)}</div>
+        ${e.logs?`<details class="fx-err-logs"><summary style="cursor:pointer;font-size:11px;color:var(--text3)">Logs</summary><pre>${esc(e.logs)}</pre></details>`:''}
+      </div>`).join('')}</div>`;
+  }
+  document.getElementById('d-body').innerHTML = body;
+
+  // Footer / Buttons
+  let foot = '';
+  if (p.pr_url) foot += `<span class="fx-pr-link">${icon('git-pull-request',12)} <a href="${esc(p.pr_url)}" target="_blank" rel="noopener">PR #${p.pr_number}</a> · Branch <code>${esc(p.branch||'')}</code></span>`;
+  foot += `<span class="fx-foot-spacer"></span>`;
+  if (p.status === 'proposed') {
+    foot += `<button class="fx-btn btn-reject" onclick="rejectProposal(${p.id})">${icon('x',13)} Ablehnen</button>`;
+    if (p.kind === 'ignore') {
+      foot += `<button class="fx-btn btn-ignore-p" onclick="approveProposal(${p.id})">${icon('bell-off',13)} Ignorieren bestätigen</button>`;
+    } else if (p.kind === 'report') {
+      foot += `<button class="fx-btn btn-ignore-p" onclick="approveProposal(${p.id})">${icon('check',13)} Als erledigt markieren</button>`;
+    } else {
+      foot += `<button class="fx-btn btn-approve" id="approve-btn" onclick="approveProposal(${p.id})">${icon('git-merge',13)} Fix übernehmen &amp; mergen</button>`;
+    }
+  } else if (p.status === 'error') {
+    foot += `<span style="font-size:11px;color:#f87171">Merge fehlgeschlagen – siehe Report / GitHub.</span>
+             <button class="fx-btn btn-approve" onclick="approveProposal(${p.id})">${icon('refresh-cw',13)} Erneut versuchen</button>`;
+  } else {
+    foot += `<button class="fx-btn btn-reject" onclick="deleteProposal(${p.id})">${icon('trash-2',13)} Löschen</button>`;
+  }
+  document.getElementById('d-foot').innerHTML = foot;
+
+  document.getElementById('fx-overlay').classList.add('open');
+  refreshIcons();
+}
+
+function closeDetail() {
+  document.getElementById('fx-overlay').classList.remove('open');
+  currentDetail = null;
+}
+
+async function approveProposal(id) {
+  const btn = event?.target?.closest('.fx-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Wird ausgeführt…'; }
+  const res = await api('/api/fix-proposals/' + id + '/approve', { method: 'POST', body: {} });
+  if (res && res.success) {
+    closeDetail();
+    await loadProposals();
+  } else {
+    const msg = res?.error || 'Fehler beim Übernehmen.';
+    const gh = res?.github?.data?.message ? `\n\nGitHub: ${res.github.data.message}` : '';
+    alert(msg + gh);
+    if (btn) { btn.disabled = false; }
+    await loadProposals();
+    openDetail(id);
+  }
+}
+
+async function rejectProposal(id) {
+  const reason = prompt('Grund für die Ablehnung (optional):', '');
+  if (reason === null) return;
+  await api('/api/fix-proposals/' + id + '/reject', { method: 'POST', body: { reason } });
+  closeDetail();
+  loadProposals();
+}
+
+async function deleteProposal(id) {
+  if (!confirm('Diesen Eintrag endgültig löschen?')) return;
+  await api('/api/fix-proposals/' + id, { method: 'DELETE' });
+  closeDetail();
+  loadProposals();
+}
+
+// ── Ignore rules ──────────────────────────────────────────────────
+async function renderIgnore() {
+  const el = document.getElementById('fx-ignore');
+  const data = await api('/api/ignore-rules?site_id=frametrain');
+  if (!data) { el.innerHTML = errState(); refreshIcons(); return; }
+  ignoreRules = data.rules || [];
+  document.getElementById('cnt-ignore').textContent = ignoreRules.length;
+  el.innerHTML = `
+    <div style="font-size:12px;color:var(--text3);line-height:1.6;margin-bottom:6px">
+      Fehler, die diesen Regeln entsprechen, werden von der Automation ignoriert (kein Fix-Vorschlag). Regeln entstehen automatisch, wenn du einen Ignorier-Vorschlag bestätigst – oder du legst sie hier manuell an.
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <select id="ir-type" style="padding:8px 11px;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text1);font-family:inherit">
+        <option value="error_type">error_type =</option>
+        <option value="message_prefix">message beginnt mit</option>
+        <option value="group">error_group =</option>
+      </select>
+      <input id="ir-pattern" type="text" placeholder="z.B. training:memory" style="flex:1;min-width:180px;padding:8px 11px;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text1);font-family:'Space Mono',monospace">
+      <input id="ir-reason" type="text" placeholder="Grund (optional)" style="flex:1;min-width:140px;padding:8px 11px;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text1);font-family:inherit">
+      <button class="fx-btn btn-approve" onclick="addIgnore()">${icon('plus',13)} Regel</button>
+    </div>
+    ${ignoreRules.length ? ignoreRules.map(r => `
+      <div class="ir-row">
+        <span class="badge b-cat">${esc(r.match_type)}</span>
+        <span class="ir-pattern">${esc(r.pattern)}</span>
+        ${r.reason?`<span class="ir-reason">${esc(r.reason)}</span>`:''}
+        <button class="fx-btn btn-reject" style="padding:6px 10px" onclick="delIgnore(${r.id})">${icon('trash-2',12)}</button>
+      </div>`).join('')
+      : `<div class="fx-empty">${icon('bell-off',28,'color:var(--text3)')}<span>Keine Ignore-Regeln.</span></div>`}
+  `;
+  refreshIcons();
+}
+
+async function addIgnore() {
+  const match_type = document.getElementById('ir-type').value;
+  const pattern = document.getElementById('ir-pattern').value.trim();
+  const reason  = document.getElementById('ir-reason').value.trim();
+  if (!pattern) return;
+  await api('/api/ignore-rules', { method: 'POST', body: { site_id:'frametrain', match_type, pattern, reason } });
+  renderIgnore();
+}
+
+async function delIgnore(id) {
+  await api('/api/ignore-rules/' + id, { method: 'DELETE' });
+  renderIgnore();
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
+
+// ── Boot ──────────────────────────────────────────────────────────
+function boot() {
+  initLayout(null);
+  loadProposals();
+}
+injectLoginScreen();
+checkAuth(boot);
+window.initAfterLogin = boot;
+</script>
+</body>
+</html>

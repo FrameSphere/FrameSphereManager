@@ -161,6 +161,99 @@ async function ensureAppErrorsTable(db) {
     resolved INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`).run();
+  // Triage-Automation Metadaten (Auto-Fix Pipeline)
+  await db.prepare("ALTER TABLE app_errors ADD COLUMN error_group TEXT DEFAULT NULL").run().catch(() => {});
+  // triage_status: 'new' → 'fix_ready' → 'merged' | 'rejected' | 'ignored'
+  await db.prepare("ALTER TABLE app_errors ADD COLUMN triage_status TEXT DEFAULT 'new'").run().catch(() => {});
+  await db.prepare("ALTER TABLE app_errors ADD COLUMN occurrences INTEGER DEFAULT 1").run().catch(() => {});
+  await db.prepare("ALTER TABLE app_errors ADD COLUMN screen TEXT DEFAULT NULL").run().catch(() => {});
+}
+
+// ── Auto-create fix_proposals table (Auto-Fix Pipeline) ──────────
+// Ein "Vorschlag" ist entweder ein Code-Fix (kind='fix', mit Branch/PR)
+// oder ein Ignorier-Vorschlag (kind='ignore'). Beide werden im Manager
+// per Button bestätigt: fix → GitHub-Merge, ignore → ignore_rule anlegen.
+async function ensureFixProposalsTable(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS fix_proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id TEXT NOT NULL DEFAULT 'frametrain',
+    kind TEXT NOT NULL DEFAULT 'fix',
+    category TEXT,
+    title TEXT NOT NULL,
+    summary TEXT,
+    report_markdown TEXT,
+    test_steps TEXT,
+    root_cause TEXT,
+    diff_summary TEXT,
+    files_changed TEXT,
+    error_ids TEXT,
+    error_group TEXT,
+    branch TEXT,
+    base_branch TEXT DEFAULT 'main',
+    pr_number INTEGER,
+    pr_url TEXT,
+    build_status TEXT,
+    risk TEXT DEFAULT 'medium',
+    status TEXT NOT NULL DEFAULT 'proposed',
+    merge_result TEXT,
+    reject_reason TEXT,
+    created_by TEXT DEFAULT 'automation',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`).run();
+}
+
+// ── Auto-create ignore_rules table (Auto-Fix Pipeline) ───────────
+// Bestätigte Regeln, um irrelevante "Fehler" künftig automatisch
+// aus der Triage rauszufiltern (dein selbstlernendes Ignore-System).
+async function ensureIgnoreRulesTable(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS ignore_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id TEXT NOT NULL DEFAULT 'frametrain',
+    match_type TEXT NOT NULL DEFAULT 'error_type', -- 'error_type' | 'message_prefix' | 'group'
+    pattern TEXT NOT NULL,
+    reason TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`).run();
+}
+
+// ── Automation-Auth (Bearer-Secret, für Cloud-Routine) ───────────
+function verifyAutomation(request, env) {
+  const auth = request.headers.get('Authorization') || '';
+  const token = auth.replace(/^Bearer\s+/i, '').trim();
+  const secret = env.AUTOMATION_SECRET;
+  return !!secret && token === secret;
+}
+
+// ── GitHub: PR eines Branches nach main mergen ───────────────────
+async function githubMergePR(env, prNumber, mergeMethod = 'squash') {
+  const repo = env.GITHUB_REPO;   // z.B. 'FrameSphere/FrameTrain-App'
+  const token = env.GITHUB_TOKEN; // fine-grained PAT (Contents+PRs: RW)
+  if (!token || !repo) {
+    return { ok: false, status: 0, data: { message: 'GITHUB_TOKEN/GITHUB_REPO nicht konfiguriert' } };
+  }
+  const r = await fetch(`https://api.github.com/repos/${repo}/pulls/${prNumber}/merge`, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github+json',
+      'User-Agent': 'webcontrol-hq-automation',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify({ merge_method: mergeMethod }),
+  });
+  const data = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, data };
+}
+
+// ── Prüft, ob ein Fehler von einer Ignore-Regel abgedeckt ist ────
+function matchesIgnore(errorRow, rules) {
+  for (const rule of rules) {
+    if (rule.match_type === 'error_type' && errorRow.error_type === rule.pattern) return true;
+    if (rule.match_type === 'group' && errorRow.error_group && errorRow.error_group === rule.pattern) return true;
+    if (rule.match_type === 'message_prefix' && String(errorRow.message || '').startsWith(rule.pattern)) return true;
+  }
+  return false;
 }
 
 // ── Auto-create wordify_wins table ──────────────────────────────
@@ -252,17 +345,23 @@ async function handleRequest(request, env) {
     const db = env.DB;
     await ensureAppErrorsTable(db);
     const body = await request.json().catch(() => ({}));
-    const { site_id, error_type, title, message, details, logs, config_snapshot, platform, app_version } = body;
+    const { site_id, error_type, title, message, details, logs, config_snapshot, platform, app_version, screen } = body;
     if (!error_type || !message) return err('Missing fields: error_type and message required');
     const siteId = (site_id || 'frametrain').slice(0, 40);
-    // Dedup: gleicher Fehler (gleicher type+message) max. 1x pro 5 Minuten
+    // error_group: stabile Signatur (type + normalisierte Message) zum Clustern
+    const normMsg = String(message).toLowerCase().replace(/[0-9]+/g, 'N').replace(/0x[0-9a-f]+/g, 'X').slice(0, 160);
+    const errorGroup = await sha256(error_type + '|' + normMsg);
+    // Dedup: gleicher Fehler (gleiche Gruppe) max. 1x pro 5 Minuten → nur Zähler hoch
     const dupe = await db.prepare(
-      `SELECT id FROM app_errors WHERE site_id=? AND error_type=? AND message=? AND created_at > datetime('now','-5 minutes') LIMIT 1`
-    ).bind(siteId, error_type, String(message).slice(0, 500)).first();
-    if (dupe) return json({ success: true, skipped: true });
+      `SELECT id FROM app_errors WHERE site_id=? AND error_group=? AND created_at > datetime('now','-5 minutes') LIMIT 1`
+    ).bind(siteId, errorGroup).first();
+    if (dupe) {
+      await db.prepare('UPDATE app_errors SET occurrences = occurrences + 1 WHERE id=?').bind(dupe.id).run().catch(() => {});
+      return json({ success: true, skipped: true });
+    }
     await db.prepare(
-      `INSERT INTO app_errors (site_id, error_type, title, message, details, logs, config_snapshot, platform, app_version)
-       VALUES (?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO app_errors (site_id, error_type, title, message, details, logs, config_snapshot, platform, app_version, error_group, screen, triage_status)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,'new')`
     ).bind(
       siteId,
       error_type.slice(0, 100),
@@ -272,7 +371,9 @@ async function handleRequest(request, env) {
       logs ? String(logs).slice(0, 10000) : null,
       config_snapshot ? String(config_snapshot).slice(0, 5000) : null,
       (platform || 'unknown').slice(0, 100),
-      (app_version || 'unknown').slice(0, 50)
+      (app_version || 'unknown').slice(0, 50),
+      errorGroup,
+      screen ? String(screen).slice(0, 120) : null
     ).run();
     // Notification im Dashboard
     await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
@@ -318,6 +419,219 @@ async function handleRequest(request, env) {
     const db = env.DB;
     const errorId = parseInt(segments[2]);
     await db.prepare('DELETE FROM app_errors WHERE id=?').bind(errorId).run();
+    return json({ success: true });
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  AUTO-FIX PIPELINE (Triage-Automation ⇄ Manager ⇄ GitHub)
+  // ═══════════════════════════════════════════════════════════════
+
+  // GET /api/app-errors/export ── Automation (Bearer): offene, nicht-ignorierte Fehler holen
+  if (request.method === 'GET' && segments[1] === 'app-errors' && segments[2] === 'export') {
+    if (!verifyAutomation(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureAppErrorsTable(db);
+    await ensureIgnoreRulesTable(db);
+    const siteId = url.searchParams.get('site_id') || 'frametrain';
+    const limit  = Math.min(parseInt(url.searchParams.get('limit') || '200'), 500);
+    // Nur unbearbeitete Fehler (noch kein Vorschlag / nicht abgelehnt / nicht ignoriert / nicht gemergt)
+    const rows = await db.prepare(
+      `SELECT * FROM app_errors
+       WHERE site_id=? AND resolved=0 AND (triage_status='new' OR triage_status IS NULL)
+       ORDER BY created_at DESC LIMIT ?`
+    ).bind(siteId, limit).all();
+    const rules = (await db.prepare('SELECT * FROM ignore_rules WHERE site_id=?').bind(siteId).all()).results || [];
+    const all = rows.results || [];
+    const actionable = all.filter(e => !matchesIgnore(e, rules));
+    return json({ errors: actionable, ignore_rules: rules, total_open: all.length, filtered_by_ignore: all.length - actionable.length });
+  }
+
+  // POST /api/fix-proposals ── Automation (Bearer): Fix- oder Ignore-Vorschlag hochladen
+  if (request.method === 'POST' && path === '/api/fix-proposals') {
+    if (!verifyAutomation(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureFixProposalsTable(db);
+    await ensureAppErrorsTable(db);
+    const b = await request.json().catch(() => ({}));
+    const {
+      site_id, kind, category, title, summary, report_markdown, test_steps, root_cause,
+      diff_summary, files_changed, error_ids, error_group, branch, base_branch,
+      pr_number, pr_url, build_status, risk,
+    } = b;
+    if (!title) return err('Missing field: title');
+    // 'fix' = Code-Fix mit PR (mergebar) · 'ignore' = Ignorier-Vorschlag · 'report' = nur Analyse
+    const proposalKind = ['ignore', 'report'].includes(kind) ? kind : 'fix';
+    if (proposalKind === 'fix' && !pr_number) return err('fix proposals require pr_number');
+    const siteId = (site_id || 'frametrain').slice(0, 40);
+    const errorIds = Array.isArray(error_ids) ? error_ids : [];
+    const res = await db.prepare(
+      `INSERT INTO fix_proposals
+       (site_id, kind, category, title, summary, report_markdown, test_steps, root_cause,
+        diff_summary, files_changed, error_ids, error_group, branch, base_branch,
+        pr_number, pr_url, build_status, risk, status, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'proposed','automation')`
+    ).bind(
+      siteId, proposalKind, (category || '').slice(0, 60), String(title).slice(0, 200),
+      (summary || '').slice(0, 500), (report_markdown || '').slice(0, 20000),
+      (test_steps || '').slice(0, 5000), (root_cause || '').slice(0, 5000),
+      (diff_summary || '').slice(0, 10000),
+      files_changed ? JSON.stringify(files_changed).slice(0, 5000) : null,
+      JSON.stringify(errorIds).slice(0, 2000),
+      (error_group || '').slice(0, 100) || null,
+      branch ? String(branch).slice(0, 200) : null,
+      (base_branch || 'main').slice(0, 100),
+      pr_number ? parseInt(pr_number) : null,
+      pr_url ? String(pr_url).slice(0, 300) : null,
+      (build_status || 'unknown').slice(0, 40),
+      (risk || 'medium').slice(0, 20),
+    ).run();
+    // Verknüpfte Fehler auf 'fix_ready' setzen (raus aus dem Export)
+    for (const eid of errorIds) {
+      await db.prepare("UPDATE app_errors SET triage_status='fix_ready' WHERE id=?").bind(parseInt(eid)).run().catch(() => {});
+    }
+    // Dashboard-Notification
+    const label = proposalKind === 'ignore' ? '🔕 Ignorier-Vorschlag' : '🛠️ Fix-Vorschlag';
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind(siteId, 'info', `${label}: ${String(title).slice(0, 60)}`, (summary || '').slice(0, 120)).run().catch(() => {});
+    return json({ success: true, id: res.meta?.last_row_id });
+  }
+
+  // GET /api/fix-proposals ── Dashboard: Liste (auth)
+  if (request.method === 'GET' && path === '/api/fix-proposals') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureFixProposalsTable(db);
+    const siteId = url.searchParams.get('site_id') || 'frametrain';
+    const status = url.searchParams.get('status'); // 'proposed' | 'merged' | 'rejected' | null
+    let q = 'SELECT * FROM fix_proposals WHERE site_id=?';
+    const params = [siteId];
+    if (status) { q += ' AND status=?'; params.push(status); }
+    q += ' ORDER BY created_at DESC LIMIT 200';
+    const rows = await db.prepare(q).bind(...params).all();
+    const stats = await db.prepare(
+      `SELECT status, COUNT(*) as c FROM fix_proposals WHERE site_id=? GROUP BY status`
+    ).bind(siteId).all();
+    return json({ proposals: rows.results || [], stats: stats.results || [] });
+  }
+
+  // GET /api/fix-proposals/:id ── Dashboard: Detail + verknüpfte Fehler (auth)
+  if (request.method === 'GET' && segments[1] === 'fix-proposals' && segments[2] && !segments[3]) {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureFixProposalsTable(db);
+    const p = await db.prepare('SELECT * FROM fix_proposals WHERE id=?').bind(parseInt(segments[2])).first();
+    if (!p) return err('Not found', 404);
+    let linkedErrors = [];
+    try {
+      const ids = JSON.parse(p.error_ids || '[]');
+      if (ids.length) {
+        const placeholders = ids.map(() => '?').join(',');
+        const er = await db.prepare(`SELECT * FROM app_errors WHERE id IN (${placeholders})`).bind(...ids).all();
+        linkedErrors = er.results || [];
+      }
+    } catch { /* ignore */ }
+    return json({ proposal: p, errors: linkedErrors });
+  }
+
+  // POST /api/fix-proposals/:id/approve ── Dashboard-Button "Übernehmen" (auth)
+  if (request.method === 'POST' && segments[1] === 'fix-proposals' && segments[2] && segments[3] === 'approve') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureFixProposalsTable(db);
+    await ensureIgnoreRulesTable(db);
+    const p = await db.prepare('SELECT * FROM fix_proposals WHERE id=?').bind(parseInt(segments[2])).first();
+    if (!p) return err('Not found', 404);
+    if (p.status !== 'proposed') return err(`Vorschlag ist bereits '${p.status}'`);
+    let errorIds = [];
+    try { errorIds = JSON.parse(p.error_ids || '[]'); } catch { /* ignore */ }
+
+    if (p.kind === 'ignore' || p.kind === 'report') {
+      // Ignore: zusätzlich Regel anlegen. Report: nur als erledigt markieren.
+      if (p.kind === 'ignore') {
+        await db.prepare('INSERT INTO ignore_rules (site_id, match_type, pattern, reason) VALUES (?,?,?,?)')
+          .bind(p.site_id, 'group', p.error_group || '', (p.summary || p.title).slice(0, 300)).run().catch(() => {});
+      }
+      const newStatus = p.kind === 'ignore' ? 'ignored' : 'merged';
+      for (const eid of errorIds) {
+        await db.prepare("UPDATE app_errors SET resolved=1, triage_status=? WHERE id=?").bind(newStatus, parseInt(eid)).run().catch(() => {});
+      }
+      await db.prepare("UPDATE fix_proposals SET status='merged', updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(p.id).run();
+      return json({ success: true, kind: p.kind });
+    }
+
+    // kind === 'fix' → GitHub PR mergen
+    const merge = await githubMergePR(env, p.pr_number);
+    if (!merge.ok) {
+      await db.prepare("UPDATE fix_proposals SET status='error', merge_result=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")
+        .bind(JSON.stringify(merge.data).slice(0, 2000), p.id).run().catch(() => {});
+      return json({ success: false, error: 'GitHub-Merge fehlgeschlagen', github: merge }, 502);
+    }
+    // Erfolg: Fehler als resolved markieren, Vorschlag als merged
+    for (const eid of errorIds) {
+      await db.prepare("UPDATE app_errors SET resolved=1, triage_status='merged' WHERE id=?").bind(parseInt(eid)).run().catch(() => {});
+    }
+    await db.prepare("UPDATE fix_proposals SET status='merged', merge_result=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")
+      .bind(JSON.stringify(merge.data).slice(0, 2000), p.id).run();
+    await db.prepare('INSERT INTO notifications (site_id, type, title, message) VALUES (?,?,?,?)')
+      .bind(p.site_id, 'success', `✅ Fix gemergt: ${String(p.title).slice(0, 60)}`, `Branch ${p.branch || ''} → ${p.base_branch}`).run().catch(() => {});
+    return json({ success: true, kind: 'fix', merge: merge.data });
+  }
+
+  // POST /api/fix-proposals/:id/reject ── Dashboard-Button "Ablehnen" (auth)
+  if (request.method === 'POST' && segments[1] === 'fix-proposals' && segments[2] && segments[3] === 'reject') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureFixProposalsTable(db);
+    const p = await db.prepare('SELECT * FROM fix_proposals WHERE id=?').bind(parseInt(segments[2])).first();
+    if (!p) return err('Not found', 404);
+    const b = await request.json().catch(() => ({}));
+    let errorIds = [];
+    try { errorIds = JSON.parse(p.error_ids || '[]'); } catch { /* ignore */ }
+    // Fehler auf 'rejected' → werden nicht erneut vorgeschlagen
+    for (const eid of errorIds) {
+      await db.prepare("UPDATE app_errors SET triage_status='rejected' WHERE id=?").bind(parseInt(eid)).run().catch(() => {});
+    }
+    await db.prepare("UPDATE fix_proposals SET status='rejected', reject_reason=?, updated_at=CURRENT_TIMESTAMP WHERE id=?")
+      .bind((b.reason || '').slice(0, 500), p.id).run();
+    return json({ success: true });
+  }
+
+  // DELETE /api/fix-proposals/:id ── Dashboard: Vorschlag löschen (auth)
+  if (request.method === 'DELETE' && segments[1] === 'fix-proposals' && segments[2]) {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await db.prepare('DELETE FROM fix_proposals WHERE id=?').bind(parseInt(segments[2])).run();
+    return json({ success: true });
+  }
+
+  // GET /api/ignore-rules ── Dashboard: Ignore-Liste (auth)
+  if (request.method === 'GET' && path === '/api/ignore-rules') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureIgnoreRulesTable(db);
+    const siteId = url.searchParams.get('site_id') || 'frametrain';
+    const rows = await db.prepare('SELECT * FROM ignore_rules WHERE site_id=? ORDER BY created_at DESC').bind(siteId).all();
+    return json({ rules: rows.results || [] });
+  }
+
+  // POST /api/ignore-rules ── Dashboard: manuell Ignore-Regel anlegen (auth)
+  if (request.method === 'POST' && path === '/api/ignore-rules') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureIgnoreRulesTable(db);
+    const b = await request.json().catch(() => ({}));
+    if (!b.pattern) return err('Missing field: pattern');
+    const siteId = (b.site_id || 'frametrain').slice(0, 40);
+    await db.prepare('INSERT INTO ignore_rules (site_id, match_type, pattern, reason) VALUES (?,?,?,?)')
+      .bind(siteId, (b.match_type || 'error_type').slice(0, 30), String(b.pattern).slice(0, 300), (b.reason || '').slice(0, 300)).run();
+    return json({ success: true });
+  }
+
+  // DELETE /api/ignore-rules/:id ── Dashboard: Ignore-Regel entfernen (auth)
+  if (request.method === 'DELETE' && segments[1] === 'ignore-rules' && segments[2]) {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await db.prepare('DELETE FROM ignore_rules WHERE id=?').bind(parseInt(segments[2])).run();
     return json({ success: true });
   }
 
