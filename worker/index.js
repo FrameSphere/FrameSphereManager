@@ -217,6 +217,31 @@ async function ensureIgnoreRulesTable(db) {
   )`).run();
 }
 
+// ── Auto-create triage_runs table (Auto-Fix Verlauf) ─────────────
+// Jeder tägliche Triage-Lauf meldet am Ende genau EINEN Datensatz —
+// auch wenn nichts zu tun war. So zeigt der Verlauf jeden Lauf, statt
+// nur die Läufe, die einen Vorschlag erzeugt haben.
+async function ensureTriageRunsTable(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS triage_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id TEXT NOT NULL DEFAULT 'frametrain',
+    started_at TEXT,
+    finished_at TEXT,
+    trigger TEXT,                 -- 'launchd' | 'in-app' | 'manual' | 'actions'
+    errors_open INTEGER DEFAULT 0,
+    clusters INTEGER DEFAULT 0,
+    fixes_created INTEGER DEFAULT 0,
+    reports INTEGER DEFAULT 0,
+    ignores INTEGER DEFAULT 0,
+    skipped INTEGER DEFAULT 0,
+    prs TEXT,                     -- JSON-Array von {pr_number, pr_url}
+    status TEXT,                  -- 'success' | 'partial' | 'aborted' | 'noop'
+    summary TEXT,                 -- 1-Zeilen-Zusammenfassung (fertig formatiert)
+    notes TEXT,                   -- optionaler Klartext (z.B. "api.github.com blockiert")
+    created_at DATETIME DEFAULT (datetime('now'))
+  )`).run();
+}
+
 // ── Automation-Auth (Bearer-Secret, für Cloud-Routine) ───────────
 function verifyAutomation(request, env) {
   const auth = request.headers.get('Authorization') || '';
@@ -633,6 +658,51 @@ async function handleRequest(request, env) {
     const db = env.DB;
     await db.prepare('DELETE FROM ignore_rules WHERE id=?').bind(parseInt(segments[2])).run();
     return json({ success: true });
+  }
+
+  // POST /api/triage-runs ── Automation (Bearer): einen Triage-Lauf protokollieren
+  // Jeder Lauf meldet am Ende genau einen Datensatz (auch bei 0 Fehlern / Abbruch).
+  if (request.method === 'POST' && path === '/api/triage-runs') {
+    if (!verifyAutomation(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureTriageRunsTable(db);
+    const b = await request.json().catch(() => ({}));
+    const siteId = (b.site_id || 'frametrain').slice(0, 40);
+    const num = (v) => Number.isFinite(parseInt(v)) ? parseInt(v) : 0;
+    const validStatus = ['success', 'partial', 'aborted', 'noop'];
+    const status = validStatus.includes(b.status) ? b.status : 'success';
+    let prsJson = '[]';
+    if (Array.isArray(b.prs)) prsJson = JSON.stringify(b.prs).slice(0, 4000);
+    const res = await db.prepare(
+      `INSERT INTO triage_runs
+       (site_id, started_at, finished_at, trigger, errors_open, clusters,
+        fixes_created, reports, ignores, skipped, prs, status, summary, notes)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      siteId,
+      b.started_at ? String(b.started_at).slice(0, 40) : null,
+      b.finished_at ? String(b.finished_at).slice(0, 40) : new Date().toISOString(),
+      (b.trigger || 'manual').slice(0, 40),
+      num(b.errors_open), num(b.clusters), num(b.fixes_created),
+      num(b.reports), num(b.ignores), num(b.skipped),
+      prsJson, status,
+      b.summary ? String(b.summary).slice(0, 500) : null,
+      b.notes ? String(b.notes).slice(0, 2000) : null,
+    ).run();
+    return json({ success: true, id: res.meta?.last_row_id });
+  }
+
+  // GET /api/triage-runs ── Dashboard: Verlauf abrufen (auth), neueste zuerst
+  if (request.method === 'GET' && path === '/api/triage-runs') {
+    if (!await verifyAuth(request, env)) return err('Unauthorized', 401);
+    const db = env.DB;
+    await ensureTriageRunsTable(db);
+    const siteId = url.searchParams.get('site_id') || 'frametrain';
+    const limit  = Math.min(parseInt(url.searchParams.get('limit') || '30'), 200);
+    const rows = await db.prepare(
+      'SELECT * FROM triage_runs WHERE site_id=? ORDER BY id DESC LIMIT ?'
+    ).bind(siteId, limit).all();
+    return json({ runs: rows.results || [] });
   }
 
   // POST /api/suggestions ── Public: anonymous suggestions with IP cooldown

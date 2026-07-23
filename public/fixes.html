@@ -116,6 +116,25 @@
 
     .fx-empty { text-align:center; padding:5rem 1rem; color:var(--text3); font-size:13px; display:flex; flex-direction:column; align-items:center; gap:10px; }
 
+    /* Läufe (Run-Verlauf) */
+    .fx-run { background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--text3); border-radius:12px; overflow:hidden; }
+    .fx-run.ok   { border-left-color:var(--green); }
+    .fx-run.warn { border-left-color:var(--yellow); }
+    .fx-run.bad  { border-left-color:var(--red); }
+    .fx-run > summary { list-style:none; cursor:pointer; padding:13px 16px; display:flex; align-items:center; gap:11px; flex-wrap:wrap; }
+    .fx-run > summary::-webkit-details-marker { display:none; }
+    .fx-run > summary:hover { background:rgba(255,255,255,.03); }
+    .run-when { font-size:12px; color:var(--text2); font-family:'Space Mono',monospace; white-space:nowrap; }
+    .run-sum { flex:1; min-width:140px; font-size:13px; color:var(--text1); line-height:1.4; }
+    .run-status { font-size:15px; line-height:1; }
+    .run-detail { padding:0 16px 15px; border-top:1px solid var(--border); display:flex; flex-direction:column; gap:9px; }
+    .run-stats { display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; font-size:12px; color:var(--text3); }
+    .run-stats b { color:var(--text1); font-weight:700; }
+    .run-prs, .run-notes, .run-time { font-size:12px; color:var(--text2); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+    .run-prs a { color:var(--accent2); font-family:'Space Mono',monospace; }
+    .run-notes { color:#fbbf24; }
+    .run-time { color:var(--text3); font-size:11px; font-family:'Space Mono',monospace; }
+
     /* Ignore-rules tab */
     .ir-row { display:flex; align-items:center; gap:12px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:11px 15px; }
     .ir-pattern { font-family:'Space Mono',monospace; font-size:12px; color:var(--text1); flex:1; word-break:break-all; }
@@ -149,6 +168,9 @@
       <button class="fx-tab" onclick="showFxTab('history',this)">
         <i data-lucide="history" style="width:13px;height:13px"></i> Verlauf <span class="fx-count" id="cnt-history">0</span>
       </button>
+      <button class="fx-tab" onclick="showFxTab('runs',this)">
+        <i data-lucide="activity" style="width:13px;height:13px"></i> Läufe <span class="fx-count" id="cnt-runs">0</span>
+      </button>
       <button class="fx-tab" onclick="showFxTab('ignore',this)">
         <i data-lucide="bell-off" style="width:13px;height:13px"></i> Ignore-Liste <span class="fx-count" id="cnt-ignore">0</span>
       </button>
@@ -156,6 +178,7 @@
 
     <div id="fx-open"    class="fx-scroll"></div>
     <div id="fx-history" class="fx-scroll" style="display:none"></div>
+    <div id="fx-runs"    class="fx-scroll" style="display:none"></div>
     <div id="fx-ignore"  class="fx-scroll" style="display:none"></div>
 
   </div>
@@ -220,10 +243,11 @@ function catLabel(c) {
 function showFxTab(name, btn) {
   document.querySelectorAll('.fx-tab').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  ['open','history','ignore'].forEach(n => {
+  ['open','history','runs','ignore'].forEach(n => {
     document.getElementById('fx-' + n).style.display = n === name ? 'flex' : 'none';
   });
   if (name === 'ignore') renderIgnore();
+  if (name === 'runs')   loadRuns();
 }
 
 // ── Load ──────────────────────────────────────────────────────────
@@ -416,12 +440,78 @@ async function delIgnore(id) {
   renderIgnore();
 }
 
+// ── Läufe (Run-Verlauf) ───────────────────────────────────────────
+// Jeder tägliche Triage-Lauf meldet genau einen Datensatz – auch wenn
+// nichts zu tun war. Hier steht der komplette Verlauf, neueste zuerst.
+function runStatusMeta(s) {
+  return ({
+    success: { icon:'✅', cls:'ok',   label:'Erfolgreich' },
+    noop:    { icon:'✅', cls:'ok',   label:'Nichts zu tun' },
+    partial: { icon:'⚠️', cls:'warn', label:'Teilweise' },
+    aborted: { icon:'⛔', cls:'bad',  label:'Abgebrochen' },
+  })[s] || { icon:'✅', cls:'ok', label:s || 'OK' };
+}
+
+function runSummary(r) {
+  if (r.summary) return r.summary;
+  if (!r.errors_open) return 'nichts zu tun';
+  const parts = [];
+  if (r.fixes_created) parts.push(`${r.fixes_created} Fix${r.fixes_created > 1 ? 'es' : ''}`);
+  if (r.reports)  parts.push(`${r.reports} Report${r.reports > 1 ? 's' : ''}`);
+  if (r.ignores)  parts.push(`${r.ignores} Ignore${r.ignores > 1 ? 's' : ''}`);
+  if (r.skipped)  parts.push(`${r.skipped} übersprungen`);
+  return `${r.errors_open} Fehler → ${parts.length ? parts.join(', ') : 'nichts geändert'}`;
+}
+
+function runCardHtml(r) {
+  const st = runStatusMeta(r.status);
+  let prs = []; try { prs = JSON.parse(r.prs || '[]'); } catch {}
+  const prLinks = (prs || []).filter(p => p && (p.pr_url || p.pr_number)).map(p =>
+    `<a href="${esc(p.pr_url || '#')}" target="_blank" rel="noopener">PR #${esc(String(p.pr_number ?? '?'))}</a>`
+  ).join(' · ');
+  const when = fmtDate(r.finished_at || r.started_at || r.created_at);
+  return `
+    <details class="fx-run ${st.cls}">
+      <summary>
+        <span class="run-when">${esc(when)}</span>
+        <span class="badge b-cat">${esc(r.trigger || '?')}</span>
+        <span class="run-sum">${esc(runSummary(r))}</span>
+        <span class="run-status" title="${esc(st.label)}">${st.icon}</span>
+      </summary>
+      <div class="run-detail">
+        <div class="run-stats">
+          <span><b>${r.errors_open || 0}</b> Fehler offen</span>
+          <span><b>${r.clusters || 0}</b> Cluster</span>
+          <span><b>${r.fixes_created || 0}</b> Fixes</span>
+          <span><b>${r.reports || 0}</b> Reports</span>
+          <span><b>${r.ignores || 0}</b> Ignores</span>
+          <span><b>${r.skipped || 0}</b> übersprungen</span>
+        </div>
+        ${prLinks ? `<div class="run-prs">${icon('git-pull-request', 12)} ${prLinks}</div>` : ''}
+        ${r.notes ? `<div class="run-notes">${icon('info', 12)} ${esc(r.notes)}</div>` : ''}
+        ${(r.started_at || r.finished_at) ? `<div class="run-time">Start ${esc(fmtDate(r.started_at))} · Ende ${esc(fmtDate(r.finished_at))}</div>` : ''}
+      </div>
+    </details>`;
+}
+
+async function loadRuns() {
+  const el = document.getElementById('fx-runs');
+  const data = await api('/api/triage-runs?site_id=frametrain&limit=30');
+  if (!data) { el.innerHTML = errState(); refreshIcons(); return; }
+  const runs = data.runs || [];
+  document.getElementById('cnt-runs').textContent = runs.length;
+  el.innerHTML = runs.length ? runs.map(runCardHtml).join('')
+    : `<div class="fx-empty">${icon('activity', 30, 'color:var(--text3)')}<span>Noch keine Läufe protokolliert.</span></div>`;
+  refreshIcons();
+}
+
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
 
 // ── Boot ──────────────────────────────────────────────────────────
 function boot() {
   initLayout(null);
   loadProposals();
+  loadRuns();
 }
 injectLoginScreen();
 checkAuth(boot);
