@@ -79,6 +79,25 @@
       50% { opacity: 0.4; }
     }
     .pulse-dot { animation: statusPulse 1.5s ease-in-out infinite; }
+
+    /* ── Mobile ── */
+    @media (max-width: 860px) {
+      /* The node detail panel becomes an off-canvas overlay instead of
+         squeezing the graph into a sliver of the viewport. */
+      #node-detail {
+        position: fixed; top: var(--topbar-h); right: 0; bottom: 0;
+        width: min(88vw, 340px); z-index: 260;
+        box-shadow: -4px 0 24px rgba(0,0,0,.4);
+      }
+      #node-detail.open { display: flex; }
+
+      /* Stat strip scrolls horizontally instead of squashing numbers. */
+      .infra-stats { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .infra-stat { min-width: 120px; flex: 0 0 auto; }
+    }
+    @media (max-width: 480px) {
+      .detail-metric { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>

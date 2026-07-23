@@ -303,6 +303,29 @@
     .rank-row { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); }
     .rank-handle { color:var(--text3); cursor:grab; font-size:14px; }
     .rank-num { font-size:11px; font-family:Space Mono; color:var(--text3); width:20px; text-align:right; }
+
+    /* ── Mobile ── */
+    @media (max-width: 860px) {
+      .todo-tabs { padding:14px 14px 0; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+      .todo-toolbar { padding:12px 14px; }
+      .task-scroll { padding:12px 14px; }
+      .task-act-btn { width:36px; height:36px; }
+      .step-brain-btn { width:32px; height:32px; }
+      .add-task-form { padding:12px 14px; }
+      .cal-wrap { padding:14px 12px; }
+      .cal-nav { flex-wrap: wrap; }
+      .prompts-wrap { padding:12px 14px; }
+      .detail-box, .edit-box, .prompt-edit-box { padding:20px 18px; }
+      .rank-panel { padding:12px 14px; }
+      .prio-btn { width:28px; height:28px; }
+    }
+    @media (max-width: 560px) {
+      .cal-grid { gap: 2px; }
+      .cal-day { min-height: 46px; padding: 3px; font-size: 9px; }
+      .cal-day-num { font-size: 10px; margin-bottom: 2px; }
+      .cal-task-dot { font-size: 8px; padding: 1px 3px; }
+      .cal-head { font-size: 8px; padding: 4px 0; }
+    }
   </style>
 </head>
 <body>

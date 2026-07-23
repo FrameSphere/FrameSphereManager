@@ -262,6 +262,22 @@
       box-shadow: 0 8px 32px rgba(0,0,0,.4); z-index: 9999; white-space: nowrap;
     }
     #clipboard-notice.show { display: flex; }
+
+    /* ── Mobile ── */
+    @media (max-width: 860px) {
+      .vault-lock-box { padding: 32px 24px; }
+      .vault-toolbar { padding: 12px 14px; }
+      .vault-toolbar input[type="text"] { width: 100%; }
+      .vault-scroll { padding: 16px 14px; }
+      .vault-icon-btn { width: 38px; height: 38px; }
+      .vault-modal-body { padding: 16px 18px; }
+      .vault-modal-foot { padding: 12px 18px; flex-wrap: wrap; }
+      .vault-modal-head { padding: 18px 18px 14px; }
+    }
+    @media (max-width: 640px) {
+      .vm-row { grid-template-columns: 1fr; }
+    }
+    #clipboard-notice { max-width: calc(100vw - 24px); white-space: normal; }
   </style>
 </head>
 <body>

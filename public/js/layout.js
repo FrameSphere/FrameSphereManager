@@ -79,6 +79,9 @@ function injectTopbar(activeSiteId = null) {
   const el = document.createElement('div');
   el.id = 'topbar';
   el.innerHTML = `
+    <button class="topbar-icon-btn" id="sidebar-toggle" onclick="toggleSidebar()" title="Menü" aria-label="Menü öffnen">
+      <i data-lucide="menu" style="width:18px;height:18px"></i>
+    </button>
     <a class="logo" href="${pathPrefix()}index.html">
       <div class="logo-dot"></div>
       WEBCONTROL HQ
@@ -191,7 +194,20 @@ function injectSidebar(activeSiteId = null) {
     </div>
   `;
   document.getElementById('layout').prepend(el);
+  // Close the mobile drawer whenever a nav link is tapped
+  el.querySelectorAll('a.nav-item').forEach(a => a.addEventListener('click', closeSidebar));
   refreshIcons();
+}
+
+// ── Sidebar backdrop (mobile drawer scrim) ────────────────────────
+function injectSidebarBackdrop() {
+  if (document.getElementById('sidebar-backdrop')) return;
+  const bd = document.createElement('div');
+  bd.id = 'sidebar-backdrop';
+  bd.addEventListener('click', closeSidebar);
+  document.body.appendChild(bd);
+  // Esc closes the drawer
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && sidebarOpen) closeSidebar(); });
 }
 
 // ── Settings Modal ─────────────────────────────────────────────
@@ -362,6 +378,19 @@ async function loadTopbarStats() {
   else                  { badge.style.display = 'none'; }
 }
 
+// ── Sidebar Drawer Logic (mobile) ─────────────────────────────────
+let sidebarOpen = false;
+
+function toggleSidebar(force) {
+  sidebarOpen = typeof force === 'boolean' ? force : !sidebarOpen;
+  const sb = document.getElementById('sidebar');
+  const bd = document.getElementById('sidebar-backdrop');
+  if (sb) sb.classList.toggle('open', sidebarOpen);
+  if (bd) bd.classList.toggle('open', sidebarOpen);
+  document.body.classList.toggle('drawer-open', sidebarOpen);
+}
+function closeSidebar() { toggleSidebar(false); }
+
 // ── Notif Panel Logic ─────────────────────────────────────────────
 let notifOpen = false;
 
@@ -419,6 +448,7 @@ function initLayout(activeSiteId = null) {
   injectTopbar(activeSiteId);
   const layoutEl = document.getElementById('layout');
   if (layoutEl) injectSidebar(activeSiteId);
+  injectSidebarBackdrop();
   injectNotifPanel();
   injectSettingsModal();
   loadTopbarStats();

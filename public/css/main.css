@@ -640,3 +640,136 @@ select option { background: var(--surface2); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+/* ── iOS momentum scrolling for the app's scroll containers ───── */
+.tab-content-area, .notif-list, #sidebar, .scroll-area,
+.db-table-wrap, .an-scroll, .vault-scroll, .pb-scroll,
+.task-scroll, .cal-wrap, .prompts-wrap {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Mobile drawer scaffolding ───────────────────────────────── */
+/* Hamburger + backdrop exist in the DOM on every screen size but stay
+   hidden on desktop; the media query below activates them. */
+#sidebar-toggle { display: none; }
+
+#sidebar-backdrop {
+  position: fixed;
+  inset: var(--topbar-h) 0 0 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 250;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+#sidebar-backdrop.open { opacity: 1; visibility: visible; }
+
+/* ── Responsive: tablet / phone ──────────────────────────────── */
+@media (max-width: 860px) {
+  /* Use the dynamic viewport height so mobile browser chrome doesn't
+     clip the layout or create phantom scroll. */
+  body { height: 100vh; height: 100dvh; }
+
+  #sidebar-toggle {
+    display: flex;
+    width: 40px; height: 40px;
+    flex-shrink: 0;
+  }
+
+  /* Topbar tightens up and drops the stat chips (still on Dashboard). */
+  #topbar { padding: 0 12px; gap: 8px; }
+  .topbar-stat { display: none; }
+  .logo { font-size: 12px; }
+  .topbar-icon-btn { width: 40px; height: 40px; }
+
+  /* Page-header title rows carry icon + title + action buttons on one
+     line on desktop; let them wrap instead of overflowing horizontally. */
+  .page-header .flex.items-center.gap-12 { flex-wrap: wrap; row-gap: 8px; }
+
+  /* Nav items / tab buttons get a bit more height for comfortable tapping. */
+  .nav-item { padding: 11px 10px; }
+  .tab-btn { padding: 13px 14px; }
+
+  /* Any leftover 2-column form/detail grids collapse to one column. */
+  .detail-metric, .db-field-grid, .vm-row, .info-grid { grid-template-columns: 1fr; }
+
+  /* Safety net: components.js (and other scripts) render a lot of ad-hoc
+     multi-column grids as inline styles. Force the ones with an explicit
+     fixed column count down to one column on mobile — but leave
+     repeat(auto-fill/auto-fit, minmax(...)) grids alone, since those
+     already collapse responsively on their own. */
+  [style*="grid-template-columns:repeat(2"],  [style*="grid-template-columns: repeat(2"],
+  [style*="grid-template-columns:repeat(3"],  [style*="grid-template-columns: repeat(3"],
+  [style*="grid-template-columns:repeat(4"],  [style*="grid-template-columns: repeat(4"],
+  [style*="grid-template-columns:repeat(5"],  [style*="grid-template-columns: repeat(5"],
+  [style*="grid-template-columns:repeat(6"],  [style*="grid-template-columns: repeat(6"],
+  [style*="grid-template-columns:repeat(7"],  [style*="grid-template-columns: repeat(7"],
+  [style*="grid-template-columns:repeat(8"],  [style*="grid-template-columns: repeat(8"],
+  [style*="grid-template-columns:2fr 1fr"],
+  [style*="grid-template-columns:1fr 1fr"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Hover-revealed row/card actions are unreachable on touch — show them. */
+  .db-row-actions, .pb-pin-actions, .vault-card-actions, .task-actions {
+    opacity: 1 !important;
+  }
+
+  /* Split list+detail boards (components.js renderSupport / Open Library
+     Scripts): stack the fixed-width list above the detail pane instead of
+     squeezing both into a 375px-wide row. */
+  .support-board { flex-direction: column; height: auto !important; max-height: 80vh; }
+  .support-board > div:first-child { width: 100% !important; max-height: 220px; border-right: none; border-bottom: 1px solid var(--border); }
+  .support-board > div:last-child { min-height: 340px; }
+
+  /* Sidebar becomes an off-canvas drawer. */
+  #sidebar {
+    position: fixed;
+    top: var(--topbar-h);
+    left: 0;
+    height: calc(100vh - var(--topbar-h));
+    height: calc(100dvh - var(--topbar-h));
+    width: min(84vw, var(--sidebar-w));
+    transform: translateX(-100%);
+    transition: transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 300;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
+    will-change: transform;
+  }
+  #sidebar.open { transform: translateX(0); }
+
+  /* Prevent background scroll while the drawer is open. */
+  body.drawer-open #main { overflow: hidden; }
+
+  /* Notifications go full-width so they're usable on a phone. */
+  #notif-panel { width: 100vw; }
+
+  /* Give content edges some breathing room back. */
+  .page-header { padding: 16px 16px 12px; }
+  .site-tabs   { padding: 0 12px; }
+  .tab-panel   { padding: 16px 14px; }
+
+  /* Dense KPI/stat grids collapse to two columns. */
+  .stats-row { grid-template-columns: repeat(2, 1fr); }
+  .analytics-grid { grid-template-columns: 1fr; }
+  .form-row { grid-template-columns: 1fr; }
+}
+
+/* ── Responsive: small phone ─────────────────────────────────── */
+@media (max-width: 480px) {
+  .stats-row { grid-template-columns: 1fr; }
+  .sites-grid { grid-template-columns: 1fr; }
+  .page-title { font-size: 17px; }
+  /* Wide tables scroll horizontally instead of breaking the layout. */
+  .tab-panel, .db-scroll { overflow-x: auto; }
+}
+
+/* ── iOS safe-area insets for edge-to-edge / fixed elements ────── */
+@supports (padding: max(0px)) {
+  #sidebar { padding-left: env(safe-area-inset-left); }
+  #notif-panel { padding-right: env(safe-area-inset-right); }
+  #db-toast, #clipboard-notice, .toast {
+    bottom: max(20px, calc(env(safe-area-inset-bottom) + 12px));
+  }
+}

@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Blog Verwaltung – WebControl HQ</title>
   <link rel="stylesheet" href="css/main.css">
+  <style>
+    /* ── Mobile ── */
+    @media (max-width: 860px) {
+      #bv-ai-grid { grid-template-columns: 1fr !important; }
+      #bv-seo-subtabs { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+    }
+  </style>
 </head>
 <body>
 <div id="layout">
@@ -126,7 +133,7 @@
           <button class="btn btn-ghost btn-sm" onclick="seoLoad()">↻ Laden</button>
         </div>
 
-        <div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0">
+        <div id="bv-seo-subtabs" style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0">
           <button class="tab-btn active" id="seotab-btn-overview" onclick="seoSubTab('overview',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">📊 Übersicht</button>
           <button class="tab-btn" id="seotab-btn-posts" onclick="seoSubTab('posts',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">📝 Post-Keywords</button>
           <button class="tab-btn" id="seotab-btn-ignored" onclick="seoSubTab('ignored',this)" style="font-size:11px;padding:6px 14px;border-radius:6px 6px 0 0">🚫 Ignoriert</button>
@@ -197,7 +204,7 @@
             </div>
           </div>
 
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div id="bv-ai-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
             <div class="form-card">
               <div class="form-card-title">📋 Posts auswählen</div>
               <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">

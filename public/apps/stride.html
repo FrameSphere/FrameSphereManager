@@ -147,6 +147,20 @@
       transition:border-color .15s; cursor:pointer;
     }
     .field-select:focus { border-color:#6366f1; }
+
+    /* ── Mobile ── */
+    @media (max-width: 860px) {
+      .stride-scroll { padding: 16px 14px; }
+      .stride-kpi-grid { grid-template-columns: repeat(2,1fr); }
+      .two-col-grid { grid-template-columns: 1fr !important; }
+      .stride-card[style*="overflow:hidden"] { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+      .stride-modal-body { padding: 16px 18px; }
+      .stride-modal-foot { padding: 12px 18px; flex-wrap: wrap; }
+      .stride-tabs { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    }
+    @media (max-width: 480px) {
+      .stride-kpi-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -198,7 +212,7 @@
         <div class="field-label">E-Mail</div>
         <input class="field-input" id="modal-email" type="email" placeholder="max@example.com">
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="two-col-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div>
           <div class="field-label">Plan</div>
           <select class="field-select" id="modal-plan">
@@ -360,7 +374,7 @@ function renderOverview() {
   const recentBuilds = _builds.slice(0,3);
 
   document.getElementById('tab-content').innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+    <div class="two-col-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
 
       <!-- Plan Verteilung -->
       <div class="stride-card">
@@ -520,7 +534,7 @@ function renderBuildTable(builds) {
 // ── Tab: Settings ─────────────────────────────────────────────────
 function renderSettings() {
   document.getElementById('tab-content').innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div class="two-col-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div class="stride-card">
         <div style="font-size:10px;font-family:'Space Mono',monospace;text-transform:uppercase;letter-spacing:.1em;color:var(--text3);margin-bottom:16px">App-Konfiguration</div>
         <div style="display:flex;flex-direction:column;gap:12px">

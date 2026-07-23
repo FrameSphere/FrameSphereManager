@@ -56,6 +56,7 @@
     .sr-step {
       display: flex; gap: 10px; font-size: 11px; color: var(--text2); line-height: 1.5;
     }
+    .sr-step > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
     .sr-step-num {
       width: 18px; height: 18px; border-radius: 50%; background: rgba(52,211,153,.15);
       border: 1px solid rgba(52,211,153,.3); color: #34d399; font-size: 9px; font-weight: 800;
@@ -209,6 +210,14 @@
     }
     @media (max-width: 600px) {
       .sr-kpis { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 860px) {
+      .sr-scroll { padding: 16px 14px; gap: 18px; }
+      .sr-toolbar { padding: 12px 14px; }
+      .sr-sel { max-width: 100%; }
+      #sr-queries-wrap, #sr-pages-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .sr-breakdown-label { width: 82px; }
+      .sr-setup-box { padding: 28px 22px; }
     }
   </style>
 </head>

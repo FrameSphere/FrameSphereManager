@@ -30,7 +30,7 @@ async function renderSupport(siteId, panel) {
       </div>
     </div>
 
-    <div style="display:flex;gap:0;height:620px;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:12px">
+    <div class="support-board" style="display:flex;gap:0;height:620px;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:12px">
       <!-- Ticket sidebar -->
       <div id="ticket-sidebar" style="width:280px;flex-shrink:0;overflow-y:auto;border-right:1px solid var(--border);background:var(--surface)">
         ${tickets.length === 0
@@ -3466,7 +3466,7 @@ async function renderScripts(siteId, panel) {
       </div>
     </div>
 
-    <div style="display:flex;gap:0;height:680px;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:12px">
+    <div class="support-board" style="display:flex;gap:0;height:680px;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-top:12px">
 
       <!-- Linke Script-Liste -->
       <div id="ft-script-list"

@@ -80,6 +80,21 @@
     /* Pulse dot */
     @keyframes livePulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
     .live-dot { width:6px; height:6px; border-radius:50%; background:var(--green); animation:livePulse 2s infinite; flex-shrink:0; }
+
+    /* ── Mobile ── */
+    @media (max-width: 860px) {
+      .an-scroll { padding: 16px 14px; }
+      .kpi-grid { grid-template-columns: repeat(2,1fr) !important; }
+      .chart-row-2, .chart-row-3 { grid-template-columns: 1fr; }
+      .site-compare-grid { grid-template-columns: repeat(auto-fill,minmax(140px,1fr)); }
+      .an-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; width: auto; }
+      .donut-wrap { flex-wrap: wrap; gap: 14px; }
+      .an-card { overflow-x: auto; }
+      .an-card { padding: 14px 16px; }
+    }
+    @media (max-width: 480px) {
+      .kpi-grid { grid-template-columns: 1fr !important; }
+    }
   </style>
 </head>
 <body>

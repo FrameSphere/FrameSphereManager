@@ -184,6 +184,25 @@
     .db-welcome-grid { display:flex; gap:10px; margin-top:8px; flex-wrap:wrap; justify-content:center; }
     .db-welcome-db { padding:8px 14px; border:1px solid var(--border); border-radius:10px; font-size:11px; font-family:'Space Mono',monospace; color:var(--text3); display:flex; align-items:center; gap:6px; }
     .db-welcome-dot { width:7px; height:7px; border-radius:50%; }
+
+    /* ── Mobile: stack the 3-pane layout, let inputs breathe ── */
+    @media (max-width: 860px) {
+      #db-layout { flex-direction: column; overflow-y: auto; }
+      #db-sidebar { width: 100%; max-height: 260px; border-right: none; border-bottom: 1px solid var(--border); -webkit-overflow-scrolling: touch; }
+      #db-main { min-height: 360px; overflow: visible; }
+      #db-schema-panel { width: 100%; max-height: 50vh; border-left: none; border-top: 1px solid var(--border); }
+      #db-toolbar { padding: 10px 14px; }
+      #db-toolbar input[type="text"] { width: 100% !important; min-width: 0; }
+      #db-toolbar select { flex: 1 1 auto; min-width: 0; }
+      #db-toolbar > div[style*="width:1px"] { display: none; }
+      .db-table-wrap { -webkit-overflow-scrolling: touch; }
+      .db-field-grid { grid-template-columns: 1fr; }
+      .db-detail-row { flex-direction: column; gap: 3px; padding: 10px 0; }
+      .db-detail-key { width: auto; }
+      .db-modal-head { flex-wrap: wrap; gap: 8px; padding: 16px 18px; }
+      .db-modal-foot { flex-wrap: wrap; padding: 12px 18px; }
+      .db-act-btn { width: 32px; height: 32px; }
+    }
   </style>
 </head>
 <body>

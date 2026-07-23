@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Wordify – WebControl HQ</title>
   <link rel="stylesheet" href="../css/main.css">
+  <style>
+    @media (max-width: 860px) {
+      #wordify-winstats-cols { grid-template-columns: 1fr !important; }
+    }
+  </style>
 </head>
 <body>
 <div id="layout">
@@ -93,7 +98,7 @@ async function loadWinStats(targetPanelId, opts) {
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+    <div id="wordify-winstats-cols" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
 
       <!-- Top-Wörter -->
       <div class="card">
