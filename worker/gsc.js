@@ -43,19 +43,39 @@ function pemZuBytes(pem) {
   return buf.buffer;
 }
 
-// Dienstkonto → Zugriffstoken (JWT-Bearer-Flow)
-async function zugriffstoken(env) {
-  const roh = env.GOOGLE_SA_KEY;
+// Schlüssel einlesen. Akzeptiert den JSON-Inhalt der Datei direkt oder
+// denselben Inhalt base64-kodiert – letzteres, weil die interaktive Eingabe
+// von `wrangler secret put` an Zeilenumbrüchen abschneidet und mehrzeiliges
+// JSON dabei kaputtgeht.
+function schluesselLesen(env) {
+  const roh = (env.GOOGLE_SA_KEY || '').trim();
   if (!roh) throw new Error('GOOGLE_SA_KEY ist nicht gesetzt');
-  let key;
-  try {
-    key = JSON.parse(roh);
-  } catch (e) {
-    throw new Error('GOOGLE_SA_KEY ist kein gültiges JSON');
+
+  let key = null;
+  if (roh.startsWith('{')) {
+    try { key = JSON.parse(roh); } catch (e) { key = null; }
+  }
+  if (!key) {
+    try { key = JSON.parse(atob(roh.replace(/\s+/g, ''))); } catch (e) { key = null; }
+  }
+  if (!key) {
+    // Diagnose ohne Schlüsselmaterial: nur Länge und Form.
+    throw new Error(
+      `GOOGLE_SA_KEY lässt sich nicht lesen – ${roh.length} Zeichen, ` +
+      `${roh.startsWith('{') ? 'beginnt mit {, ist aber kein gültiges JSON' : 'beginnt nicht mit { und ist auch kein base64'}. ` +
+      'Erwartet wird der komplette Inhalt der Schlüsseldatei. Setzen mit: ' +
+      'npx wrangler secret put GOOGLE_SA_KEY < schluessel.json'
+    );
   }
   if (!key.client_email || !key.private_key) {
-    throw new Error('GOOGLE_SA_KEY enthält client_email oder private_key nicht');
+    throw new Error('GOOGLE_SA_KEY enthält client_email oder private_key nicht – ist das wirklich die Schlüsseldatei des Dienstkontos?');
   }
+  return key;
+}
+
+// Dienstkonto → Zugriffstoken (JWT-Bearer-Flow)
+async function zugriffstoken(env) {
+  const key = schluesselLesen(env);
 
   const jetzt = Math.floor(Date.now() / 1000);
   const kopf = b64urlText(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
