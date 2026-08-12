@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS ag_abteilungen (
   kontext_datei  TEXT,                    -- 'abteilungen/frametrain.md'
   beschreibung   TEXT,
   farbe          TEXT DEFAULT '#3b82f6',
+  gsc_property   TEXT,                    -- exakt wie in der Search Console
   aktiv          INTEGER DEFAULT 1,
   sortierung     INTEGER DEFAULT 0,
   erstellt_am    DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -137,7 +138,9 @@ CREATE TABLE IF NOT EXISTS ag_kennzahlen (
   quelle        TEXT NOT NULL DEFAULT 'gsc',
   name          TEXT NOT NULL,            -- klicks | impressionen | ctr | position
   wert          REAL NOT NULL,
-  dimension     TEXT,                     -- optional: Query/Seite
+  dimension     TEXT DEFAULT '',          -- '' = Gesamtwert. Nie NULL: SQLite
+                                          -- behandelt NULLs in UNIQUE als
+                                          -- verschieden, ON CONFLICT griffe nicht.
   erstellt_am   DATETIME DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(abteilung_id, datum, quelle, name, dimension)
 );
@@ -156,9 +159,9 @@ CREATE INDEX IF NOT EXISTS ix_ag_kennzahlen      ON ag_kennzahlen(abteilung_id, 
 
 -- ── Grundbestand ─────────────────────────────────────────────────
 
-INSERT OR IGNORE INTO ag_abteilungen (id, name, projekt, kontext_datei, beschreibung, farbe, sortierung) VALUES
+INSERT OR IGNORE INTO ag_abteilungen (id, name, projekt, kontext_datei, beschreibung, farbe, gsc_property, sortierung) VALUES
   ('frametrain', 'FrameTrain', 'frametrain', 'abteilungen/frametrain.md',
-   'Desktop-App und Webseite frame-train.com', '#f59e0b', 1);
+   'Desktop-App und Webseite frame-train.com', '#f59e0b', 'https://frame-train.com/', 1);
 
 INSERT OR IGNORE INTO ag_funktionen (id, name, skill, beschreibung, icon, liefert) VALUES
   ('seo-analyst',     'SEO-Analyst',      'seo-analyst',

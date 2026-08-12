@@ -12,6 +12,8 @@
 // Eintrag der Art 'uebergabe'. Der Verlauf ist ag_eintraege nach Zeit.
 // =============================================
 
+import { gscSync, gscQueries } from './gsc.js';
+
 // Ein Lauf ohne Ende gilt nach zwei Stunden als abgestürzt.
 const LAUF_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 
@@ -97,6 +99,8 @@ async function ensureAgenturTables(db) {
     db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_befunde_fp ON ag_befunde(fingerprint)'),
     db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_kennzahlen ON ag_kennzahlen(abteilung_id, name, datum)'),
   ]);
+  // Nachträgliche Spalten (schlagen fehl, wenn sie schon da sind – das ist ok)
+  await db.prepare('ALTER TABLE ag_abteilungen ADD COLUMN gsc_property TEXT').run().catch(() => {});
   tabellenBereit = true;
 }
 
@@ -276,7 +280,7 @@ export async function handleAgentur(request, env, helpers) {
     if (method === 'PATCH' && id3) {
       if (!nurDashboard()) return err('Nur über das Dashboard', 403);
       const felder = [], werte = [];
-      for (const [k, max] of [['name', 80], ['projekt', 40], ['kontext_datei', 200], ['beschreibung', 500], ['farbe', 20]]) {
+      for (const [k, max] of [['name', 80], ['projekt', 40], ['kontext_datei', 200], ['beschreibung', 500], ['farbe', 20], ['gsc_property', 300]]) {
         if (body[k] !== undefined) { felder.push(`${k}=?`); werte.push(txt(body[k], max)); }
       }
       if (body.aktiv !== undefined) { felder.push('aktiv=?'); werte.push(einsAus(body.aktiv)); }
@@ -714,9 +718,13 @@ export async function handleAgentur(request, env, helpers) {
       const name = url.searchParams.get('name');
       const tage = Math.min(num(url.searchParams.get('tage')) || 90, 500);
       const ab = new Date(Date.now() - tage * 86400000).toISOString().slice(0, 10);
+      // dimension='' heißt "Gesamtwert". NULL nur noch aus Altbeständen:
+      // SQLite behandelt NULLs in UNIQUE als verschieden, deshalb schreibt
+      // die API seit jeher '' – gelesen wird beides.
+      const ohneDim = "(dimension IS NULL OR dimension='')";
       const r = name
-        ? await db.prepare(`SELECT * FROM ag_kennzahlen WHERE abteilung_id=? AND name=? AND datum>=? AND dimension IS NULL ORDER BY datum ASC`).bind(abt, name, ab).all()
-        : await db.prepare(`SELECT * FROM ag_kennzahlen WHERE abteilung_id=? AND datum>=? AND dimension IS NULL ORDER BY datum ASC`).bind(abt, ab).all();
+        ? await db.prepare(`SELECT * FROM ag_kennzahlen WHERE abteilung_id=? AND name=? AND datum>=? AND ${ohneDim} ORDER BY datum ASC`).bind(abt, name, ab).all()
+        : await db.prepare(`SELECT * FROM ag_kennzahlen WHERE abteilung_id=? AND datum>=? AND ${ohneDim} ORDER BY datum ASC`).bind(abt, ab).all();
       return json({ kennzahlen: r.results || [] });
     }
     if (method === 'POST') {
@@ -733,12 +741,20 @@ export async function handleAgentur(request, env, helpers) {
         ).bind(
           txt(k.abteilung_id || body.abteilung_id, 40), txt(k.datum, 10),
           txt(k.quelle || body.quelle, 20) || 'gsc', txt(k.name, 40),
-          Number(k.wert) || 0, txt(k.dimension, 300),
+          Number(k.wert) || 0, txt(k.dimension, 300) || '',
         ).run().catch(() => {});
         n++;
       }
       return json({ success: true, gespeichert: n });
     }
+  }
+
+  // ── Search Console ─────────────────────────────────────────────
+  // Der Dienstkonto-Schlüssel bleibt im Worker. Rollen holen ihre Zahlen
+  // hier, nicht bei Google.
+  if (teil === 'gsc') {
+    if (method === 'POST' && id3 === 'sync')    return gscSync(request, env, db, body, json, err);
+    if (method === 'GET'  && id3 === 'queries') return gscQueries(env, db, url, json, err);
   }
 
   return err('Unbekannte Agentur-Route', 404);

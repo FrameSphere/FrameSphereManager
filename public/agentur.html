@@ -704,7 +704,13 @@ function zeichneBerichte() {
 
   const zahlenBlock = karten
     ? `<div class="zahlen-grid">${karten}</div>`
-    : `<div class="hinweis">${icon('line-chart', 15)}<span>Noch keine Kennzahlen. Sobald Marcel das erste Mal gelaufen ist, stehen hier Klicks, Impressionen, CTR und Position als Verlauf.</span></div>`;
+    : `<div class="hinweis">${icon('line-chart', 15)}<span>Noch keine Kennzahlen. Hol die Search-Console-Werte, dann stehen hier Klicks, Impressionen, CTR und Position als Verlauf.</span></div>`;
+
+  const gscLeiste = `
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+      <button class="btn btn-ghost" id="gsc-btn" onclick="gscHolen()">${icon('download-cloud', 13)} Search-Console-Daten holen</button>
+      <span id="gsc-status" style="font-size:11.5px;color:var(--text3);font-family:'Space Mono',monospace"></span>
+    </div>`;
 
   const liste = BERICHTE.length ? BERICHTE.map(b => {
     const art = ART_MARKE[b.art] || ART_MARKE.notiz;
@@ -723,7 +729,47 @@ function zeichneBerichte() {
     </div>`;
   }).join('') : `<div class="leer">Noch keine Berichte. Sie erscheinen hier, sobald der erste Lauf durch ist.</div>`;
 
-  el.innerHTML = zahlenBlock + liste;
+  el.innerHTML = gscLeiste + zahlenBlock + liste;
+}
+
+// Holt die Tageswerte über den Worker – der Google-Schlüssel liegt dort als
+// Secret und kommt nie in den Browser. Fehler werden im Klartext gezeigt:
+// der häufigste ist eine Property, für die das Dienstkonto kein Leserecht hat.
+async function gscHolen() {
+  const btn = document.getElementById('gsc-btn');
+  const status = document.getElementById('gsc-status');
+  btn.disabled = true;
+  status.style.color = 'var(--text3)';
+  status.textContent = 'Frage Google…';
+  try {
+    const r = await fetch(API_URL + '/api/agentur/gsc/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Auth-Token': getToken() || '' },
+      body: JSON.stringify({ abteilung_id: ABTEILUNG, tage: 90 }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      status.style.color = '#f87171';
+      status.textContent = d.error || `Fehler ${r.status}`;
+    } else if (!d.tage_geliefert) {
+      status.style.color = '#fbbf24';
+      status.textContent = d.hinweis || 'Keine Zeilen geliefert.';
+    } else {
+      // Erst neu zeichnen, dann melden – sonst überschreibt das Neuzeichnen
+      // die Meldung sofort wieder.
+      await ladeBerichte();
+      const neu = document.getElementById('gsc-status');
+      if (neu) {
+        neu.style.color = '#4ade80';
+        neu.textContent = `${d.tage_geliefert} Tage geholt (${d.zeitraum?.[0]} bis ${d.zeitraum?.[1]})`;
+      }
+    }
+  } catch (e) {
+    status.style.color = '#f87171';
+    status.textContent = 'Verbindung fehlgeschlagen';
+  }
+  const b = document.getElementById('gsc-btn');
+  if (b) b.disabled = false;
 }
 
 // ── Befunde ──────────────────────────────────────────────────────
