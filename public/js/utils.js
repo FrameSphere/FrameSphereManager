@@ -27,6 +27,33 @@ function fmtDate(d) {
   });
 }
 
+// ── Mini-Markdown → HTML (Reports, Berichte) ─────────────────────
+function mdToHtml(md) {
+  if (!md) return '<p style="color:var(--text3)">Kein Text vorhanden.</p>';
+  let s = esc(md);
+  // Codeblöcke ```
+  s = s.replace(/```([\s\S]*?)```/g, (_, c) => `<pre><code>${c.replace(/^\n/, '')}</code></pre>`);
+  // Inline-Code
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Überschriften
+  s = s.replace(/^### (.*)$/gm, '<h3>$1</h3>')
+       .replace(/^## (.*)$/gm, '<h2>$1</h2>')
+       .replace(/^# (.*)$/gm, '<h1>$1</h1>');
+  // Bold
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // Listen
+  s = s.replace(/^(?:- |\* )(.*)$/gm, '<li>$1</li>');
+  s = s.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, m => m.includes('<ul>') ? m : `<ul>${m}</ul>`);
+  // Absätze
+  s = s.split(/\n{2,}/).map(block => {
+    const t = block.trim();
+    if (!t) return '';
+    if (/^<(h[1-3]|ul|ol|pre|li)/.test(t)) return t;
+    return `<p>${t.replace(/\n/g, '<br>')}</p>`;
+  }).join('\n');
+  return s;
+}
+
 function emptyState(msg) {
   return `<div class="empty">${icon('inbox', 28, 'color:var(--text3);margin-bottom:8px')}<span>${msg}</span></div>`;
 }

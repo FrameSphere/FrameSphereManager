@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agentur – WebControl HQ</title>
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    /* ── Kopfzeile ─────────────────────────────────────────────── */
+    .ag-headbar { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+    .ag-sel {
+      background:var(--bg3); border:1px solid var(--border2); color:var(--text);
+      border-radius:8px; padding:6px 10px; font-family:'Space Mono',monospace;
+      font-size:11px; font-weight:700; cursor:pointer;
+    }
+    .ag-chips { display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
+    .ag-chip {
+      display:flex; align-items:center; gap:6px; padding:5px 11px; border-radius:20px;
+      background:var(--bg3); border:1px solid var(--border); font-size:11px;
+      font-family:'Space Mono',monospace; color:var(--text2); font-weight:700;
+    }
+    .ag-chip b { color:var(--text); font-size:12px; }
+    .ag-chip.warn  { border-color:rgba(245,158,11,.4); color:#fbbf24; }
+    .ag-chip.warn b{ color:#fbbf24; }
+    .ag-chip.bad   { border-color:rgba(239,68,68,.4);  color:#f87171; }
+    .ag-chip.bad b { color:#f87171; }
+    .ag-chip.live  { border-color:rgba(34,197,94,.45); color:#4ade80; }
+    .ag-chip.live b{ color:#4ade80; }
+
+    .ag-tabs { display:flex; gap:4px; padding:14px 28px 0; border-bottom:1px solid var(--border); flex-shrink:0; overflow-x:auto; }
+    .ag-tab {
+      padding:9px 16px; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+      background:none; border:none; border-bottom:2px solid transparent; color:var(--text3);
+      cursor:pointer; font-family:'Space Mono',monospace; margin-bottom:-1px; white-space:nowrap;
+      display:flex; align-items:center; gap:7px; transition:color .15s,border-color .15s;
+    }
+    .ag-tab.active { color:var(--accent2); border-bottom-color:var(--accent2); }
+    .ag-tab:hover:not(.active) { color:var(--text2); }
+    .ag-count { font-size:10px; font-weight:800; padding:1px 7px; border-radius:20px; background:rgba(255,255,255,.08); color:var(--text2); }
+    .ag-count.hot { background:rgba(245,158,11,.18); color:#fbbf24; }
+
+    .ag-pane { flex:1; overflow-y:auto; padding:20px 28px 40px; display:none; }
+    .ag-pane.active { display:block; }
+
+    /* ── Das Büro ──────────────────────────────────────────────── */
+    .buero-wrap { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:18px; align-items:start; }
+
+    .buero {
+      position:relative; border-radius:18px; padding:30px 26px 26px;
+      background:
+        linear-gradient(180deg, rgba(59,130,246,.06), transparent 40%),
+        repeating-linear-gradient(90deg, rgba(255,255,255,.022) 0 1px, transparent 1px 46px),
+        repeating-linear-gradient(0deg,  rgba(255,255,255,.022) 0 1px, transparent 1px 46px),
+        var(--bg2);
+      border:1px solid var(--border);
+      box-shadow: inset 0 40px 90px -50px rgba(96,165,250,.35), inset 0 -1px 0 rgba(255,255,255,.03);
+      overflow:hidden;
+    }
+    /* Fensterfront oben */
+    .buero::before {
+      content:''; position:absolute; top:0; left:0; right:0; height:8px;
+      background:linear-gradient(90deg, transparent, rgba(96,165,250,.5), transparent);
+      opacity:.55;
+    }
+    .buero-label {
+      position:absolute; top:12px; right:18px; font-family:'Space Mono',monospace;
+      font-size:9px; letter-spacing:.18em; text-transform:uppercase; color:var(--text3);
+    }
+
+    .desks { display:grid; grid-template-columns:repeat(auto-fill, minmax(168px, 1fr)); gap:26px 20px; }
+
+    .desk {
+      position:relative; display:flex; flex-direction:column; align-items:center;
+      cursor:pointer; padding-top:6px; border:none; background:none; font-family:inherit;
+      color:var(--text); /* Buttons erben sonst die Systemfarbe – Namen wären unsichtbar */
+      transition:transform .14s;
+    }
+    .desk:hover { transform:translateY(-3px); }
+    .desk:focus-visible { outline:2px solid var(--accent); outline-offset:6px; border-radius:12px; }
+
+    /* Person */
+    .fig { position:relative; width:66px; height:56px; margin-bottom:-8px; z-index:2; }
+    .fig svg { display:block; width:66px; height:56px; }
+    .desk[data-zustand="am_platz"] .fig,
+    .desk[data-zustand="offen"]    .fig { animation:atmen 4.5s ease-in-out infinite; }
+    .desk[data-zustand="arbeitet"] .fig { animation:tippen 1.1s ease-in-out infinite; }
+    .desk[data-zustand="wartet"]   .fig { animation:atmen 2.6s ease-in-out infinite; }
+    .desk[data-zustand="haengt"]     .fig,
+    .desk[data-zustand="beurlaubt"]  .fig { opacity:0; }
+
+    /* Leerer Stuhl, wenn niemand da ist */
+    .leerzeichen {
+      position:absolute; top:8px; left:50%; transform:translateX(-50%);
+      display:none; align-items:center; justify-content:center; width:40px; height:40px;
+      border-radius:10px; border:1px dashed var(--border2); color:var(--text3); z-index:2;
+    }
+    .desk[data-zustand="haengt"] .leerzeichen,
+    .desk[data-zustand="beurlaubt"] .leerzeichen { display:flex; }
+
+    /* Schreibtisch */
+    .tisch {
+      position:relative; width:100%; height:46px; border-radius:9px;
+      background:linear-gradient(180deg, var(--surface2), var(--surface));
+      border:1px solid var(--border2);
+      box-shadow:0 8px 18px -10px rgba(0,0,0,.9);
+      display:flex; align-items:center; justify-content:center;
+    }
+    .desk[data-zustand="haengt"] .tisch { border-style:dashed; border-color:rgba(239,68,68,.45); }
+    .desk[data-zustand="beurlaubt"] .tisch { opacity:.45; }
+
+    /* Monitor */
+    .monitor {
+      width:44px; height:28px; border-radius:4px; background:var(--bg);
+      border:1px solid var(--border2); position:relative; overflow:hidden;
+      transition:box-shadow .3s, border-color .3s;
+    }
+    .monitor::after {
+      content:''; position:absolute; inset:3px; border-radius:2px;
+      background:linear-gradient(180deg, var(--mfarbe, #3b82f6), transparent);
+      opacity:.13; transition:opacity .3s;
+    }
+    .desk[data-zustand="arbeitet"] .monitor {
+      border-color:var(--mfarbe); box-shadow:0 0 18px -2px var(--mfarbe);
+      animation:schimmer 2.4s ease-in-out infinite;
+    }
+    .desk[data-zustand="arbeitet"] .monitor::after { opacity:.55; }
+    .desk[data-zustand="haengt"]     .monitor::after,
+    .desk[data-zustand="beurlaubt"]  .monitor::after { opacity:.04; }
+
+    /* Papierstapel im Postfach-Zustand */
+    .papier {
+      position:absolute; right:9px; bottom:11px; width:13px; height:10px; border-radius:2px;
+      background:#e8edf5; box-shadow:0 -3px 0 -1px #cbd5e1, 0 -6px 0 -2px #94a3b8; display:none;
+    }
+    .desk[data-zustand="wartet"] .papier { display:block; animation:wippen 2s ease-in-out infinite; }
+
+    /* Namensschild */
+    .schild { margin-top:11px; text-align:center; }
+    .schild-name { font-size:13px; font-weight:800; letter-spacing:-.01em; }
+    .schild-rolle { font-size:10px; color:var(--text3); font-family:'Space Mono',monospace; margin-top:1px; }
+    .zustand {
+      margin-top:7px; display:inline-flex; align-items:center; gap:5px;
+      font-size:9px; font-family:'Space Mono',monospace; font-weight:700;
+      text-transform:uppercase; letter-spacing:.07em; padding:2px 8px; border-radius:20px;
+      background:rgba(255,255,255,.05); color:var(--text3);
+    }
+    .zustand .punkt { width:5px; height:5px; border-radius:50%; background:currentColor; }
+    .z-arbeitet  { background:rgba(34,197,94,.14);  color:#4ade80; }
+    .z-arbeitet .punkt { animation:pochen 1.4s ease-in-out infinite; }
+    .z-wartet    { background:rgba(245,158,11,.14); color:#fbbf24; }
+    .z-haengt    { background:rgba(239,68,68,.15);  color:#f87171; }
+    .z-offen     { background:rgba(96,165,250,.14); color:#60a5fa; }
+    .z-am_platz  { background:rgba(255,255,255,.05);color:var(--text3); }
+    .z-beurlaubt { background:rgba(255,255,255,.04);color:var(--text3); }
+
+    @keyframes atmen   { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-2.5px)} }
+    @keyframes tippen  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-1.5px) rotate(.6deg)} }
+    @keyframes wippen  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-3px)} }
+    @keyframes schimmer{ 0%,100%{box-shadow:0 0 14px -3px var(--mfarbe)} 50%{box-shadow:0 0 24px 0 var(--mfarbe)} }
+    @keyframes pochen  { 0%,100%{opacity:1} 50%{opacity:.25} }
+    @media (prefers-reduced-motion: reduce) {
+      .fig, .papier, .monitor, .punkt { animation:none !important; }
+    }
+
+    /* ── Seitenspalte ──────────────────────────────────────────── */
+    .karte {
+      background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      padding:14px 16px; margin-bottom:14px;
+    }
+    .karte-kopf {
+      display:flex; align-items:center; gap:8px; font-family:'Space Mono',monospace;
+      font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--text3);
+      margin-bottom:11px;
+    }
+    .karte-kopf .zahl { margin-left:auto; font-size:11px; font-weight:800; color:var(--text); }
+
+    .postfach-item {
+      display:flex; gap:9px; align-items:flex-start; padding:9px 0;
+      border-top:1px solid var(--border); cursor:pointer;
+    }
+    .postfach-item:first-of-type { border-top:none; }
+    .postfach-item:hover .pf-titel { color:var(--accent2); }
+    .pf-titel { font-size:12px; font-weight:700; line-height:1.35; }
+    .pf-meta { font-size:10px; color:var(--text3); font-family:'Space Mono',monospace; margin-top:2px; }
+    .pf-alt { color:#fbbf24; }
+
+    .ticker-item { display:flex; gap:8px; padding:7px 0; border-top:1px solid var(--border); font-size:11px; align-items:baseline; }
+    .ticker-item:first-of-type { border-top:none; }
+    .ticker-zeit { font-family:'Space Mono',monospace; font-size:9px; color:var(--text3); flex-shrink:0; width:64px; }
+    .ticker-text { color:var(--text2); line-height:1.4; }
+    .ticker-text b { color:var(--text); font-weight:700; }
+
+    .besprechung { border-color:rgba(168,85,247,.4); background:linear-gradient(180deg, rgba(168,85,247,.08), var(--surface)); }
+
+    /* ── Listen (Aufgaben, Befunde, Läufe, Berichte) ───────────── */
+    .zeile {
+      background:var(--surface); border:1px solid var(--border); border-radius:12px;
+      padding:13px 15px; margin-bottom:9px; cursor:pointer; transition:border-color .15s;
+    }
+    .zeile:hover { border-color:rgba(255,255,255,.22); }
+    .zeile-kopf { display:flex; align-items:flex-start; gap:10px; }
+    .zeile-titel { flex:1; font-size:13.5px; font-weight:700; line-height:1.35; }
+    .zeile-sub { font-size:11.5px; color:var(--text2); line-height:1.5; margin-top:5px; }
+    .zeile-meta { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-top:9px; }
+
+    .marke { font-size:9.5px; font-weight:800; padding:2px 8px; border-radius:5px; letter-spacing:.04em; font-family:'Space Mono',monospace; text-transform:uppercase; }
+    .m-grau   { background:rgba(255,255,255,.07); color:var(--text2); }
+    .m-blau   { background:rgba(96,165,250,.14); color:#60a5fa; }
+    .m-gruen  { background:rgba(34,197,94,.14);  color:#4ade80; }
+    .m-gelb   { background:rgba(245,158,11,.15); color:#fbbf24; }
+    .m-rot    { background:rgba(239,68,68,.15);  color:#f87171; }
+    .m-lila   { background:rgba(168,85,247,.15); color:#c084fc; }
+    .m-cyan   { background:rgba(6,182,212,.15);  color:#22d3ee; }
+
+    .autor { display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:700; }
+    .autor .kugel { width:16px; height:16px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:8px; font-weight:800; color:#08111f; }
+
+    /* ── Kennzahlen ────────────────────────────────────────────── */
+    .zahlen-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-bottom:18px; }
+    .zahl-karte { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:13px 15px; }
+    .zahl-name { font-family:'Space Mono',monospace; font-size:9.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--text3); }
+    .zahl-wert { font-size:23px; font-weight:800; letter-spacing:-.02em; margin-top:3px; }
+    .zahl-karte svg { display:block; width:100%; height:34px; margin-top:6px; overflow:visible; }
+
+    /* ── Überlagerung ──────────────────────────────────────────── */
+    .ag-overlay {
+      display:none; position:fixed; inset:0; z-index:9000;
+      background:rgba(0,0,0,.78); backdrop-filter:blur(5px);
+      align-items:center; justify-content:center; padding:20px;
+    }
+    .ag-overlay.offen { display:flex; }
+    .ag-detail {
+      background:var(--surface); border:1px solid var(--border2); border-radius:16px;
+      width:min(760px,96vw); max-height:88vh; display:flex; flex-direction:column; overflow:hidden;
+    }
+    .ag-detail-kopf { padding:18px 22px; border-bottom:1px solid var(--border); display:flex; gap:14px; align-items:flex-start; }
+    .ag-detail-kopf h2 { font-size:17px; font-weight:800; line-height:1.3; }
+    .ag-detail-body { padding:20px 22px; overflow-y:auto; flex:1; }
+    .ag-detail-fuss { padding:14px 22px; border-top:1px solid var(--border); display:flex; gap:9px; flex-wrap:wrap; background:var(--bg2); }
+    .close-x { background:none; border:none; color:var(--text3); font-size:19px; cursor:pointer; line-height:1; padding:2px 6px; }
+    .close-x:hover { color:var(--text); }
+
+    .md { font-size:13px; line-height:1.65; color:var(--text2); }
+    .md h1,.md h2,.md h3 { color:var(--text); margin:16px 0 7px; font-size:14px; font-weight:800; }
+    .md h1 { font-size:16px; }
+    .md p { margin:8px 0; }
+    .md ul { margin:8px 0 8px 18px; }
+    .md li { margin:3px 0; }
+    .md code { background:var(--bg3); padding:1px 5px; border-radius:4px; font-family:'Space Mono',monospace; font-size:11.5px; color:#fbbf24; }
+    .md pre { background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:11px 13px; overflow-x:auto; margin:10px 0; }
+    .md pre code { background:none; padding:0; color:var(--text2); }
+    .md strong { color:var(--text); }
+
+    .verlauf-eintrag { border-left:2px solid var(--border2); padding:0 0 16px 15px; position:relative; }
+    .verlauf-eintrag::before {
+      content:''; position:absolute; left:-5px; top:4px; width:8px; height:8px;
+      border-radius:50%; background:var(--border2);
+    }
+    .verlauf-eintrag:last-child { padding-bottom:0; }
+
+    .feld { display:flex; flex-direction:column; gap:5px; margin-bottom:11px; }
+    .feld label { font-family:'Space Mono',monospace; font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text3); }
+    .feld input, .feld select, .feld textarea {
+      background:var(--bg3); border:1px solid var(--border2); color:var(--text);
+      border-radius:8px; padding:8px 11px; font-family:inherit; font-size:12.5px;
+    }
+    .feld textarea { min-height:70px; resize:vertical; line-height:1.5; }
+    .feld input:focus, .feld select:focus, .feld textarea:focus { outline:none; border-color:var(--accent); }
+
+    .hinweis {
+      display:flex; gap:9px; align-items:flex-start; padding:11px 14px; border-radius:10px;
+      background:rgba(96,165,250,.07); border:1px solid rgba(96,165,250,.25);
+      font-size:12px; color:var(--text2); line-height:1.55; margin-bottom:16px;
+    }
+    .leer { text-align:center; padding:40px 20px; color:var(--text3); font-size:12.5px; }
+
+    @media (max-width: 900px) {
+      .buero-wrap { grid-template-columns:minmax(0,1fr); }
+      .ag-pane { padding:16px; }
+      .ag-tabs { padding:12px 16px 0; }
+      .desks { grid-template-columns:repeat(auto-fill, minmax(140px,1fr)); gap:22px 14px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="layout">
+  <div id="main">
+
+    <div class="page-header">
+      <div class="ag-headbar">
+        <div>
+          <div class="page-title" style="display:flex;align-items:center;gap:10px">
+            <i data-lucide="building-2" style="width:20px;height:20px;color:#a855f7"></i>
+            Agentur
+          </div>
+          <div class="page-sub" id="ag-sub">Lade…</div>
+        </div>
+        <select class="ag-sel" id="ag-abteilung" onchange="wechsleAbteilung()"></select>
+        <div class="ag-chips" id="ag-chips"></div>
+      </div>
+    </div>
+
+    <div class="ag-tabs">
+      <button class="ag-tab active" onclick="zeigeTab('buero',this)">
+        <i data-lucide="building-2" style="width:13px;height:13px"></i> Büro
+      </button>
+      <button class="ag-tab" onclick="zeigeTab('aufgaben',this)">
+        <i data-lucide="check-square-2" style="width:13px;height:13px"></i> Aufgaben <span class="ag-count" id="c-aufgaben">0</span>
+      </button>
+      <button class="ag-tab" onclick="zeigeTab('berichte',this)">
+        <i data-lucide="file-text" style="width:13px;height:13px"></i> Berichte <span class="ag-count" id="c-berichte">0</span>
+      </button>
+      <button class="ag-tab" onclick="zeigeTab('befunde',this)">
+        <i data-lucide="search-check" style="width:13px;height:13px"></i> Befunde <span class="ag-count" id="c-befunde">0</span>
+      </button>
+      <button class="ag-tab" onclick="zeigeTab('laeufe',this)">
+        <i data-lucide="activity" style="width:13px;height:13px"></i> Läufe <span class="ag-count" id="c-laeufe">0</span>
+      </button>
+      <button class="ag-tab" onclick="zeigeTab('team',this)">
+        <i data-lucide="users" style="width:13px;height:13px"></i> Personal
+      </button>
+    </div>
+
+    <div class="ag-pane active" id="pane-buero"></div>
+    <div class="ag-pane" id="pane-aufgaben"></div>
+    <div class="ag-pane" id="pane-berichte"></div>
+    <div class="ag-pane" id="pane-befunde"></div>
+    <div class="ag-pane" id="pane-laeufe"></div>
+    <div class="ag-pane" id="pane-team"></div>
+
+  </div>
+</div>
+
+<div class="ag-overlay" id="ag-overlay" onclick="if(event.target===this)schliesse()">
+  <div class="ag-detail">
+    <div class="ag-detail-kopf">
+      <div style="flex:1" id="det-kopf"></div>
+      <button class="close-x" onclick="schliesse()">✕</button>
+    </div>
+    <div class="ag-detail-body" id="det-body"></div>
+    <div class="ag-detail-fuss" id="det-fuss"></div>
+  </div>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
+<script>
+// =============================================
+// Agentur – Büro-Ansicht
+// Alles, was hier animiert wird, kommt aus dem Board. Kein Effekt
+// ohne Datengrundlage: ein leuchtender Monitor heißt, dass gerade
+// wirklich ein Lauf offen ist.
+// =============================================
+
+let BOARD    = null;
+let ABTEILUNG = localStorage.getItem('ag_abteilung') || '';
+let BERICHTE = [];
+let KENNZAHLEN = [];
+let AKTIVER_TAB = 'buero';
+
+const ZUSTAND_TEXT = {
+  arbeitet:  'arbeitet',
+  wartet:    'wartet auf dich',
+  haengt:    'hängt',
+  offen:     'in Arbeit',
+  am_platz:  'am Platz',
+  beurlaubt: 'beurlaubt',
+};
+
+const STATUS_MARKE = {
+  offen:          ['m-grau',  'offen'],
+  in_arbeit:      ['m-blau',  'in Arbeit'],
+  zur_pruefung:   ['m-lila',  'zur Prüfung'],
+  zur_freigabe:   ['m-gelb',  'zur Freigabe'],
+  erledigt:       ['m-gruen', 'erledigt'],
+  fehlgeschlagen: ['m-rot',   'fehlgeschlagen'],
+  verworfen:      ['m-grau',  'verworfen'],
+};
+
+const ART_MARKE = {
+  bericht:  ['m-blau',  'Bericht'],
+  beitrag:  ['m-lila',  'Beitrag'],
+  pruefung: ['m-gelb',  'Prüfung'],
+  uebergabe:['m-grau',  'Übergabe'],
+  befund:   ['m-cyan',  'Befund'],
+  fehler:   ['m-rot',   'Fehler'],
+  notiz:    ['m-grau',  'Notiz'],
+};
+
+const BEFUND_MARKE = {
+  veraltet: ['m-gelb', 'veraltet'],
+  kaputt:   ['m-rot',  'kaputt'],
+  fehlt:    ['m-blau', 'fehlt'],
+  seo:      ['m-gruen','SEO'],
+  inhalt:   ['m-cyan', 'Inhalt'],
+};
+
+// ── Avatare: fünf Varianten, eingefärbt nach Mitarbeiter ─────────
+function avatarSvg(m) {
+  const f = m.farbe || '#3b82f6';
+  const haar = {
+    a: `<path d="M20 20c0-7 5-11 13-11s13 4 13 11c0 2-1 3-2 3-1-5-5-7-11-7s-10 2-11 7c-1 0-2-1-2-3z" fill="${f}" opacity=".85"/>`,
+    b: `<path d="M19 22c0-8 6-13 14-13s14 5 14 13l-3 1c0-6-4-9-11-9s-11 3-11 9z" fill="${f}" opacity=".85"/><circle cx="26" cy="26" r="4.5" fill="none" stroke="${f}" stroke-width="1.4" opacity=".9"/><circle cx="40" cy="26" r="4.5" fill="none" stroke="${f}" stroke-width="1.4" opacity=".9"/><path d="M30.5 26h5" stroke="${f}" stroke-width="1.4" opacity=".9"/>`,
+    c: `<path d="M20 23c-1-9 5-14 13-14s14 5 13 14c-2-1-3-4-4-6-3 3-14 4-18 1-1 2-2 4-4 5z" fill="${f}" opacity=".85"/>`,
+    d: `<path d="M21 21c0-7 5-12 12-12s12 5 12 12h-3c0-5-4-8-9-8s-9 3-9 8z" fill="${f}" opacity=".85"/><path d="M27 34c2 2 10 2 12 0" stroke="${f}" stroke-width="1.6" fill="none" opacity=".55"/>`,
+    e: `<path d="M22 20c2-7 6-11 11-11s9 4 11 11c-3-3-6-4-11-4s-8 1-11 4z" fill="${f}" opacity=".85"/><path d="M17 20h32" stroke="${f}" stroke-width="2.4" opacity=".55" stroke-linecap="round"/>`,
+  }[m.avatar] || '';
+  return `<svg viewBox="0 0 66 56" aria-hidden="true">
+    <ellipse cx="33" cy="52" rx="19" ry="4" fill="#000" opacity=".28"/>
+    <path d="M14 56c1-11 8-16 19-16s18 5 19 16z" fill="${f}" opacity=".28"/>
+    <path d="M17 56c1-9 7-13 16-13s15 4 16 13z" fill="${f}" opacity=".5"/>
+    <rect x="24" y="30" width="18" height="11" rx="5" fill="#c8a887" opacity=".9"/>
+    <ellipse cx="33" cy="24" rx="13" ry="13.5" fill="#dcbb9a"/>
+    <circle cx="28" cy="24" r="1.4" fill="#2a1c14"/>
+    <circle cx="38" cy="24" r="1.4" fill="#2a1c14"/>
+    <path d="M30 30c1.6 1.4 4.4 1.4 6 0" stroke="#2a1c14" stroke-width="1.2" fill="none" stroke-linecap="round" opacity=".75"/>
+    ${haar}
+  </svg>`;
+}
+
+function initialen(name) { return (name || '?').trim().slice(0, 1).toUpperCase(); }
+
+function autorKugel(name, farbe) {
+  return `<span class="autor"><span class="kugel" style="background:${esc(farbe || '#3b82f6')}">${esc(initialen(name))}</span>${esc(name || 'unbekannt')}</span>`;
+}
+
+function marke(paar) { return `<span class="marke ${paar[0]}">${esc(paar[1])}</span>`; }
+
+function tageSeit(iso) {
+  if (!iso) return 0;
+  const t = Date.parse(iso.endsWith('Z') || iso.includes('+') ? iso : iso.replace(' ', 'T') + 'Z');
+  if (!Number.isFinite(t)) return 0;
+  return Math.floor((Date.now() - t) / 86400000);
+}
+
+function relativ(iso) {
+  if (!iso) return '–';
+  const t = Date.parse(iso.endsWith('Z') || iso.includes('+') ? iso : iso.replace(' ', 'T') + 'Z');
+  if (!Number.isFinite(t)) return '–';
+  const min = Math.floor((Date.now() - t) / 60000);
+  if (min < 1) return 'gerade eben';
+  if (min < 60) return `vor ${min} Min`;
+  const std = Math.floor(min / 60);
+  if (std < 24) return `vor ${std} Std`;
+  const tg = Math.floor(std / 24);
+  return tg === 1 ? 'gestern' : `vor ${tg} Tagen`;
+}
+
+function person(id) { return (BOARD?.team || []).find(m => m.id === id) || null; }
+function funktion(id) { return (BOARD?.funktionen || []).find(f => f.id === id) || null; }
+function personName(id) { return person(id)?.name || (id ? id : '–'); }
+
+// ── Tabs ─────────────────────────────────────────────────────────
+function zeigeTab(name, btn) {
+  AKTIVER_TAB = name;
+  document.querySelectorAll('.ag-tab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.querySelectorAll('.ag-pane').forEach(p => p.classList.remove('active'));
+  document.getElementById('pane-' + name).classList.add('active');
+  if (name === 'berichte') ladeBerichte();
+  refreshIcons();
+}
+
+// ── Laden ────────────────────────────────────────────────────────
+async function ladeBoard() {
+  const q = ABTEILUNG ? `?abteilung=${encodeURIComponent(ABTEILUNG)}` : '';
+  const data = await api('/api/agentur/board' + q);
+  if (!data) {
+    document.getElementById('pane-buero').innerHTML = errState();
+    document.getElementById('ag-sub').textContent = 'API nicht erreichbar';
+    refreshIcons();
+    return;
+  }
+  BOARD = data;
+
+  // Abteilungswähler befüllen
+  const sel = document.getElementById('ag-abteilung');
+  const abts = data.abteilungen || [];
+  if (!ABTEILUNG && abts.length) { ABTEILUNG = abts[0].id; localStorage.setItem('ag_abteilung', ABTEILUNG); }
+  sel.innerHTML = abts.map(a => `<option value="${esc(a.id)}"${a.id === ABTEILUNG ? ' selected' : ''}>${esc(a.name)}</option>`).join('')
+    || '<option value="">Keine Abteilung</option>';
+
+  const abt = abts.find(a => a.id === ABTEILUNG);
+  document.getElementById('ag-sub').textContent = abt
+    ? `${abt.beschreibung || abt.name} · ${(data.team || []).length} im Team`
+    : 'Noch keine Abteilung angelegt';
+
+  zeichneChips();
+  zeichneBuero();
+  zeichneAufgaben();
+  zeichneBefunde();
+  zeichneLaeufe();
+  zeichneTeam();
+  if (AKTIVER_TAB === 'berichte') ladeBerichte();
+  refreshIcons();
+}
+
+async function ladeBerichte() {
+  const [b, k] = await Promise.all([
+    api(`/api/agentur/berichte?abteilung=${encodeURIComponent(ABTEILUNG)}&limit=40`),
+    api(`/api/agentur/kennzahlen?abteilung=${encodeURIComponent(ABTEILUNG)}&tage=90`),
+  ]);
+  BERICHTE = b?.berichte || [];
+  KENNZAHLEN = k?.kennzahlen || [];
+  document.getElementById('c-berichte').textContent = BERICHTE.length;
+  zeichneBerichte();
+  refreshIcons();
+}
+
+function wechsleAbteilung() {
+  ABTEILUNG = document.getElementById('ag-abteilung').value;
+  localStorage.setItem('ag_abteilung', ABTEILUNG);
+  ladeBoard();
+}
+
+// ── Kennzahl-Chips oben ──────────────────────────────────────────
+function zeichneChips() {
+  const z = BOARD.zaehler || {};
+  const teile = [];
+  if (z.laeuft) teile.push(`<div class="ag-chip live"><span class="punkt" style="width:6px;height:6px;border-radius:50%;background:currentColor"></span> LÄUFT <b>${z.laeuft}</b></div>`);
+  teile.push(`<div class="ag-chip">AUFGABEN <b>${z.aufgaben_offen || 0}</b></div>`);
+  if (z.zur_freigabe) teile.push(`<div class="ag-chip warn">ZUR FREIGABE <b>${z.zur_freigabe}</b></div>`);
+  teile.push(`<div class="ag-chip">BEFUNDE <b>${z.befunde_offen || 0}</b></div>`);
+  if (z.haengt) teile.push(`<div class="ag-chip bad">HÄNGT <b>${z.haengt}</b></div>`);
+  document.getElementById('ag-chips').innerHTML = teile.join('');
+
+  document.getElementById('c-aufgaben').textContent = z.aufgaben_offen || 0;
+  document.getElementById('c-befunde').textContent  = z.befunde_offen || 0;
+  document.getElementById('c-laeufe').textContent   = (BOARD.laeufe || []).length;
+  const cf = document.getElementById('c-aufgaben');
+  cf.classList.toggle('hot', !!z.zur_freigabe);
+}
+
+// ── Das Büro ─────────────────────────────────────────────────────
+function zeichneBuero() {
+  const team = BOARD.team || [];
+  const el = document.getElementById('pane-buero');
+
+  if (!team.length) {
+    el.innerHTML = `<div class="hinweis">${icon('info', 15)}<span>In dieser Abteilung sitzt noch niemand. Unter <b>Personal</b> stellst du jemanden ein – das ist eine Zeile in der Datenbank, kein neuer Skill.</span></div>`;
+    return;
+  }
+
+  const schreibtische = team.map(m => {
+    const f = funktion(m.funktion_id);
+    const zu = m.zustand || 'am_platz';
+    return `
+      <button class="desk" data-zustand="${esc(zu)}" style="--mfarbe:${esc(m.farbe || '#3b82f6')}"
+              onclick="oeffnePerson('${esc(m.id)}')" title="${esc(m.name)} – ${esc(ZUSTAND_TEXT[zu] || zu)}">
+        <div class="fig">${avatarSvg(m)}</div>
+        <div class="leerzeichen">${icon('user-x', 16)}</div>
+        <div class="tisch">
+          <div class="monitor"></div>
+          <div class="papier"></div>
+        </div>
+        <div class="schild">
+          <div class="schild-name">${esc(m.name)}</div>
+          <div class="schild-rolle">${esc(f?.name || m.funktion_id)}</div>
+          <div class="zustand z-${esc(zu)}"><span class="punkt"></span>${esc(ZUSTAND_TEXT[zu] || zu)}</div>
+        </div>
+      </button>`;
+  }).join('');
+
+  // Freigabe-Postfach
+  const freigaben = (BOARD.aufgaben || []).filter(a => a.status === 'zur_freigabe');
+  const postfach = freigaben.length ? freigaben.map(a => {
+    const tage = tageSeit(a.aktualisiert_am || a.erstellt_am);
+    return `<div class="postfach-item" onclick="oeffneAufgabe(${a.id})">
+      ${icon('file-check', 15, 'color:#fbbf24;flex-shrink:0;margin-top:2px')}
+      <div style="flex:1;min-width:0">
+        <div class="pf-titel">${esc(a.titel)}</div>
+        <div class="pf-meta">von ${esc(personName(a.zustaendig))} · <span class="${tage >= 3 ? 'pf-alt' : ''}">wartet ${tage === 0 ? 'seit heute' : `seit ${tage} Tag${tage === 1 ? '' : 'en'}`}</span></div>
+      </div>
+    </div>`;
+  }).join('') : `<div style="font-size:11.5px;color:var(--text3)">Nichts wartet auf dich.</div>`;
+
+  // Besprechungsraum
+  const runden = BOARD.runden || [];
+  const besprechung = runden.length ? `
+    <div class="karte besprechung">
+      <div class="karte-kopf">${icon('users', 12)} Besprechungsraum <span class="zahl">${runden.length}</span></div>
+      ${runden.map(r => {
+        let teiln = [];
+        try { teiln = JSON.parse(r.runde_teilnehmer || '[]'); } catch (e) { teiln = []; }
+        const dran = teiln[r.runde_index || 0];
+        return `<div class="postfach-item" onclick="oeffneAufgabe(${r.id})">
+          <div style="flex:1;min-width:0">
+            <div class="pf-titel">${esc(r.titel)}</div>
+            <div class="pf-meta">${teiln.length} Teilnehmer · als Nächstes: ${esc(personName(dran))}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+  // Ticker
+  const ticker = (BOARD.ticker || []).slice(0, 12);
+  const tickerHtml = ticker.length ? ticker.map(t => {
+    const art = ART_MARKE[t.art] || ART_MARKE.notiz;
+    return `<div class="ticker-item">
+      <span class="ticker-zeit">${esc(relativ(t.erstellt_am))}</span>
+      <span class="ticker-text"><b>${esc(personName(t.mitarbeiter_id))}</b> · ${esc(art[1])}${t.titel ? ' · ' + esc(t.titel) : ''}</span>
+    </div>`;
+  }).join('') : `<div style="font-size:11.5px;color:var(--text3)">Noch nichts passiert.</div>`;
+
+  el.innerHTML = `
+    <div class="buero-wrap">
+      <div class="buero">
+        <div class="buero-label">${esc((BOARD.abteilungen || []).find(a => a.id === ABTEILUNG)?.name || '')} · Etage 1</div>
+        <div class="desks">${schreibtische}</div>
+      </div>
+      <div>
+        <div class="karte">
+          <div class="karte-kopf">${icon('inbox', 12)} Dein Postfach <span class="zahl">${freigaben.length}</span></div>
+          ${postfach}
+        </div>
+        ${besprechung}
+        <div class="karte">
+          <div class="karte-kopf">${icon('radio', 12)} Was zuletzt geschah</div>
+          ${tickerHtml}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Aufgaben ─────────────────────────────────────────────────────
+function zeichneAufgaben() {
+  const el = document.getElementById('pane-aufgaben');
+  const aufgaben = BOARD.aufgaben || [];
+  const kopf = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
+      <button class="btn btn-ghost" onclick="neueAufgabe()">${icon('plus', 13)} Aufgabe anlegen</button>
+    </div>`;
+  if (!aufgaben.length) {
+    el.innerHTML = kopf + `<div class="leer">Keine offenen Aufgaben.</div>`;
+    return;
+  }
+  const reihen = { zur_freigabe: [], zur_pruefung: [], in_arbeit: [], offen: [], rest: [] };
+  aufgaben.forEach(a => (reihen[a.status] || reihen.rest).push(a));
+  const alle = [...reihen.zur_freigabe, ...reihen.zur_pruefung, ...reihen.in_arbeit, ...reihen.offen, ...reihen.rest];
+  el.innerHTML = kopf + alle.map(aufgabeZeile).join('');
+}
+
+function aufgabeZeile(a) {
+  const st = STATUS_MARKE[a.status] || STATUS_MARKE.offen;
+  const tage = tageSeit(a.aktualisiert_am || a.erstellt_am);
+  const stockt = tage >= 3 && !['erledigt', 'verworfen'].includes(a.status);
+  const p = person(a.zustaendig);
+  return `<div class="zeile" onclick="oeffneAufgabe(${a.id})">
+    <div class="zeile-kopf">
+      <div class="zeile-titel">${esc(a.titel)}</div>
+      ${marke(st)}
+    </div>
+    ${a.beschreibung ? `<div class="zeile-sub">${esc(String(a.beschreibung).slice(0, 180))}${a.beschreibung.length > 180 ? '…' : ''}</div>` : ''}
+    <div class="zeile-meta">
+      ${a.zustaendig ? autorKugel(p?.name || a.zustaendig, p?.farbe) : '<span class="marke m-grau">niemand zuständig</span>'}
+      ${a.modus === 'runde' ? marke(['m-lila', 'Runde']) : ''}
+      ${a.prioritaet === 'hoch' ? marke(['m-rot', 'hoch']) : ''}
+      <span style="font-size:10.5px;color:${stockt ? '#fbbf24' : 'var(--text3)'};font-family:'Space Mono',monospace">
+        ${stockt ? `unbewegt seit ${tage} Tagen` : relativ(a.aktualisiert_am || a.erstellt_am)}
+      </span>
+    </div>
+  </div>`;
+}
+
+// ── Berichte + Kennzahlen ────────────────────────────────────────
+function sparkline(werte, farbe) {
+  if (werte.length < 2) return '';
+  const min = Math.min(...werte), max = Math.max(...werte);
+  const spanne = (max - min) || 1;
+  const punkte = werte.map((w, i) => {
+    const x = (i / (werte.length - 1)) * 100;
+    const y = 30 - ((w - min) / spanne) * 26;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg viewBox="0 0 100 32" preserveAspectRatio="none">
+    <polyline points="${punkte}" fill="none" stroke="${farbe}" stroke-width="1.6"
+              stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+  </svg>`;
+}
+
+function zeichneBerichte() {
+  const el = document.getElementById('pane-berichte');
+  const gruppen = {};
+  KENNZAHLEN.forEach(k => { (gruppen[k.name] ||= []).push(k); });
+
+  const konf = [
+    ['klicks', 'Klicks', '#4ade80', v => Math.round(v).toLocaleString('de-DE')],
+    ['impressionen', 'Impressionen', '#60a5fa', v => Math.round(v).toLocaleString('de-DE')],
+    ['ctr', 'CTR', '#fbbf24', v => (v * (v <= 1 ? 100 : 1)).toFixed(1) + ' %'],
+    ['position', 'Ø Position', '#c084fc', v => v.toFixed(1)],
+  ];
+  const karten = konf.filter(([name]) => gruppen[name]?.length).map(([name, label, farbe, fmt]) => {
+    const reihe = gruppen[name].sort((a, b) => a.datum.localeCompare(b.datum));
+    const werte = reihe.map(r => r.wert);
+    return `<div class="zahl-karte">
+      <div class="zahl-name">${esc(label)}</div>
+      <div class="zahl-wert" style="color:${farbe}">${esc(fmt(werte[werte.length - 1]))}</div>
+      ${sparkline(werte, farbe)}
+    </div>`;
+  }).join('');
+
+  const zahlenBlock = karten
+    ? `<div class="zahlen-grid">${karten}</div>`
+    : `<div class="hinweis">${icon('line-chart', 15)}<span>Noch keine Kennzahlen. Sobald Marcel das erste Mal gelaufen ist, stehen hier Klicks, Impressionen, CTR und Position als Verlauf.</span></div>`;
+
+  const liste = BERICHTE.length ? BERICHTE.map(b => {
+    const art = ART_MARKE[b.art] || ART_MARKE.notiz;
+    const vorschau = String(b.text || '').replace(/[#*`>-]/g, '').trim().slice(0, 200);
+    return `<div class="zeile" onclick="oeffneBericht(${b.id})">
+      <div class="zeile-kopf">
+        <div class="zeile-titel">${esc(b.titel || 'Ohne Titel')}</div>
+        ${marke(art)}
+      </div>
+      ${vorschau ? `<div class="zeile-sub">${esc(vorschau)}…</div>` : ''}
+      <div class="zeile-meta">
+        ${autorKugel(b.autor, b.autor_farbe)}
+        ${b.funktion_name ? `<span class="marke m-grau">${esc(b.funktion_name)}</span>` : ''}
+        <span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">${esc(fmtDate(b.erstellt_am))}${b.lauf_id ? ` · Lauf #${b.lauf_id}` : ''}</span>
+      </div>
+    </div>`;
+  }).join('') : `<div class="leer">Noch keine Berichte. Sie erscheinen hier, sobald der erste Lauf durch ist.</div>`;
+
+  el.innerHTML = zahlenBlock + liste;
+}
+
+// ── Befunde ──────────────────────────────────────────────────────
+function zeichneBefunde() {
+  const el = document.getElementById('pane-befunde');
+  const befunde = BOARD.befunde || [];
+  if (!befunde.length) {
+    el.innerHTML = `<div class="hinweis">${icon('search-check', 15)}<span>Keine offenen Befunde. Hier landet, was Jürgen auf der Webseite findet – Veraltetes, Kaputtes, Fehlendes – jeweils mit URL und Beleg.</span></div>`;
+    return;
+  }
+  el.innerHTML = befunde.map(b => {
+    const art = BEFUND_MARKE[b.art] || BEFUND_MARKE.veraltet;
+    const schwere = b.schwere === 'hoch' ? ['m-rot', 'hoch'] : b.schwere === 'niedrig' ? ['m-grau', 'niedrig'] : ['m-gelb', 'mittel'];
+    return `<div class="zeile" onclick="oeffneBefund(${b.id})">
+      <div class="zeile-kopf">
+        <div class="zeile-titel">${esc(b.titel)}</div>
+        ${marke(art)}${marke(schwere)}
+      </div>
+      ${b.beschreibung ? `<div class="zeile-sub">${esc(String(b.beschreibung).slice(0, 200))}${b.beschreibung.length > 200 ? '…' : ''}</div>` : ''}
+      <div class="zeile-meta">
+        ${autorKugel(b.autor, b.autor_farbe)}
+        ${b.url ? `<span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">${esc(b.url)}</span>` : ''}
+        <span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">${esc(relativ(b.erstellt_am))}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Läufe ────────────────────────────────────────────────────────
+function zeichneLaeufe() {
+  const el = document.getElementById('pane-laeufe');
+  const laeufe = BOARD.laeufe || [];
+  if (!laeufe.length) {
+    el.innerHTML = `<div class="hinweis">${icon('activity', 15)}<span>Noch keine Läufe. Jeder Lauf meldet sich am Anfang und am Ende – auch ein abgestürzter bleibt sichtbar, statt still zu verschwinden.</span></div>`;
+    return;
+  }
+  const statusMarke = {
+    laeuft:         ['m-blau',  'läuft'],
+    erfolgreich:    ['m-gruen', 'erfolgreich'],
+    leerlauf:       ['m-grau',  'nichts zu tun'],
+    fehlgeschlagen: ['m-rot',   'fehlgeschlagen'],
+  };
+  el.innerHTML = laeufe.map(l => {
+    const p = person(l.mitarbeiter_id);
+    const st = statusMarke[l.status] || statusMarke.laeuft;
+    const dauer = l.dauer_ms ? `${Math.round(l.dauer_ms / 1000)} s` : (l.status === 'laeuft' ? 'läuft noch' : '–');
+    return `<div class="zeile" style="cursor:default">
+      <div class="zeile-kopf">
+        <div class="zeile-titel">${esc(l.mitarbeiter_name || p?.name || l.mitarbeiter_id)}<span style="color:var(--text3);font-weight:400"> · Lauf #${l.id}</span></div>
+        ${marke(st)}
+      </div>
+      ${l.zusammenfassung ? `<div class="zeile-sub">${esc(l.zusammenfassung)}</div>` : ''}
+      ${l.fehler ? `<div class="zeile-sub" style="color:#f87171">${esc(l.fehler)}</div>` : ''}
+      <div class="zeile-meta">
+        <span class="marke m-grau">${esc(l.ausloeser || 'manuell')}</span>
+        <span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">
+          ${esc(fmtDate(l.gestartet_am))} · ${esc(dauer)} · ${l.eintraege_anzahl || 0} Einträge${l.kosten_tokens ? ` · ${Number(l.kosten_tokens).toLocaleString('de-DE')} Tokens` : ''}
+        </span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Personal ─────────────────────────────────────────────────────
+function zeichneTeam() {
+  const el = document.getElementById('pane-team');
+  const team = BOARD.team || [];
+  const funktionen = BOARD.funktionen || [];
+
+  const liste = team.map(m => {
+    const f = funktion(m.funktion_id);
+    return `<div class="zeile" style="cursor:default">
+      <div class="zeile-kopf">
+        <div style="width:44px;flex-shrink:0">${avatarSvg(m).replace('width:66px', '')}</div>
+        <div style="flex:1;min-width:0">
+          <div class="zeile-titel">${esc(m.name)}${!m.aktiv ? ' <span class="marke m-grau">beurlaubt</span>' : ''}</div>
+          <div class="zeile-sub">${esc(m.charakter || f?.beschreibung || '')}</div>
+          <div class="zeile-meta">
+            <span class="marke m-blau">${esc(f?.name || m.funktion_id)}</span>
+            <span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">${esc(m.charakter_datei || '')}</span>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:11px">
+        <button class="btn btn-ghost btn-sm" onclick="oeffnePerson('${esc(m.id)}')">${icon('folder-open', 12)} Personalakte</button>
+        <button class="btn btn-ghost btn-sm" onclick="beurlauben('${esc(m.id)}',${m.aktiv ? 0 : 1})">
+          ${m.aktiv ? icon('pause', 12) + ' Beurlauben' : icon('play', 12) + ' Zurückholen'}
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="hinweis">${icon('info', 15)}<span>
+      <b>Funktion = Skill, Person = Datensatz.</b> Jemanden einzustellen heißt: eine Zeile hier plus eine Charakterdatei im Agency-Repo.
+      Kein neuer Skill, kein Deploy. Fünf Leute im Marketing sind fünf Zeilen.
+    </span></div>
+
+    <div class="karte">
+      <div class="karte-kopf">${icon('user-plus', 12)} Jemanden einstellen</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="feld"><label>Name</label><input id="neu-name" placeholder="z. B. Sabine"></div>
+        <div class="feld"><label>Funktion</label>
+          <select id="neu-funktion">${funktionen.map(f => `<option value="${esc(f.id)}">${esc(f.name)}</option>`).join('')}</select>
+        </div>
+        <div class="feld"><label>Farbe</label><input id="neu-farbe" type="color" value="#3b82f6" style="height:38px;padding:3px"></div>
+        <div class="feld"><label>Aussehen</label>
+          <select id="neu-avatar">
+            <option value="a">Variante A</option><option value="b">Variante B (Brille)</option>
+            <option value="c">Variante C</option><option value="d">Variante D (Bart)</option>
+            <option value="e">Variante E (Mütze)</option>
+          </select>
+        </div>
+        <div class="feld" style="grid-column:1/-1"><label>Charakter – Tonfall, Priorität bei Konflikt, wovon die Rolle die Finger lässt</label>
+          <textarea id="neu-charakter" placeholder="Nüchtern, zahlenfixiert. Jede Aussage mit Zahl, Zeitraum und Quelle."></textarea>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="einstellen()">${icon('check', 13)} Einstellen</button>
+      <div id="neu-fehler" style="color:#f87171;font-size:11.5px;margin-top:9px"></div>
+    </div>
+
+    <div style="margin-top:20px">${liste || '<div class="leer">Noch niemand eingestellt.</div>'}</div>`;
+}
+
+async function einstellen() {
+  const name = document.getElementById('neu-name').value.trim();
+  const fehler = document.getElementById('neu-fehler');
+  fehler.textContent = '';
+  if (!name) { fehler.textContent = 'Name fehlt.'; return; }
+  const r = await api('/api/agentur/mitarbeiter', {
+    method: 'POST',
+    body: {
+      name,
+      funktion_id: document.getElementById('neu-funktion').value,
+      abteilung_id: ABTEILUNG,
+      charakter: document.getElementById('neu-charakter').value.trim(),
+      farbe: document.getElementById('neu-farbe').value,
+      avatar: document.getElementById('neu-avatar').value,
+    },
+  });
+  if (!r) { fehler.textContent = 'Konnte nicht angelegt werden – gibt es die Kennung schon?'; return; }
+  await ladeBoard();
+  zeigeTab('buero', document.querySelector('.ag-tab'));
+}
+
+async function beurlauben(id, aktiv) {
+  await api('/api/agentur/mitarbeiter/' + encodeURIComponent(id), { method: 'PATCH', body: { aktiv } });
+  ladeBoard();
+}
+
+// ── Überlagerung ─────────────────────────────────────────────────
+function schliesse() { document.getElementById('ag-overlay').classList.remove('offen'); }
+
+function zeigeDetail(kopf, body, fuss) {
+  document.getElementById('det-kopf').innerHTML = kopf;
+  document.getElementById('det-body').innerHTML = body;
+  document.getElementById('det-fuss').innerHTML = fuss || '';
+  document.getElementById('ag-overlay').classList.add('offen');
+  refreshIcons();
+}
+
+async function oeffnePerson(id) {
+  zeigeDetail('<h2>Lade…</h2>', loadingState(), '');
+  const d = await api('/api/agentur/mitarbeiter/' + encodeURIComponent(id));
+  if (!d) { zeigeDetail('<h2>Fehler</h2>', errState(), ''); return; }
+  const m = d.mitarbeiter;
+  const kopf = `
+    <div style="display:flex;gap:14px;align-items:center">
+      <div style="width:56px;flex-shrink:0">${avatarSvg(m)}</div>
+      <div>
+        <h2>${esc(m.name)}</h2>
+        <div class="page-sub">${esc(m.funktion_name || m.funktion_id)} · ${esc(m.abteilung_id)}</div>
+      </div>
+    </div>`;
+  const laeufe = (d.laeufe || []).slice(0, 8).map(l => `
+    <div class="verlauf-eintrag">
+      <div style="font-size:12px;font-weight:700">Lauf #${l.id} · ${esc(l.status)}</div>
+      <div style="font-size:11px;color:var(--text3);font-family:'Space Mono',monospace">${esc(fmtDate(l.gestartet_am))}</div>
+      ${l.zusammenfassung ? `<div style="font-size:12px;color:var(--text2);margin-top:4px">${esc(l.zusammenfassung)}</div>` : ''}
+      ${l.fehler ? `<div style="font-size:12px;color:#f87171;margin-top:4px">${esc(l.fehler)}</div>` : ''}
+    </div>`).join('') || '<div style="color:var(--text3);font-size:12px">Noch kein Lauf.</div>';
+
+  const berichte = (d.eintraege || []).slice(0, 8).map(e => `
+    <div class="verlauf-eintrag">
+      <div style="font-size:12px;font-weight:700">${esc(e.titel || (ART_MARKE[e.art] || ['', e.art])[1])}</div>
+      <div style="font-size:11px;color:var(--text3);font-family:'Space Mono',monospace">${esc(fmtDate(e.erstellt_am))}${e.lauf_id ? ` · Lauf #${e.lauf_id}` : ''}</div>
+    </div>`).join('') || '<div style="color:var(--text3);font-size:12px">Noch nichts geschrieben.</div>';
+
+  const body = `
+    <div class="karte" style="margin-bottom:16px">
+      <div class="karte-kopf">${icon('drama', 12)} Charakter</div>
+      <div style="font-size:12.5px;line-height:1.6;color:var(--text2)">${esc(m.charakter || 'Nicht hinterlegt.')}</div>
+      ${m.charakter_datei ? `<div style="margin-top:8px;font-family:'Space Mono',monospace;font-size:10.5px;color:var(--text3)">${esc(m.charakter_datei)}</div>` : ''}
+    </div>
+    <div class="karte" style="margin-bottom:16px">
+      <div class="karte-kopf">${icon('list-checks', 12)} Offene Aufgaben <span class="zahl">${(d.aufgaben || []).length}</span></div>
+      ${(d.aufgaben || []).map(a => `<div style="font-size:12.5px;padding:5px 0;border-top:1px solid var(--border)">${esc(a.titel)} ${marke(STATUS_MARKE[a.status] || STATUS_MARKE.offen)}</div>`).join('') || '<div style="color:var(--text3);font-size:12px">Nichts offen.</div>'}
+    </div>
+    <div class="karte" style="margin-bottom:16px">
+      <div class="karte-kopf">${icon('activity', 12)} Letzte Läufe</div>${laeufe}
+    </div>
+    <div class="karte">
+      <div class="karte-kopf">${icon('file-text', 12)} Zuletzt geschrieben</div>${berichte}
+    </div>`;
+  zeigeDetail(kopf, body, '');
+}
+
+async function oeffneAufgabe(id) {
+  zeigeDetail('<h2>Lade…</h2>', loadingState(), '');
+  const d = await api('/api/agentur/aufgaben/' + id);
+  if (!d) { zeigeDetail('<h2>Fehler</h2>', errState(), ''); return; }
+  const a = d.aufgabe;
+  const st = STATUS_MARKE[a.status] || STATUS_MARKE.offen;
+  const kopf = `<div style="display:flex;gap:8px;margin-bottom:8px">${marke(st)}${a.modus === 'runde' ? marke(['m-lila', 'Runde']) : ''}</div><h2>${esc(a.titel)}</h2>
+    <div class="page-sub">zuständig: ${esc(personName(a.zustaendig))} · angelegt ${esc(fmtDate(a.erstellt_am))}</div>`;
+
+  const verlauf = (d.eintraege || []).map(e => {
+    const art = ART_MARKE[e.art] || ART_MARKE.notiz;
+    return `<div class="verlauf-eintrag">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        ${marke(art)}
+        <span style="font-size:11.5px;font-weight:700">${esc(personName(e.mitarbeiter_id))}</span>
+        <span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">${esc(fmtDate(e.erstellt_am))}${e.lauf_id ? ` · Lauf #${e.lauf_id}` : ''}</span>
+      </div>
+      ${e.titel ? `<div style="font-size:12.5px;font-weight:700;margin-bottom:3px">${esc(e.titel)}</div>` : ''}
+      ${e.text ? `<div class="md">${mdToHtml(e.text)}</div>` : ''}
+      ${e.artefakt_url ? `<a href="${esc(e.artefakt_url)}" target="_blank" rel="noopener" style="font-size:11.5px;color:var(--accent2)">${esc(e.artefakt_url)}</a>` : ''}
+    </div>`;
+  }).join('') || '<div style="color:var(--text3);font-size:12px">Noch kein Verlauf.</div>';
+
+  const body = `
+    ${a.beschreibung ? `<div class="md" style="margin-bottom:18px">${mdToHtml(a.beschreibung)}</div>` : ''}
+    <div class="karte-kopf">${icon('history', 12)} Verlauf</div>
+    ${verlauf}`;
+
+  let fuss = '';
+  if (a.status === 'zur_freigabe') {
+    fuss = `
+      <button class="btn btn-primary" onclick="setzeStatus(${a.id},'erledigt')">${icon('check', 13)} Freigeben</button>
+      <button class="btn btn-ghost" onclick="setzeStatus(${a.id},'in_arbeit')">${icon('rotate-ccw', 13)} Zurück in Arbeit</button>
+      <button class="btn btn-danger" onclick="setzeStatus(${a.id},'verworfen')">${icon('x', 13)} Verwerfen</button>`;
+  } else if (!['erledigt', 'verworfen'].includes(a.status)) {
+    fuss = `<button class="btn btn-ghost" onclick="setzeStatus(${a.id},'erledigt')">${icon('check', 13)} Als erledigt markieren</button>
+            <button class="btn btn-danger" onclick="setzeStatus(${a.id},'verworfen')">${icon('x', 13)} Verwerfen</button>`;
+  }
+  zeigeDetail(kopf, body, fuss);
+}
+
+async function setzeStatus(id, status) {
+  await api('/api/agentur/aufgaben/' + id, { method: 'PATCH', body: { status } });
+  schliesse();
+  ladeBoard();
+}
+
+function oeffneBericht(id) {
+  const b = BERICHTE.find(x => x.id === id);
+  if (!b) return;
+  const art = ART_MARKE[b.art] || ART_MARKE.notiz;
+  const kopf = `<div style="margin-bottom:8px">${marke(art)}</div><h2>${esc(b.titel || 'Ohne Titel')}</h2>
+    <div class="page-sub">${esc(b.autor || 'unbekannt')} · ${esc(fmtDate(b.erstellt_am))}${b.lauf_id ? ` · Lauf #${b.lauf_id}` : ''}</div>`;
+  zeigeDetail(kopf, `<div class="md">${mdToHtml(b.text)}</div>`,
+    b.aufgabe_id ? `<button class="btn btn-ghost" onclick="oeffneAufgabe(${b.aufgabe_id})">${icon('external-link', 13)} Zur Aufgabe</button>` : '');
+}
+
+function oeffneBefund(id) {
+  const b = (BOARD.befunde || []).find(x => x.id === id);
+  if (!b) return;
+  const art = BEFUND_MARKE[b.art] || BEFUND_MARKE.veraltet;
+  const kopf = `<div style="margin-bottom:8px">${marke(art)}</div><h2>${esc(b.titel)}</h2>
+    <div class="page-sub">${esc(b.autor || 'unbekannt')} · ${esc(fmtDate(b.erstellt_am))}</div>`;
+  const body = `
+    ${b.beschreibung ? `<div class="md">${mdToHtml(b.beschreibung)}</div>` : ''}
+    ${b.url ? `<div class="karte" style="margin-top:14px"><div class="karte-kopf">${icon('link', 12)} Fundstelle</div>
+      <a href="${esc(b.url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--accent2);word-break:break-all">${esc(b.url)}</a></div>` : ''}
+    ${b.beleg ? `<div class="karte"><div class="karte-kopf">${icon('quote', 12)} Beleg</div>
+      <div style="font-size:12.5px;line-height:1.6;color:var(--text2);font-style:italic">${esc(b.beleg)}</div></div>` : ''}
+    ${b.soll ? `<div class="karte"><div class="karte-kopf">${icon('target', 12)} Soll-Stand</div>
+      <div style="font-size:12.5px;line-height:1.6;color:var(--text2)">${esc(b.soll)}</div></div>` : ''}`;
+  const fuss = `
+    <button class="btn btn-primary" onclick="befundZuAufgabe(${b.id})">${icon('plus', 13)} Aufgabe daraus machen</button>
+    <button class="btn btn-ghost" onclick="setzeBefund(${b.id},'erledigt')">${icon('check', 13)} Erledigt</button>
+    <button class="btn btn-danger" onclick="setzeBefund(${b.id},'verworfen')">${icon('x', 13)} Verwerfen</button>`;
+  zeigeDetail(kopf, body, fuss);
+}
+
+async function setzeBefund(id, status) {
+  await api('/api/agentur/befunde/' + id, { method: 'PATCH', body: { status } });
+  schliesse();
+  ladeBoard();
+}
+
+async function befundZuAufgabe(id) {
+  const b = (BOARD.befunde || []).find(x => x.id === id);
+  if (!b) return;
+  const r = await api('/api/agentur/aufgaben', {
+    method: 'POST',
+    body: {
+      abteilung_id: b.abteilung_id,
+      titel: b.titel,
+      beschreibung: [b.beschreibung, b.url ? `\n\nFundstelle: ${b.url}` : '', b.beleg ? `\n\nBeleg: ${b.beleg}` : ''].filter(Boolean).join(''),
+      prioritaet: b.schwere === 'hoch' ? 'hoch' : 'normal',
+      quelle_befund_id: b.id,
+    },
+  });
+  if (r?.id) await api('/api/agentur/befunde/' + id, { method: 'PATCH', body: { status: 'aufgabe', aufgabe_id: r.id } });
+  schliesse();
+  ladeBoard();
+}
+
+function neueAufgabe() {
+  const team = BOARD.team || [];
+  const kopf = `<h2>Aufgabe anlegen</h2><div class="page-sub">landet im Board und taucht beim nächsten Lauf der zuständigen Person auf</div>`;
+  const body = `
+    <div class="feld"><label>Titel</label><input id="na-titel" placeholder="Was soll passieren?"></div>
+    <div class="feld"><label>Beschreibung</label><textarea id="na-text" placeholder="Kontext, Ziel, Abgrenzung"></textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="feld"><label>Zuständig</label>
+        <select id="na-zustaendig"><option value="">– niemand –</option>${team.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('')}</select>
+      </div>
+      <div class="feld"><label>Priorität</label>
+        <select id="na-prio"><option value="normal">normal</option><option value="hoch">hoch</option><option value="niedrig">niedrig</option></select>
+      </div>
+    </div>
+    <div id="na-fehler" style="color:#f87171;font-size:11.5px"></div>`;
+  zeigeDetail(kopf, body, `<button class="btn btn-primary" onclick="speichereAufgabe()">${icon('check', 13)} Anlegen</button>`);
+}
+
+async function speichereAufgabe() {
+  const titel = document.getElementById('na-titel').value.trim();
+  if (!titel) { document.getElementById('na-fehler').textContent = 'Titel fehlt.'; return; }
+  const zustaendig = document.getElementById('na-zustaendig').value;
+  await api('/api/agentur/aufgaben', {
+    method: 'POST',
+    body: {
+      abteilung_id: ABTEILUNG,
+      titel,
+      beschreibung: document.getElementById('na-text').value.trim(),
+      zustaendig: zustaendig || null,
+      status: zustaendig ? 'in_arbeit' : 'offen',
+      prioritaet: document.getElementById('na-prio').value,
+    },
+  });
+  schliesse();
+  ladeBoard();
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') schliesse(); });
+
+// ── Start ────────────────────────────────────────────────────────
+function boot() {
+  initLayout(null);
+  ladeBoard();
+  // Das Büro spiegelt den Board-Zustand – alle 60 Sekunden nachschauen.
+  setInterval(() => { if (!document.hidden) ladeBoard(); }, 60000);
+}
+injectLoginScreen();
+checkAuth(boot);
+window.initAfterLogin = boot;
+</script>
+</body>
+</html>

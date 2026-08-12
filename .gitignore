@@ -1,2 +1,10 @@
 # Dependencies
 node_modules/
+
+# Lokale Secrets für `wrangler dev` – gehören NICHT ins Repo
+.dev.vars
+
+# Wrangler-Arbeitsverzeichnis (lokale D1, Caches)
+.wrangler/
+
+.DS_Store

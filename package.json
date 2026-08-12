@@ -8,6 +8,8 @@
     "deploy:worker": "wrangler deploy",
     "deploy:pages": "wrangler pages deploy public --project-name webcontrol-hq",
     "db:init": "wrangler d1 execute webcontrol-hq --file=schema.sql",
+    "db:agentur": "wrangler d1 execute webcontrol-hq --file=schema-agentur.sql --local",
+    "db:agentur:remote": "wrangler d1 execute webcontrol-hq --file=schema-agentur.sql --remote",
     "db:init:remote": "wrangler d1 execute webcontrol-hq --file=schema.sql --remote",
     "db:create": "wrangler d1 create webcontrol-hq"
   },

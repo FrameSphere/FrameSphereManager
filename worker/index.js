@@ -2,6 +2,7 @@
 // WebControl HQ - Cloudflare Worker API
 // =============================================
 import { generateSEO } from './seo.js';
+import { handleAgentur } from './agentur.js';
 
 // ── Auth ─────────────────────────────────────────────────────────
 const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24h
@@ -335,6 +336,14 @@ async function handleRequest(request, env) {
     const hourSlot = Math.floor(Date.now() / 3600000).toString();
     const token = await sha256(pass + ':' + hourSlot);
     return json({ token, expires_in: 3600 });
+  }
+
+  // ── FrameSphere Agency: Board-API (eigenes Modul) ────────
+  // Prüft Auth selbst: Dashboard per X-Auth-Token, Runner per
+  // Bearer AGENTUR_TOKEN. Gibt null zurück, wenn der Pfad nicht passt.
+  if (path.startsWith('/api/agentur')) {
+    const antwort = await handleAgentur(request, env, { path, url, json, err, verifyAuth });
+    if (antwort) return antwort;
   }
 
   // ── Public endpoints (no auth) ───────────────────────────
