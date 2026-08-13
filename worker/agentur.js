@@ -101,12 +101,14 @@ async function ensureAgenturTables(db) {
   ]);
   // Nachträgliche Spalten (schlagen fehl, wenn sie schon da sind – das ist ok)
   await db.prepare('ALTER TABLE ag_abteilungen ADD COLUMN gsc_property TEXT').run().catch(() => {});
+  await db.prepare('ALTER TABLE ag_laeufe ADD COLUMN kosten_usd REAL').run().catch(() => {});
   tabellenBereit = true;
 }
 
 // ── Hilfen ───────────────────────────────────────────────────────
 const txt = (v, max = 2000) => (v === undefined || v === null || v === '') ? null : String(v).slice(0, max);
 const num = (v) => Number.isFinite(parseInt(v, 10)) ? parseInt(v, 10) : null;
+const komma = (v) => Number.isFinite(parseFloat(v)) ? parseFloat(v) : null;
 const einsAus = (v) => (v === 1 || v === true || v === '1') ? 1 : 0;
 const jetzt = () => new Date().toISOString();
 
@@ -628,7 +630,7 @@ export async function handleAgentur(request, env, helpers) {
       await db.prepare(
         `UPDATE ag_laeufe
             SET beendet_am=?, status=?, zusammenfassung=?, fehler=?,
-                aufgaben_beruehrt=?, dauer_ms=?, kosten_tokens=?
+                aufgaben_beruehrt=?, dauer_ms=?, kosten_tokens=?, kosten_usd=?
           WHERE id=?`
       ).bind(
         ende,
@@ -638,6 +640,7 @@ export async function handleAgentur(request, env, helpers) {
         num(body.aufgaben_beruehrt) ?? 0,
         Number.isFinite(dauer) && dauer >= 0 ? dauer : null,
         num(body.kosten_tokens),
+        komma(body.kosten_usd),
         num(id3),
       ).run();
       return json({ success: true });

@@ -90,7 +90,8 @@ CREATE TABLE IF NOT EXISTS ag_laeufe (
   aufgaben_beruehrt INTEGER DEFAULT 0,
   eintraege_anzahl  INTEGER DEFAULT 0,
   dauer_ms          INTEGER,
-  kosten_tokens     INTEGER
+  kosten_tokens     INTEGER,
+  kosten_usd        REAL      -- was der Lauf tatsächlich gekostet hat
 );
 
 -- Einträge = der Verlauf. Alles, was jemand produziert, landet hier.

@@ -812,7 +812,28 @@ function zeichneLaeufe() {
     leerlauf:       ['m-grau',  'nichts zu tun'],
     fehlgeschlagen: ['m-rot',   'fehlgeschlagen'],
   };
-  el.innerHTML = laeufe.map(l => {
+
+  // Was die Läufe gekostet haben – die Zahl, an der hängt, wie oft die
+  // Kette überhaupt laufen darf.
+  const mitKosten = laeufe.filter(l => l.kosten_usd > 0);
+  const summe = mitKosten.reduce((s, l) => s + l.kosten_usd, 0);
+  const schnitt = mitKosten.length ? summe / mitKosten.length : 0;
+  const eur = w => w.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const kostenBlock = mitKosten.length ? `
+    <div class="zahlen-grid">
+      <div class="zahl-karte">
+        <div class="zahl-name">Summe der Läufe</div>
+        <div class="zahl-wert" style="color:#fbbf24">$ ${eur(summe)}</div>
+        <div style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:4px">${mitKosten.length} Läufe mit Kostenangabe</div>
+      </div>
+      <div class="zahl-karte">
+        <div class="zahl-name">Ø je Lauf</div>
+        <div class="zahl-wert" style="color:#60a5fa">$ ${eur(schnitt)}</div>
+        <div style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:4px">bei 5 Läufen pro Woche: rund $ ${eur(schnitt * 5)}</div>
+      </div>
+    </div>` : `<div class="hinweis">${icon('wallet', 15)}<span>Noch kein Lauf mit Kostenangabe. Sobald einer über den Runner lief, steht hier, was er gekostet hat – und was das pro Woche bedeutet.</span></div>`;
+
+  el.innerHTML = kostenBlock + laeufe.map(l => {
     const p = person(l.mitarbeiter_id);
     const st = statusMarke[l.status] || statusMarke.laeuft;
     const dauer = l.dauer_ms ? `${Math.round(l.dauer_ms / 1000)} s` : (l.status === 'laeuft' ? 'läuft noch' : '–');
@@ -828,6 +849,7 @@ function zeichneLaeufe() {
         <span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">
           ${esc(fmtDate(l.gestartet_am))} · ${esc(dauer)} · ${l.eintraege_anzahl || 0} Einträge${l.kosten_tokens ? ` · ${Number(l.kosten_tokens).toLocaleString('de-DE')} Tokens` : ''}
         </span>
+        ${l.kosten_usd > 0 ? `<span class="marke m-gelb">$ ${Number(l.kosten_usd).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>` : ''}
       </div>
     </div>`;
   }).join('');
