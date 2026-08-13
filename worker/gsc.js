@@ -116,13 +116,14 @@ async function zugriffstoken(env) {
   return daten.access_token;
 }
 
-// Search-Analytics-Abfrage
-async function abfrage(env, property, koerper) {
-  const token = await zugriffstoken(env);
+// Search-Analytics-Abfrage. Token optional, damit ein Bericht mit vielen
+// Abfragen nicht jedes Mal neu einen holt.
+async function abfrage(env, property, koerper, token = null) {
+  const tok = token || await zugriffstoken(env);
   const url = `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(property)}/searchAnalytics/query`;
   const r = await fetch(url, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(koerper),
   });
   const daten = await r.json().catch(() => ({}));
@@ -139,6 +140,51 @@ async function abfrage(env, property, koerper) {
     throw new Error(m);
   }
   return daten.rows || [];
+}
+
+// Eine Zeile von Google in etwas Lesbares übersetzen.
+function zeile(z, felder) {
+  const o = {};
+  (felder || []).forEach((name, i) => { o[name] = z.keys?.[i]; });
+  o.klicks = z.clicks || 0;
+  o.impressionen = z.impressions || 0;
+  o.ctr = Math.round((z.ctr || 0) * 10000) / 100;      // in Prozent
+  o.position = Math.round((z.position || 0) * 10) / 10;
+  return o;
+}
+
+// Summiert eine Ergebnisliste zu einem Gesamtwert.
+function gesamtwert(zeilen) {
+  const klicks = zeilen.reduce((s, z) => s + (z.klicks || 0), 0);
+  const impressionen = zeilen.reduce((s, z) => s + (z.impressionen || 0), 0);
+  const gewichtet = zeilen.reduce((s, z) => s + (z.position || 0) * (z.impressionen || 0), 0);
+  return {
+    klicks,
+    impressionen,
+    ctr: impressionen ? Math.round((klicks / impressionen) * 10000) / 100 : 0,
+    position: impressionen ? Math.round((gewichtet / impressionen) * 10) / 10 : 0,
+  };
+}
+
+// Sitemaps: wie viele URLs eingereicht, wie viele davon bekannt.
+async function sitemaps(env, property, token) {
+  const r = await fetch(
+    `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(property)}/sitemaps`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!r.ok) return [];
+  const d = await r.json().catch(() => ({}));
+  return (d.sitemap || []).map(s => ({
+    pfad: s.path,
+    zuletzt_eingereicht: s.lastSubmitted,
+    zuletzt_gelesen: s.lastDownloaded,
+    fehler: Number(s.errors || 0),
+    warnungen: Number(s.warnings || 0),
+    ausstehend: !!s.isPending,
+    inhalte: (s.contents || []).map(c => ({
+      art: c.type, eingereicht: Number(c.submitted || 0), indexiert: Number(c.indexed || 0),
+    })),
+  }));
 }
 
 async function propertyVon(db, abteilungId) {
@@ -233,6 +279,145 @@ export async function gscQueries(env, db, url, json, err) {
     }
 
     return json(antwort);
+  } catch (e) {
+    return json({ error: String(e.message || e), property }, 502);
+  }
+}
+
+// ── GET /api/agentur/gsc/report ──────────────────────────────────
+// Das vollständige Arbeitsmaterial für den Analysten in einem Aufruf:
+// Gesamtwerte, Verlauf, Suchanfragen, Seiten, die Kombination aus beidem,
+// Geräte, Länder, derselbe Satz für den Vorzeitraum und der Sitemap-Stand.
+//
+// Bewusst eine Route statt zehn: der Analyst soll nicht zehnmal überlegen,
+// was er noch holen könnte, sondern einmal alles bekommen und dann denken.
+export async function gscReport(env, db, url, json, err) {
+  const abteilungId = url.searchParams.get('abteilung') || 'frametrain';
+  const property = url.searchParams.get('property') || await propertyVon(db, abteilungId);
+  if (!property) return err('Für diese Abteilung ist keine gsc_property hinterlegt', 400);
+
+  const tage = Math.min(parseInt(url.searchParams.get('tage'), 10) || 28, 180);
+  const ende = tagVor(GSC_VERZUG_TAGE);
+  const start = tagVor(GSC_VERZUG_TAGE + tage);
+  const vEnde = tagVor(GSC_VERZUG_TAGE + tage + 1);
+  const vStart = tagVor(GSC_VERZUG_TAGE + tage * 2 + 1);
+
+  try {
+    const token = await zugriffstoken(env);
+    const hole = (dimensionen, rowLimit, von = start, bis = ende) =>
+      abfrage(env, property, { startDate: von, endDate: bis, dimensions: dimensionen, rowLimit }, token);
+
+    const [
+      nachTag, nachSuchanfrage, nachSeite, nachKombi, nachGeraet, nachLand,
+      vSuchanfrage, vSeite, karten,
+    ] = await Promise.all([
+      hole(['date'], 200),
+      hole(['query'], 500),
+      hole(['page'], 300),
+      hole(['page', 'query'], 500),
+      hole(['device'], 10),
+      hole(['country'], 15),
+      hole(['query'], 500, vStart, vEnde),
+      hole(['page'], 300, vStart, vEnde),
+      sitemaps(env, property, token),
+    ]);
+
+    const s = nachSuchanfrage.map(z => zeile(z, ['suchanfrage']));
+    const p = nachSeite.map(z => zeile(z, ['seite']));
+    const vs = vSuchanfrage.map(z => zeile(z, ['suchanfrage']));
+    const vp = vSeite.map(z => zeile(z, ['seite']));
+
+    // Veränderung je Suchanfrage und je Seite direkt mitliefern – sonst
+    // muss der Analyst zwei Listen von Hand gegeneinanderhalten und rechnet
+    // sich dabei erfahrungsgemäß in die Irre.
+    const vergleichen = (jetzt, davor, schluessel) => {
+      const karte = new Map(davor.map(z => [z[schluessel], z]));
+      return jetzt.map(z => {
+        const d = karte.get(z[schluessel]);
+        return {
+          ...z,
+          davor: d ? { klicks: d.klicks, impressionen: d.impressionen, ctr: d.ctr, position: d.position } : null,
+          veraenderung: d ? {
+            klicks: z.klicks - d.klicks,
+            impressionen: z.impressionen - d.impressionen,
+            ctr: Math.round((z.ctr - d.ctr) * 100) / 100,
+            // positiv = schlechter geworden (Position steigt nach unten)
+            position: Math.round((z.position - d.position) * 10) / 10,
+          } : null,
+          neu: !d,
+        };
+      });
+    };
+
+    return json({
+      property,
+      zeitraum: [start, ende],
+      vergleichszeitraum: [vStart, vEnde],
+      hinweis_verzug: `Search-Console-Daten hinken ${GSC_VERZUG_TAGE} Tage hinterher.`,
+
+      gesamt: gesamtwert(s),
+      gesamt_davor: gesamtwert(vs),
+
+      nach_tag: nachTag.map(z => zeile(z, ['datum'])),
+      nach_suchanfrage: vergleichen(s, vs, 'suchanfrage'),
+      nach_seite: vergleichen(p, vp, 'seite'),
+      nach_seite_und_suchanfrage: nachKombi.map(z => zeile(z, ['seite', 'suchanfrage'])),
+      nach_geraet: nachGeraet.map(z => zeile(z, ['geraet'])),
+      nach_land: nachLand.map(z => zeile(z, ['land'])),
+
+      verschwunden: vs
+        .filter(d => d.impressionen >= 50 && !s.some(z => z.suchanfrage === d.suchanfrage))
+        .slice(0, 50),
+
+      sitemaps: karten,
+    });
+  } catch (e) {
+    return json({ error: String(e.message || e), property }, 502);
+  }
+}
+
+// ── POST /api/agentur/gsc/inspect ────────────────────────────────
+// Indexierungsstand einzelner Seiten. Google begrenzt das scharf, deshalb
+// höchstens 20 URLs je Aufruf und nacheinander statt parallel.
+export async function gscInspect(request, env, db, body, json, err) {
+  const abteilungId = String(body.abteilung_id || 'frametrain').slice(0, 40);
+  const property = body.property || await propertyVon(db, abteilungId);
+  if (!property) return err('Für diese Abteilung ist keine gsc_property hinterlegt', 400);
+
+  const urls = (Array.isArray(body.urls) ? body.urls : []).slice(0, 20);
+  if (!urls.length) return err('urls[] fehlt');
+
+  try {
+    const token = await zugriffstoken(env);
+    const ergebnisse = [];
+    for (const u of urls) {
+      const r = await fetch('https://searchconsole.googleapis.com/v1/urlInspection/index:inspect', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inspectionUrl: String(u), siteUrl: property }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        ergebnisse.push({ url: u, fehler: d?.error?.message || `HTTP ${r.status}` });
+        continue;
+      }
+      const i = d.inspectionResult?.indexStatusResult || {};
+      const m = d.inspectionResult?.mobileUsabilityResult || {};
+      ergebnisse.push({
+        url: u,
+        indexiert: i.coverageState === 'Submitted and indexed' || /indexed/i.test(i.coverageState || ''),
+        zustand: i.coverageState || null,
+        robots: i.robotsTxtState || null,
+        indexierung: i.indexingState || null,
+        abruf: i.pageFetchState || null,
+        zuletzt_gecrawlt: i.lastCrawlTime || null,
+        google_canonical: i.googleCanonicalUrl || null,
+        eigene_canonical: i.userCanonicalUrl || null,
+        in_sitemaps: i.sitemap || [],
+        mobil: m.verdict || null,
+      });
+    }
+    return json({ property, geprueft: ergebnisse.length, ergebnisse });
   } catch (e) {
     return json({ error: String(e.message || e), property }, 502);
   }

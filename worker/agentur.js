@@ -12,7 +12,7 @@
 // Eintrag der Art 'uebergabe'. Der Verlauf ist ag_eintraege nach Zeit.
 // =============================================
 
-import { gscSync, gscQueries } from './gsc.js';
+import { gscSync, gscQueries, gscReport, gscInspect } from './gsc.js';
 
 // Ein Lauf ohne Ende gilt nach zwei Stunden als abgestürzt.
 const LAUF_TIMEOUT_MS = 2 * 60 * 60 * 1000;
@@ -758,6 +758,8 @@ export async function handleAgentur(request, env, helpers) {
   if (teil === 'gsc') {
     if (method === 'POST' && id3 === 'sync')    return gscSync(request, env, db, body, json, err);
     if (method === 'GET'  && id3 === 'queries') return gscQueries(env, db, url, json, err);
+    if (method === 'GET'  && id3 === 'report')  return gscReport(env, db, url, json, err);
+    if (method === 'POST' && id3 === 'inspect') return gscInspect(request, env, db, body, json, err);
   }
 
   return err('Unbekannte Agentur-Route', 404);
