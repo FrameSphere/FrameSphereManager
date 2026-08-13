@@ -653,7 +653,10 @@ select option { background: var(--surface2); }
    hidden on desktop; the media query below activates them. */
 #sidebar-toggle { display: none; }
 
+/* Backdrop is inert on desktop (display:none) so a drawer left "open"
+   from a narrower viewport can never trap the page behind a dead scrim. */
 #sidebar-backdrop {
+  display: none;
   position: fixed;
   inset: var(--topbar-h) 0 0 0;
   background: rgba(0, 0, 0, 0.55);
@@ -663,7 +666,6 @@ select option { background: var(--surface2); }
   visibility: hidden;
   transition: opacity 0.2s ease, visibility 0.2s ease;
 }
-#sidebar-backdrop.open { opacity: 1; visibility: visible; }
 
 /* ── Responsive: tablet / phone ──────────────────────────────── */
 @media (max-width: 860px) {
@@ -738,6 +740,10 @@ select option { background: var(--surface2); }
     will-change: transform;
   }
   #sidebar.open { transform: translateX(0); }
+
+  /* Backdrop is live only at this breakpoint. */
+  #sidebar-backdrop { display: block; }
+  #sidebar-backdrop.open { opacity: 1; visibility: visible; }
 
   /* Prevent background scroll while the drawer is open. */
   body.drawer-open #main { overflow: hidden; }

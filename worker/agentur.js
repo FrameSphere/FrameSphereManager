@@ -25,6 +25,13 @@ const EINTRAG_ART = [
   'bericht', 'uebergabe', 'befund', 'beitrag', 'pruefung', 'fehler', 'notiz',
 ];
 const BEFUND_ART    = ['veraltet', 'kaputt', 'fehlt', 'seo', 'inhalt'];
+const KAMPAGNE_STATUS = ['geplant', 'laeuft', 'beendet', 'ausgewertet', 'verworfen'];
+const HERKUNFT      = ['gemessen', 'berichtet'];
+const VERLAESSLICH  = ['gemessen', 'beobachtung', 'vermutung'];
+// Wie lange nach einem Lauf derselbe Mitarbeiter vom Verteiler in Ruhe
+// gelassen wird. Verhindert, dass eine hängende Aufgabe stündlich neue
+// Läufe auslöst.
+const VERTEILER_RUHE_STUNDEN = 3;
 const BEFUND_STATUS = ['offen', 'aufgabe', 'erledigt', 'verworfen'];
 const LAUF_STATUS   = ['laeuft', 'erfolgreich', 'leerlauf', 'fehlgeschlagen'];
 const SCHWERE       = ['hoch', 'mittel', 'niedrig'];
@@ -99,9 +106,36 @@ async function ensureAgenturTables(db) {
     db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_befunde_fp ON ag_befunde(fingerprint)'),
     db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_kennzahlen ON ag_kennzahlen(abteilung_id, name, datum)'),
   ]);
+  // Marketing: Kampagnen, Ergebnisse, Wissenspool
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS ag_kampagnen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, abteilung_id TEXT NOT NULL, titel TEXT NOT NULL,
+      ziel TEXT, hypothese TEXT, kanal TEXT, produkt TEXT, status TEXT DEFAULT 'geplant',
+      verantwortlich TEXT, start_am TEXT, ende_am TEXT, fazit TEXT,
+      erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP,
+      aktualisiert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ag_kampagnen_ergebnisse (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, kampagne_id INTEGER NOT NULL,
+      herkunft TEXT NOT NULL DEFAULT 'berichtet', quelle TEXT, name TEXT NOT NULL,
+      wert REAL NOT NULL, einheit TEXT, datum TEXT, notiz TEXT, erfasst_von TEXT,
+      erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ag_wissen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, abteilung_id TEXT NOT NULL, thema TEXT NOT NULL,
+      kanal TEXT, text TEXT NOT NULL, beleg TEXT, kampagne_id INTEGER,
+      verlaesslich TEXT DEFAULT 'beobachtung', veraltet INTEGER DEFAULT 0, erstellt_von TEXT,
+      erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP,
+      aktualisiert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_kampagnen_abt ON ag_kampagnen(abteilung_id, status)'),
+    db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_kerg_kampagne ON ag_kampagnen_ergebnisse(kampagne_id)'),
+    db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_wissen_abt ON ag_wissen(abteilung_id, veraltet)'),
+  ]);
   // Nachträgliche Spalten (schlagen fehl, wenn sie schon da sind – das ist ok)
   await db.prepare('ALTER TABLE ag_abteilungen ADD COLUMN gsc_property TEXT').run().catch(() => {});
   await db.prepare('ALTER TABLE ag_laeufe ADD COLUMN kosten_usd REAL').run().catch(() => {});
+  await db.prepare('ALTER TABLE ag_aufgaben ADD COLUMN kampagne_id INTEGER').run().catch(() => {});
   tabellenBereit = true;
 }
 
@@ -439,8 +473,8 @@ export async function handleAgentur(request, env, helpers) {
       const res = await db.prepare(
         `INSERT INTO ag_aufgaben
          (abteilung_id, titel, beschreibung, status, zustaendig, uebergeben_von, prioritaet,
-          modus, runde_teilnehmer, quelle_befund_id, erstellt_von, faellig_am)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+          modus, runde_teilnehmer, quelle_befund_id, erstellt_von, faellig_am, kampagne_id)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         txt(body.abteilung_id, 40), txt(body.titel, 200), txt(body.beschreibung, 8000),
         einsVon(body.status, AUFGABE_STATUS, 'offen'),
@@ -451,6 +485,7 @@ export async function handleAgentur(request, env, helpers) {
         num(body.quelle_befund_id),
         rolle === 'runner' ? txt(body.erstellt_von, 40) || 'automation' : 'mensch',
         txt(body.faellig_am, 40),
+        num(body.kampagne_id),
       ).run();
       return json({ success: true, id: res.meta?.last_row_id });
     }
@@ -477,6 +512,7 @@ export async function handleAgentur(request, env, helpers) {
         if (body[k] !== undefined) { felder.push(`${k}=?`); werte.push(txt(body[k], max)); }
       }
       if (body.prioritaet !== undefined) { felder.push('prioritaet=?'); werte.push(einsVon(body.prioritaet, PRIORITAET, 'normal')); }
+      if (body.kampagne_id !== undefined) { felder.push('kampagne_id=?'); werte.push(num(body.kampagne_id)); }
       if (body.runde_index !== undefined) { felder.push('runde_index=?'); werte.push(num(body.runde_index) ?? 0); }
       if (body.runde_teilnehmer !== undefined) {
         felder.push('runde_teilnehmer=?');
@@ -750,6 +786,230 @@ export async function handleAgentur(request, env, helpers) {
       }
       return json({ success: true, gespeichert: n });
     }
+  }
+
+  // ── Kampagnen ──────────────────────────────────────────────────
+  if (teil === 'kampagnen') {
+    // Ergebnis nachtragen – von einer Rolle oder von Hand aus dem Manager.
+    if (method === 'POST' && id3 && teil4 === 'ergebnisse') {
+      const liste = Array.isArray(body.ergebnisse) ? body.ergebnisse : [body];
+      let n = 0;
+      for (const e of liste.slice(0, 50)) {
+        if (!e.name || e.wert === undefined) continue;
+        await db.prepare(
+          `INSERT INTO ag_kampagnen_ergebnisse
+           (kampagne_id, herkunft, quelle, name, wert, einheit, datum, notiz, erfasst_von)
+           VALUES (?,?,?,?,?,?,?,?,?)`
+        ).bind(
+          num(id3), einsVon(e.herkunft, HERKUNFT, 'berichtet'), txt(e.quelle, 40),
+          txt(e.name, 60), komma(e.wert) ?? 0, txt(e.einheit, 20),
+          txt(e.datum, 10), txt(e.notiz, 1000),
+          rolle === 'runner' ? txt(e.erfasst_von, 40) : 'mensch',
+        ).run();
+        n++;
+      }
+      return json({ success: true, gespeichert: n });
+    }
+
+    // Gemessene Zahlen aus dem, was der Manager ohnehin sammelt. Nur was
+    // wirklich dasteht – lieber eine leere Liste als eine erfundene.
+    if (method === 'GET' && id3 && teil4 === 'zahlen') {
+      const k = await db.prepare('SELECT * FROM ag_kampagnen WHERE id=?').bind(num(id3)).first();
+      if (!k) return err('Kampagne nicht gefunden', 404);
+      if (!k.produkt || !k.start_am) {
+        return json({ zahlen: [], hinweis: 'Ohne Produkt und Startdatum lässt sich nichts zuordnen.' });
+      }
+      const bis = k.ende_am || new Date().toISOString().slice(0, 10);
+      const [stats, ereignisse] = await Promise.all([
+        db.prepare(
+          `SELECT COALESCE(SUM(visitors),0) AS besucher, COALESCE(SUM(pageviews),0) AS seitenaufrufe
+             FROM site_stats WHERE site_id=? AND date BETWEEN ? AND ?`
+        ).bind(k.produkt, k.start_am, bis).first().catch(() => null),
+        db.prepare(
+          `SELECT event_type AS art, COUNT(*) AS anzahl
+             FROM analytics_events WHERE site_id=? AND created_at BETWEEN ? AND ?
+            GROUP BY event_type ORDER BY anzahl DESC LIMIT 10`
+        ).bind(k.produkt, k.start_am, bis + ' 23:59:59').all().catch(() => ({ results: [] })),
+      ]);
+      const zahlen = [];
+      if (stats?.besucher) zahlen.push({ name: 'besucher', wert: stats.besucher, quelle: 'site_stats' });
+      if (stats?.seitenaufrufe) zahlen.push({ name: 'seitenaufrufe', wert: stats.seitenaufrufe, quelle: 'site_stats' });
+      for (const e of (ereignisse.results || [])) {
+        zahlen.push({ name: e.art, wert: e.anzahl, quelle: 'analytics_events' });
+      }
+      return json({
+        kampagne: k.titel, zeitraum: [k.start_am, bis], produkt: k.produkt,
+        herkunft: 'gemessen', zahlen,
+        hinweis: zahlen.length ? null : 'Für diesen Zeitraum liegen keine eigenen Messwerte vor.',
+      });
+    }
+
+    if (method === 'GET' && id3) {
+      const k = await db.prepare('SELECT * FROM ag_kampagnen WHERE id=?').bind(num(id3)).first();
+      if (!k) return err('Nicht gefunden', 404);
+      const [ergebnisse, aufgaben, wissen] = await Promise.all([
+        db.prepare('SELECT * FROM ag_kampagnen_ergebnisse WHERE kampagne_id=? ORDER BY id DESC').bind(num(id3)).all(),
+        db.prepare('SELECT * FROM ag_aufgaben WHERE kampagne_id=? ORDER BY id DESC').bind(num(id3)).all(),
+        db.prepare('SELECT * FROM ag_wissen WHERE kampagne_id=? ORDER BY id DESC').bind(num(id3)).all(),
+      ]);
+      return json({
+        kampagne: k,
+        ergebnisse: ergebnisse.results || [],
+        aufgaben: aufgaben.results || [],
+        wissen: wissen.results || [],
+      });
+    }
+
+    if (method === 'GET') {
+      const abt = url.searchParams.get('abteilung');
+      const status = url.searchParams.get('status');
+      const bed = [], w = [];
+      if (abt) { bed.push('abteilung_id=?'); w.push(abt); }
+      if (status) { bed.push('status=?'); w.push(status); }
+      const r = await db.prepare(
+        `SELECT * FROM ag_kampagnen${bed.length ? ' WHERE ' + bed.join(' AND ') : ''} ORDER BY id DESC LIMIT 100`
+      ).bind(...w).all();
+      return json({ kampagnen: r.results || [] });
+    }
+
+    if (method === 'POST') {
+      if (!body.titel || !body.abteilung_id) return err('titel und abteilung_id sind Pflicht');
+      const res = await db.prepare(
+        `INSERT INTO ag_kampagnen
+         (abteilung_id, titel, ziel, hypothese, kanal, produkt, status, verantwortlich, start_am, ende_am)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`
+      ).bind(
+        txt(body.abteilung_id, 40), txt(body.titel, 200), txt(body.ziel, 2000),
+        txt(body.hypothese, 2000), txt(body.kanal, 40), txt(body.produkt, 40),
+        einsVon(body.status, KAMPAGNE_STATUS, 'geplant'), txt(body.verantwortlich, 40),
+        txt(body.start_am, 10), txt(body.ende_am, 10),
+      ).run();
+      return json({ success: true, id: res.meta?.last_row_id });
+    }
+
+    if (method === 'PATCH' && id3) {
+      const felder = [], werte = [];
+      for (const [k, max] of [['titel', 200], ['ziel', 2000], ['hypothese', 2000], ['kanal', 40],
+                              ['produkt', 40], ['verantwortlich', 40], ['start_am', 10],
+                              ['ende_am', 10], ['fazit', 8000]]) {
+        if (body[k] !== undefined) { felder.push(`${k}=?`); werte.push(txt(body[k], max)); }
+      }
+      if (body.status !== undefined) {
+        const s = einsVon(body.status, KAMPAGNE_STATUS, null);
+        if (!s) return err('Unbekannter Kampagnen-Status');
+        felder.push('status=?'); werte.push(s);
+      }
+      if (!felder.length) return err('Nichts zu ändern');
+      felder.push('aktualisiert_am=?'); werte.push(jetzt());
+      werte.push(num(id3));
+      await db.prepare(`UPDATE ag_kampagnen SET ${felder.join(', ')} WHERE id=?`).bind(...werte).run();
+      return json({ success: true });
+    }
+  }
+
+  // ── Wissenspool ────────────────────────────────────────────────
+  // Was gelernt wurde, unabhängig von einzelnen Aufgaben. Ohne das
+  // beginnt jede Kampagne wieder bei null.
+  if (teil === 'wissen') {
+    if (method === 'GET') {
+      const abt = url.searchParams.get('abteilung');
+      const kanal = url.searchParams.get('kanal');
+      const bed = ['veraltet=0'], w = [];
+      if (abt) { bed.push('abteilung_id=?'); w.push(abt); }
+      if (kanal) { bed.push('kanal=?'); w.push(kanal); }
+      const limit = Math.min(num(url.searchParams.get('limit')) || 100, 300);
+      const r = await db.prepare(
+        `SELECT * FROM ag_wissen WHERE ${bed.join(' AND ')}
+          ORDER BY CASE verlaesslich WHEN 'gemessen' THEN 0 WHEN 'beobachtung' THEN 1 ELSE 2 END, id DESC
+          LIMIT ?`
+      ).bind(...w, limit).all();
+      return json({ wissen: r.results || [] });
+    }
+    if (method === 'POST') {
+      if (!body.thema || !body.text || !body.abteilung_id) return err('thema, text und abteilung_id sind Pflicht');
+      const res = await db.prepare(
+        `INSERT INTO ag_wissen (abteilung_id, thema, kanal, text, beleg, kampagne_id, verlaesslich, erstellt_von)
+         VALUES (?,?,?,?,?,?,?,?)`
+      ).bind(
+        txt(body.abteilung_id, 40), txt(body.thema, 200), txt(body.kanal, 40),
+        txt(body.text, 4000), txt(body.beleg, 2000), num(body.kampagne_id),
+        einsVon(body.verlaesslich, VERLAESSLICH, 'beobachtung'),
+        rolle === 'runner' ? txt(body.erstellt_von, 40) : 'mensch',
+      ).run();
+      return json({ success: true, id: res.meta?.last_row_id });
+    }
+    if (method === 'PATCH' && id3) {
+      const felder = [], werte = [];
+      for (const [k, max] of [['thema', 200], ['kanal', 40], ['text', 4000], ['beleg', 2000]]) {
+        if (body[k] !== undefined) { felder.push(`${k}=?`); werte.push(txt(body[k], max)); }
+      }
+      if (body.verlaesslich !== undefined) { felder.push('verlaesslich=?'); werte.push(einsVon(body.verlaesslich, VERLAESSLICH, 'beobachtung')); }
+      if (body.veraltet !== undefined) { felder.push('veraltet=?'); werte.push(einsAus(body.veraltet)); }
+      if (!felder.length) return err('Nichts zu ändern');
+      felder.push('aktualisiert_am=?'); werte.push(jetzt());
+      werte.push(num(id3));
+      await db.prepare(`UPDATE ag_wissen SET ${felder.join(', ')} WHERE id=?`).bind(...werte).run();
+      return json({ success: true });
+    }
+  }
+
+  // ── Verteiler ──────────────────────────────────────────────────
+  // Wer hat jetzt etwas zu tun? Der Runner fragt das stündlich und startet
+  // nur die Genannten. Damit hängt die Rechnung an der Arbeit, nicht am
+  // Kalender – und ein "heute 16 Uhr" trifft auf die Stunde genau.
+  //
+  // Fällig ist eine Aufgabe nur mit gesetztem faellig_am in der
+  // Vergangenheit. Aufgaben ohne Termin lösen nichts aus; die werden
+  // mitgenommen, wenn die Person ohnehin läuft.
+  if (method === 'GET' && teil === 'faellig') {
+    await laeufeAufraeumen(db);
+    const abt = url.searchParams.get('abteilung');
+    const ruhe = Math.min(num(url.searchParams.get('ruhe_stunden')) ?? VERTEILER_RUHE_STUNDEN, 48);
+    const grenze = new Date(Date.now() - ruhe * 3600000).toISOString();
+
+    const bed = [
+      `a.status NOT IN ('erledigt','verworfen','zur_freigabe')`,
+      'a.zustaendig IS NOT NULL',
+      'a.faellig_am IS NOT NULL',
+      "a.faellig_am <= ?",
+    ];
+    const w = [jetzt()];
+    if (abt) { bed.push('a.abteilung_id=?'); w.push(abt); }
+
+    const faellige = await db.prepare(
+      `SELECT a.id, a.titel, a.zustaendig, a.abteilung_id, a.faellig_am, a.prioritaet,
+              m.name AS mitarbeiter_name, m.aktiv
+         FROM ag_aufgaben a
+         JOIN ag_mitarbeiter m ON m.id = a.zustaendig
+        WHERE ${bed.join(' AND ')} AND m.aktiv = 1
+        ORDER BY a.faellig_am ASC`
+    ).bind(...w).all();
+
+    // Wer gerade läuft oder eben erst gelaufen ist, wird übersprungen.
+    const beschaeftigt = await db.prepare(
+      `SELECT DISTINCT mitarbeiter_id FROM ag_laeufe
+        WHERE beendet_am IS NULL OR gestartet_am > ?`
+    ).bind(grenze).all();
+    const sperre = new Set((beschaeftigt.results || []).map(r => r.mitarbeiter_id));
+
+    const proPerson = new Map();
+    for (const a of (faellige.results || [])) {
+      if (sperre.has(a.zustaendig)) continue;
+      if (!proPerson.has(a.zustaendig)) {
+        proPerson.set(a.zustaendig, {
+          mitarbeiter_id: a.zustaendig, name: a.mitarbeiter_name,
+          abteilung_id: a.abteilung_id, aufgaben: [],
+        });
+      }
+      proPerson.get(a.zustaendig).aufgaben.push({ id: a.id, titel: a.titel, faellig_am: a.faellig_am });
+    }
+
+    return json({
+      zeitpunkt: jetzt(),
+      ruhe_stunden: ruhe,
+      dran: [...proPerson.values()],
+      uebersprungen: [...sperre].filter(id => (faellige.results || []).some(a => a.zustaendig === id)),
+    });
   }
 
   // ── Search Console ─────────────────────────────────────────────

@@ -314,6 +314,9 @@
       <button class="ag-tab" onclick="zeigeTab('befunde',this)">
         <i data-lucide="search-check" style="width:13px;height:13px"></i> Befunde <span class="ag-count" id="c-befunde">0</span>
       </button>
+      <button class="ag-tab" onclick="zeigeTab('kampagnen',this)">
+        <i data-lucide="megaphone" style="width:13px;height:13px"></i> Kampagnen <span class="ag-count" id="c-kampagnen">0</span>
+      </button>
       <button class="ag-tab" onclick="zeigeTab('laeufe',this)">
         <i data-lucide="activity" style="width:13px;height:13px"></i> Läufe <span class="ag-count" id="c-laeufe">0</span>
       </button>
@@ -326,6 +329,7 @@
     <div class="ag-pane" id="pane-aufgaben"></div>
     <div class="ag-pane" id="pane-berichte"></div>
     <div class="ag-pane" id="pane-befunde"></div>
+    <div class="ag-pane" id="pane-kampagnen"></div>
     <div class="ag-pane" id="pane-laeufe"></div>
     <div class="ag-pane" id="pane-team"></div>
 
@@ -359,6 +363,8 @@ let BOARD    = null;
 let ABTEILUNG = localStorage.getItem('ag_abteilung') || '';
 let BERICHTE = [];
 let KENNZAHLEN = [];
+let KAMPAGNEN = [];
+let WISSEN = [];
 let AKTIVER_TAB = 'buero';
 
 const ZUSTAND_TEXT = {
@@ -461,6 +467,7 @@ function zeigeTab(name, btn) {
   document.querySelectorAll('.ag-pane').forEach(p => p.classList.remove('active'));
   document.getElementById('pane-' + name).classList.add('active');
   if (name === 'berichte') ladeBerichte();
+  if (name === 'kampagnen') ladeKampagnen();
   refreshIcons();
 }
 
@@ -770,6 +777,198 @@ async function gscHolen() {
   }
   const b = document.getElementById('gsc-btn');
   if (b) b.disabled = false;
+}
+
+// ── Kampagnen und Wissenspool ────────────────────────────────────
+const KAMPAGNE_MARKE = {
+  geplant:     ['m-grau',  'geplant'],
+  laeuft:      ['m-blau',  'läuft'],
+  beendet:     ['m-gelb',  'beendet, nicht ausgewertet'],
+  ausgewertet: ['m-gruen', 'ausgewertet'],
+  verworfen:   ['m-grau',  'verworfen'],
+};
+
+async function ladeKampagnen() {
+  const [k, w] = await Promise.all([
+    api(`/api/agentur/kampagnen?abteilung=${encodeURIComponent(ABTEILUNG)}`),
+    api(`/api/agentur/wissen?abteilung=${encodeURIComponent(ABTEILUNG)}&limit=50`),
+  ]);
+  KAMPAGNEN = k?.kampagnen || [];
+  WISSEN = w?.wissen || [];
+  document.getElementById('c-kampagnen').textContent = KAMPAGNEN.length;
+  zeichneKampagnen();
+  refreshIcons();
+}
+
+function zeichneKampagnen() {
+  const el = document.getElementById('pane-kampagnen');
+
+  const liste = KAMPAGNEN.length ? KAMPAGNEN.map(k => {
+    const st = KAMPAGNE_MARKE[k.status] || KAMPAGNE_MARKE.geplant;
+    const zeitraum = [k.start_am, k.ende_am].filter(Boolean).join(' bis ') || 'ohne Zeitraum';
+    return `<div class="zeile" onclick="oeffneKampagne(${k.id})">
+      <div class="zeile-kopf">
+        <div class="zeile-titel">${esc(k.titel)}</div>
+        ${marke(st)}
+      </div>
+      ${k.ziel ? `<div class="zeile-sub"><b style="color:var(--text2)">Ziel:</b> ${esc(k.ziel)}</div>` : ''}
+      <div class="zeile-meta">
+        ${k.kanal ? marke(['m-lila', k.kanal]) : ''}
+        ${k.produkt ? marke(['m-grau', k.produkt]) : ''}
+        ${k.verantwortlich ? autorKugel(personName(k.verantwortlich), person(k.verantwortlich)?.farbe) : ''}
+        <span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">${esc(zeitraum)}</span>
+      </div>
+    </div>`;
+  }).join('') : `<div class="leer">Noch keine Kampagnen. Nina legt sie an, sobald sie eine fällige Planungsaufgabe hat.</div>`;
+
+  const wissen = WISSEN.length ? WISSEN.map(w => {
+    const v = w.verlaesslich === 'gemessen' ? ['m-gruen', 'gemessen']
+            : w.verlaesslich === 'vermutung' ? ['m-grau', 'Vermutung']
+            : ['m-blau', 'Beobachtung'];
+    return `<div class="postfach-item" style="cursor:default">
+      <div style="flex:1;min-width:0">
+        <div class="pf-titel">${esc(w.thema)} ${marke(v)}${w.kanal ? marke(['m-grau', w.kanal]) : ''}</div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.5;margin-top:4px">${esc(w.text)}</div>
+        ${w.beleg ? `<div class="pf-meta" style="margin-top:4px">Beleg: ${esc(w.beleg)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('') : `<div style="font-size:11.5px;color:var(--text3)">Noch nichts gelernt. Der Pool füllt sich, wenn Nina Kampagnen auswertet.</div>`;
+
+  el.innerHTML = `
+    <div class="buero-wrap">
+      <div>
+        <div style="display:flex;justify-content:flex-end;margin-bottom:14px">
+          <button class="btn btn-ghost" onclick="neueKampagne()">${icon('plus', 13)} Kampagne anlegen</button>
+        </div>
+        ${liste}
+      </div>
+      <div>
+        <div class="karte">
+          <div class="karte-kopf">${icon('brain', 12)} Wissenspool <span class="zahl">${WISSEN.length}</span></div>
+          ${wissen}
+        </div>
+      </div>
+    </div>`;
+}
+
+async function oeffneKampagne(id) {
+  zeigeDetail('<h2>Lade…</h2>', loadingState(), '');
+  const [d, gemessen] = await Promise.all([
+    api('/api/agentur/kampagnen/' + id),
+    api('/api/agentur/kampagnen/' + id + '/zahlen'),
+  ]);
+  if (!d) { zeigeDetail('<h2>Fehler</h2>', errState(), ''); return; }
+  const k = d.kampagne;
+  const st = KAMPAGNE_MARKE[k.status] || KAMPAGNE_MARKE.geplant;
+
+  const kopf = `<div style="margin-bottom:8px">${marke(st)}${k.kanal ? marke(['m-lila', k.kanal]) : ''}</div>
+    <h2>${esc(k.titel)}</h2>
+    <div class="page-sub">${[k.start_am, k.ende_am].filter(Boolean).join(' bis ') || 'ohne Zeitraum'} · verantwortlich: ${esc(personName(k.verantwortlich))}</div>`;
+
+  const berichtet = (d.ergebnisse || []).filter(e => e.herkunft === 'berichtet');
+  const gemessenListe = (gemessen?.zahlen || []);
+
+  const zeile = e => `<div style="display:flex;gap:10px;padding:6px 0;border-top:1px solid var(--border);font-size:12.5px">
+      <span style="flex:1">${esc(e.name)}${e.quelle ? ` <span style="color:var(--text3);font-size:11px">(${esc(e.quelle)})</span>` : ''}</span>
+      <b>${Number(e.wert).toLocaleString('de-DE')}${e.einheit ? ' ' + esc(e.einheit) : ''}</b>
+    </div>`;
+
+  const body = `
+    ${k.ziel ? `<div class="karte"><div class="karte-kopf">${icon('target', 12)} Ziel</div>
+      <div style="font-size:12.5px;line-height:1.6;color:var(--text2)">${esc(k.ziel)}</div></div>` : ''}
+    ${k.hypothese ? `<div class="karte"><div class="karte-kopf">${icon('flask-conical', 12)} Hypothese</div>
+      <div style="font-size:12.5px;line-height:1.6;color:var(--text2)">${esc(k.hypothese)}</div></div>` : ''}
+
+    <div class="karte">
+      <div class="karte-kopf">${icon('bar-chart-3', 12)} Gemessen — eigene Daten <span class="zahl">${gemessenListe.length}</span></div>
+      ${gemessenListe.length ? gemessenListe.map(zeile).join('')
+        : `<div style="font-size:11.5px;color:var(--text3)">${esc(gemessen?.hinweis || 'Keine Messwerte.')}</div>`}
+    </div>
+
+    <div class="karte">
+      <div class="karte-kopf">${icon('hand', 12)} Berichtet — von dir nachgetragen <span class="zahl">${berichtet.length}</span></div>
+      ${berichtet.length ? berichtet.map(zeile).join('')
+        : `<div style="font-size:11.5px;color:var(--text3)">Noch nichts nachgetragen.</div>`}
+      <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr auto;gap:8px;margin-top:12px;align-items:end">
+        <div class="feld" style="margin:0"><label>Was</label><input id="erg-name" placeholder="upvotes"></div>
+        <div class="feld" style="margin:0"><label>Wert</label><input id="erg-wert" type="number" step="any" placeholder="142"></div>
+        <div class="feld" style="margin:0"><label>Quelle</label><input id="erg-quelle" placeholder="reddit"></div>
+        <button class="btn btn-ghost" onclick="ergebnisNachtragen(${k.id})">${icon('plus', 12)} Eintragen</button>
+      </div>
+      <div id="erg-fehler" style="color:#f87171;font-size:11.5px;margin-top:6px"></div>
+    </div>
+
+    ${k.fazit ? `<div class="karte"><div class="karte-kopf">${icon('flag', 12)} Fazit</div>
+      <div class="md">${mdToHtml(k.fazit)}</div></div>` : ''}
+
+    ${(d.aufgaben || []).length ? `<div class="karte"><div class="karte-kopf">${icon('list-checks', 12)} Aufgaben</div>
+      ${d.aufgaben.map(a => `<div style="font-size:12.5px;padding:5px 0;border-top:1px solid var(--border);cursor:pointer" onclick="oeffneAufgabe(${a.id})">${esc(a.titel)} ${marke(STATUS_MARKE[a.status] || STATUS_MARKE.offen)}</div>`).join('')}</div>` : ''}`;
+
+  let fuss = '';
+  if (k.status === 'geplant') fuss = `<button class="btn btn-primary" onclick="setzeKampagne(${k.id},'laeuft')">${icon('play', 13)} Starten</button>`;
+  if (k.status === 'laeuft')  fuss = `<button class="btn btn-primary" onclick="setzeKampagne(${k.id},'beendet')">${icon('square', 13)} Beenden</button>`;
+  if (!['ausgewertet', 'verworfen'].includes(k.status)) {
+    fuss += `<button class="btn btn-danger" onclick="setzeKampagne(${k.id},'verworfen')">${icon('x', 13)} Verwerfen</button>`;
+  }
+  zeigeDetail(kopf, body, fuss);
+}
+
+async function ergebnisNachtragen(id) {
+  const name = document.getElementById('erg-name').value.trim();
+  const wert = document.getElementById('erg-wert').value;
+  const fehler = document.getElementById('erg-fehler');
+  if (!name || wert === '') { fehler.textContent = 'Was und Wert sind nötig.'; return; }
+  await api(`/api/agentur/kampagnen/${id}/ergebnisse`, {
+    method: 'POST',
+    body: { herkunft: 'berichtet', name, wert: Number(wert), quelle: document.getElementById('erg-quelle').value.trim() || null },
+  });
+  oeffneKampagne(id);
+}
+
+async function setzeKampagne(id, status) {
+  await api('/api/agentur/kampagnen/' + id, { method: 'PATCH', body: { status } });
+  schliesse();
+  ladeKampagnen();
+}
+
+function neueKampagne() {
+  const team = (BOARD.team || []);
+  const kopf = `<h2>Kampagne anlegen</h2><div class="page-sub">Ohne Ziel und Hypothese gibt es später nichts auszuwerten</div>`;
+  const body = `
+    <div class="feld"><label>Titel</label><input id="nk-titel" placeholder="Reddit-Vorstellung 1.2.9"></div>
+    <div class="feld"><label>Ziel — eine Zahl oder ein beobachtbarer Zustand</label><input id="nk-ziel" placeholder="200 Besucher auf die Downloadseite"></div>
+    <div class="feld"><label>Hypothese — warum sollte das wirken?</label><textarea id="nk-hypothese" placeholder="r/LocalLLaMA interessiert sich für lokales Fine-Tuning ohne Cloud"></textarea></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="feld"><label>Kanal</label><input id="nk-kanal" placeholder="reddit"></div>
+      <div class="feld"><label>Produkt</label><input id="nk-produkt" placeholder="frametrain"></div>
+      <div class="feld"><label>Start</label><input id="nk-start" type="date"></div>
+      <div class="feld"><label>Ende</label><input id="nk-ende" type="date"></div>
+      <div class="feld" style="grid-column:1/-1"><label>Verantwortlich</label>
+        <select id="nk-wer"><option value="">– niemand –</option>${team.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div id="nk-fehler" style="color:#f87171;font-size:11.5px"></div>`;
+  zeigeDetail(kopf, body, `<button class="btn btn-primary" onclick="speichereKampagne()">${icon('check', 13)} Anlegen</button>`);
+}
+
+async function speichereKampagne() {
+  const titel = document.getElementById('nk-titel').value.trim();
+  if (!titel) { document.getElementById('nk-fehler').textContent = 'Titel fehlt.'; return; }
+  await api('/api/agentur/kampagnen', {
+    method: 'POST',
+    body: {
+      abteilung_id: ABTEILUNG, titel,
+      ziel: document.getElementById('nk-ziel').value.trim(),
+      hypothese: document.getElementById('nk-hypothese').value.trim(),
+      kanal: document.getElementById('nk-kanal').value.trim(),
+      produkt: document.getElementById('nk-produkt').value.trim(),
+      start_am: document.getElementById('nk-start').value || null,
+      ende_am: document.getElementById('nk-ende').value || null,
+      verantwortlich: document.getElementById('nk-wer').value || null,
+    },
+  });
+  schliesse();
+  ladeKampagnen();
 }
 
 // ── Befunde ──────────────────────────────────────────────────────

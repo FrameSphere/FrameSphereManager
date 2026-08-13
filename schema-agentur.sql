@@ -207,3 +207,104 @@ INSERT OR IGNORE INTO ag_mitarbeiter
   ('sven',    'Sven',    'product-owner',   'frametrain',
    'Pragmatisch, sagt oft Nein. Maximal drei Aufgaben pro Lauf, sortiert nach Aufwand und Wirkung.',
    'personal/sven.md',    '#ef4444', 'e', 5, 1);
+
+-- =============================================
+-- MARKETING: Kampagnen, Ergebnisse, Wissenspool
+-- =============================================
+-- Marketing hängt nicht in der Kette, sondern plant selbst. Dafür braucht
+-- es drei Dinge, die Aufgaben und Einträge nicht leisten: eine Kampagne als
+-- eigenes Objekt, Ergebnisse mit Herkunft, und Wissen, das einzelne Läufe
+-- überlebt.
+
+CREATE TABLE IF NOT EXISTS ag_kampagnen (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  abteilung_id    TEXT NOT NULL,
+  titel           TEXT NOT NULL,
+  ziel            TEXT,                     -- was erreicht werden soll
+  hypothese       TEXT,                     -- warum das funktionieren sollte
+  kanal           TEXT,                     -- reddit | instagram | changelog | blog | …
+  produkt         TEXT,                     -- sites.id, falls produktbezogen
+  status          TEXT DEFAULT 'geplant',   -- geplant | laeuft | beendet | ausgewertet | verworfen
+  verantwortlich  TEXT,                     -- ag_mitarbeiter.id
+  start_am        TEXT,
+  ende_am         TEXT,
+  fazit           TEXT,                     -- Rückblick, entsteht beim Auswerten
+  erstellt_am     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  aktualisiert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Ergebnisse mit Herkunft. 'gemessen' kommt aus eigenen Daten,
+-- 'berichtet' trägt ein Mensch nach. Der Unterschied muss sichtbar
+-- bleiben, sonst wird aus einer Schätzung im nächsten Rückblick ein Fakt.
+CREATE TABLE IF NOT EXISTS ag_kampagnen_ergebnisse (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  kampagne_id   INTEGER NOT NULL,
+  herkunft      TEXT NOT NULL DEFAULT 'berichtet',  -- gemessen | berichtet
+  quelle        TEXT,                     -- analytics | revenue | reddit | umfrage | …
+  name          TEXT NOT NULL,            -- upvotes | kommentare | klicks | anmeldungen | …
+  wert          REAL NOT NULL,
+  einheit       TEXT,
+  datum         TEXT,
+  notiz         TEXT,
+  erfasst_von   TEXT,                     -- mitarbeiter_id oder 'mensch'
+  erstellt_am   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Wissenspool: was gelernt wurde, unabhängig von einzelnen Aufgaben.
+-- Ohne das beginnt jede Kampagne wieder bei null.
+CREATE TABLE IF NOT EXISTS ag_wissen (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  abteilung_id  TEXT NOT NULL,
+  thema         TEXT NOT NULL,
+  kanal         TEXT,
+  text          TEXT NOT NULL,
+  beleg         TEXT,                     -- woran es sich zeigte
+  kampagne_id   INTEGER,                  -- woraus es stammt
+  verlaesslich  TEXT DEFAULT 'beobachtung', -- gemessen | beobachtung | vermutung
+  veraltet      INTEGER DEFAULT 0,
+  erstellt_von  TEXT,
+  erstellt_am   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  aktualisiert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS ix_ag_kampagnen_abt ON ag_kampagnen(abteilung_id, status);
+CREATE INDEX IF NOT EXISTS ix_ag_kerg_kampagne ON ag_kampagnen_ergebnisse(kampagne_id);
+CREATE INDEX IF NOT EXISTS ix_ag_wissen_abt    ON ag_wissen(abteilung_id, veraltet);
+
+-- ── Marketing als eigene Abteilung ───────────────────────────────
+INSERT OR IGNORE INTO ag_abteilungen (id, name, projekt, kontext_datei, beschreibung, farbe, sortierung) VALUES
+  ('marketing', 'Marketing', NULL, 'abteilungen/marketing.md',
+   'Plant und fährt eigene Kampagnen über alle Produkte', '#a855f7', 2);
+
+INSERT OR IGNORE INTO ag_funktionen (id, name, skill, beschreibung, icon, liefert) VALUES
+  ('marketing-leitung', 'Marketing-Leitung', 'marketing-leitung',
+   'Plant Kampagnen, terminiert die Arbeit der Abteilung, wertet Abgeschlossenes aus und pflegt den Wissenspool.',
+   'clipboard-list', 'kampagne'),
+  ('texter', 'Texter', 'texter',
+   'Schreibt Texte für Web, Blog und Newsletter nach Auftrag der Leitung.',
+   'pen-tool', 'entwurf'),
+  ('reddit-texter', 'Reddit-Spezialist', 'reddit-texter',
+   'Schreibt für Reddit: Communityton, kein Werbesprech, kennt die Regeln der jeweiligen Subreddits.',
+   'message-circle', 'entwurf'),
+  ('changelog-texter', 'Changelog-Spezialist', 'changelog-texter',
+   'Macht aus Commits und Releases verständliche Änderungshinweise, zweisprachig.',
+   'file-clock', 'entwurf');
+
+INSERT OR IGNORE INTO ag_mitarbeiter
+  (id, name, funktion_id, abteilung_id, charakter, charakter_datei, farbe, avatar, schreibtisch, aktiv) VALUES
+  ('nina', 'Nina', 'marketing-leitung', 'marketing',
+   'Plant in Wochen, nicht in Posts. Fragt bei jeder Idee zuerst, woran man merken würde, dass sie funktioniert hat.',
+   'personal/nina.md', '#a855f7', 'c', 1, 1),
+  ('tom', 'Tom', 'texter', 'marketing',
+   'Handwerker am Satz. Schreibt lieber kurz und konkret als klug. Hasst Füllwörter.',
+   'personal/tom.md', '#60a5fa', 'a', 3, 1),
+  ('ben', 'Ben', 'reddit-texter', 'marketing',
+   'Liest mehr als er schreibt. Erkennt Werbesprech auf hundert Meter und würde selbst nie so posten.',
+   'personal/ben.md', '#f97316', 'd', 4, 1),
+  ('lena', 'Lena', 'changelog-texter', 'marketing',
+   'Übersetzt Technik in Klartext. Nennt beim Namen, was sich für den Nutzer ändert, und lässt weg, was ihn nicht betrifft.',
+   'personal/lena.md', '#22d3ee', 'b', 5, 1);
+
+-- Florian zieht ins Marketing um: dort ist er Allrounder, in der
+-- FrameTrain-Kette war er ein Anhängsel ohne Auftraggeber.
+UPDATE ag_mitarbeiter SET abteilung_id='marketing', schreibtisch=2 WHERE id='florian';
