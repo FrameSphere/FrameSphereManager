@@ -466,6 +466,40 @@ function funktion(id) { return (BOARD?.funktionen || []).find(f => f.id === id) 
 function personName(id) { return person(id)?.name || (id ? id : '–'); }
 
 // ── Tabs ─────────────────────────────────────────────────────────
+// Manche Tabs gehören nur zu einer Abteilung. Wer die Börse betritt, soll
+// dort landen und nicht erst suchen.
+const TAB_NUR_FUER = { kampagnen: ['marketing'], boerse: ['boerse'] };
+const START_TAB = { boerse: 'boerse', marketing: 'buero' };
+
+function tabsAnpassen() {
+  let aktiverBleibt = true;
+  document.querySelectorAll('.ag-tab').forEach(b => {
+    const ziel = (b.getAttribute('onclick') || '').match(/zeigeTab\('([^']+)'/)?.[1];
+    if (!ziel) return;
+    const nur = TAB_NUR_FUER[ziel];
+    const sichtbar = !nur || nur.includes(ABTEILUNG);
+    b.style.display = sichtbar ? '' : 'none';
+    if (!sichtbar && ziel === AKTIVER_TAB) aktiverBleibt = false;
+  });
+  if (!aktiverBleibt) {
+    const ziel = START_TAB[ABTEILUNG] || 'buero';
+    zeigeTab(ziel, [...document.querySelectorAll('.ag-tab')]
+      .find(b => (b.getAttribute('onclick') || '').includes(`'${ziel}'`)));
+  }
+}
+
+// Beim Wechsel in eine Abteilung deren Starttab öffnen – aber nur, wenn man
+// nicht ohnehin schon auf einem Tab steht, den es dort gibt.
+function starttabOeffnen() {
+  const ziel = START_TAB[ABTEILUNG];
+  if (!ziel || ziel === AKTIVER_TAB) return;
+  const nur = TAB_NUR_FUER[AKTIVER_TAB];
+  if (nur && !nur.includes(ABTEILUNG)) return;   // wird von tabsAnpassen erledigt
+  if (AKTIVER_TAB !== 'buero') return;           // eine bewusste Auswahl nicht überschreiben
+  zeigeTab(ziel, [...document.querySelectorAll('.ag-tab')]
+    .find(b => (b.getAttribute('onclick') || '').includes(`'${ziel}'`)));
+}
+
 function zeigeTab(name, btn) {
   AKTIVER_TAB = name;
   document.querySelectorAll('.ag-tab').forEach(b => b.classList.remove('active'));
@@ -508,6 +542,8 @@ async function ladeBoard() {
     ? `${abt.beschreibung || abt.name} · ${(data.team || []).length} im Team`
     : 'Noch keine Abteilung angelegt';
 
+  tabsAnpassen();
+  starttabOeffnen();
   zeichneChips();
   zeichneBuero();
   zeichneAufgaben();
@@ -871,6 +907,7 @@ async function gscHolen() {
 // Faktenlage, keine Beratung: Zahlen, Verlauf, Termine. Was daraus folgt,
 // entscheidet Karol.
 let BOERSE = null;
+let BOERSE_ZEITRAUM = 0;   // 0 = alles, sonst Anzahl Handelstage von hinten
 
 async function ladeBoerse(auffrischen) {
   const el = document.getElementById('pane-boerse');
@@ -878,23 +915,108 @@ async function ladeBoerse(auffrischen) {
     el.querySelector('#bs-status')?.replaceChildren(document.createTextNode('Hole Kurse…'));
     await api('/api/agentur/boerse/auffrischen', { method: 'POST', body: {} });
   }
-  BOERSE = await api('/api/agentur/boerse/uebersicht?tage=90');
+  // Voll laden, die Zeitraumknöpfe filtern clientseitig – sonst zeigte
+  // „Alles" nur so weit, wie hier angefragt wurde.
+  BOERSE = await api('/api/agentur/boerse/uebersicht?tage=400');
   zeichneBoerse();
   refreshIcons();
 }
 
-function kursLinie(verlauf, farbe) {
+// Kursdiagramm: Fläche, Linie, Hoch- und Tiefmarke, Datumsachse und ein
+// Fadenkreuz zum Ablesen. Bewusst ohne Bibliothek – die Seite lädt nichts nach.
+const DIAGRAMM_DATEN = {};   // id -> Verlauf, für das Ablesen unter der Maus
+
+function kursDiagramm(symbol, verlauf, farbe, waehrung, hoch) {
+  const id = 'dg-' + symbol.replace(/[^a-z0-9]/gi, '');
+  const h = hoch || 150;
+
   if (!verlauf || verlauf.length < 2) {
-    return `<div style="height:40px;display:flex;align-items:center;font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">Verlauf entsteht ab dem zweiten Abruf</div>`;
+    return `<div style="height:${h}px;display:flex;align-items:center;justify-content:center;
+      border:1px dashed var(--border2);border-radius:10px;color:var(--text3);font-size:11.5px;text-align:center;padding:0 20px">
+      Noch kein Verlauf. „Historie laden" holt die vergangenen Monate,
+      sonst wächst die Linie ab dem zweiten Tagesabruf.
+    </div>`;
   }
-  const werte = verlauf.map(v => v.kurs);
+
+  const gefiltert = verlauf.slice(-(BOERSE_ZEITRAUM === 0 ? verlauf.length : BOERSE_ZEITRAUM));
+  DIAGRAMM_DATEN[id] = gefiltert;
+
+  const werte = gefiltert.map(v => v.kurs);
   const min = Math.min(...werte), max = Math.max(...werte);
-  const spanne = (max - min) || 1;
-  const punkte = werte.map((w, i) => `${(i / (werte.length - 1) * 100).toFixed(1)},${(36 - ((w - min) / spanne) * 32).toFixed(1)}`).join(' ');
-  return `<svg viewBox="0 0 100 40" preserveAspectRatio="none" style="display:block;width:100%;height:40px;overflow:visible">
-    <polyline points="${punkte}" fill="none" stroke="${farbe}" stroke-width="1.6"
-              stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
-  </svg>`;
+  const spanne = (max - min) || Math.abs(min) * 0.02 || 1;
+  const B = 600, H = 140, R = { o: 12, u: 22, l: 0, r: 48 };
+  const px = i => R.l + (i / (gefiltert.length - 1)) * (B - R.l - R.r);
+  const py = w => R.o + (1 - (w - min) / spanne) * (H - R.o - R.u);
+
+  const linie = gefiltert.map((v, i) => `${px(i).toFixed(1)},${py(v.kurs).toFixed(1)}`).join(' ');
+  const flaeche = `${R.l},${H - R.u} ${linie} ${px(gefiltert.length - 1).toFixed(1)},${H - R.u}`;
+
+  const iMax = werte.indexOf(max), iMin = werte.indexOf(min);
+  const zahlFmt = n => Number(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const erst = gefiltert[0], letzt = gefiltert[gefiltert.length - 1];
+  const wandel = erst.kurs ? ((letzt.kurs - erst.kurs) / erst.kurs) * 100 : 0;
+
+  return `
+    <div style="position:relative" onmousemove="diagrammLesen(event,'${id}')" onmouseleave="diagrammVerlassen('${id}')">
+      <svg viewBox="0 0 ${B} ${H}" preserveAspectRatio="none" id="${id}"
+           style="display:block;width:100%;height:${h}px;overflow:visible;cursor:crosshair">
+        <defs>
+          <linearGradient id="${id}-f" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${farbe}" stop-opacity=".28"/>
+            <stop offset="100%" stop-color="${farbe}" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <polygon points="${flaeche}" fill="url(#${id}-f)"/>
+        <polyline points="${linie}" fill="none" stroke="${farbe}" stroke-width="1.8"
+                  stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+        <circle cx="${px(iMax).toFixed(1)}" cy="${py(max).toFixed(1)}" r="2.5" fill="${farbe}"/>
+        <circle cx="${px(iMin).toFixed(1)}" cy="${py(min).toFixed(1)}" r="2.5" fill="${farbe}" opacity=".6"/>
+        <line id="${id}-kreuz" x1="0" y1="${R.o}" x2="0" y2="${H - R.u}"
+              stroke="var(--text3)" stroke-width="1" vector-effect="non-scaling-stroke" style="display:none"/>
+      </svg>
+      <div style="position:absolute;right:0;top:6px;font-size:10px;color:var(--text3);font-family:'Space Mono',monospace;text-align:right;pointer-events:none">
+        ${zahlFmt(max)}<br><span style="opacity:.55">${zahlFmt(min)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:-14px;padding-right:48px;pointer-events:none">
+        <span>${esc(erst.datum)}</span><span>${esc(letzt.datum)}</span>
+      </div>
+      <div id="${id}-tip" style="position:absolute;top:0;left:0;display:none;pointer-events:none;
+           background:var(--bg);border:1px solid var(--border2);border-radius:7px;padding:4px 8px;
+           font-size:11px;font-family:'Space Mono',monospace;white-space:nowrap;z-index:5"></div>
+      <div style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:4px">
+        ${gefiltert.length} Handelstage · ${wandel >= 0 ? '+' : ''}${wandel.toFixed(1)} % im Zeitraum
+      </div>
+    </div>`;
+}
+
+function diagrammLesen(ev, id) {
+  const daten = DIAGRAMM_DATEN[id];
+  const svg = document.getElementById(id);
+  if (!daten || !svg) return;
+  const kasten = svg.getBoundingClientRect();
+  const anteil = Math.max(0, Math.min(1, (ev.clientX - kasten.left) / kasten.width));
+  // Rechter Rand des Diagramms ist Beschriftung, nicht Datenfläche.
+  const i = Math.round(anteil * (600 / (600 - 48)) * (daten.length - 1));
+  const p = daten[Math.max(0, Math.min(daten.length - 1, i))];
+  if (!p) return;
+
+  const kreuz = document.getElementById(id + '-kreuz');
+  if (kreuz) {
+    const x = (Math.max(0, Math.min(daten.length - 1, i)) / (daten.length - 1)) * (600 - 48);
+    kreuz.setAttribute('x1', x); kreuz.setAttribute('x2', x);
+    kreuz.style.display = '';
+  }
+  const tip = document.getElementById(id + '-tip');
+  if (tip) {
+    tip.textContent = `${p.datum} · ${Number(p.kurs).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    tip.style.display = 'block';
+    tip.style.left = Math.min(kasten.width - 130, Math.max(0, ev.clientX - kasten.left - 60)) + 'px';
+  }
+}
+
+function diagrammVerlassen(id) {
+  const k = document.getElementById(id + '-kreuz'); if (k) k.style.display = 'none';
+  const t = document.getElementById(id + '-tip'); if (t) t.style.display = 'none';
 }
 
 function zeichneBoerse() {
@@ -939,7 +1061,7 @@ function zeichneBoerse() {
           ${geld(p.kurs, st.waehrung || p.waehrung)} ${p.veraenderung_prozent !== null ? `(${vz(p.veraenderung_prozent)}${p.veraenderung_prozent} %)` : ''}
         </span>` : marke(['m-grau', 'kein Kurs'])}
       </div>
-      ${kursLinie(p.verlauf, farbe)}
+      ${kursDiagramm(p.symbol, p.verlauf, farbe, st.waehrung || p.waehrung, gehalten ? 150 : 110)}
       <div class="zeile-meta">
         ${gehalten ? `<span style="font-size:11.5px;color:var(--text2)">${p.stueck} Stück zu ${geld(p.kaufkurs, p.waehrung)}</span>` : ''}
         ${gehalten && p.ergebnis !== null ? `<span class="marke" style="background:rgba(255,255,255,.06);color:${farbeVon(p.ergebnis)}">${vz(p.ergebnis)}${geld(p.ergebnis, p.waehrung)} · ${vz(p.ergebnis_prozent)}${p.ergebnis_prozent} %</span>` : ''}
@@ -959,13 +1081,19 @@ function zeichneBoerse() {
       Entschieden wird von dir.
     </span></div>
 
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px">
       <button class="btn btn-ghost" onclick="ladeBoerse(true)">${icon('refresh-cw', 13)} Kurse holen</button>
+      <button class="btn btn-ghost" onclick="ladeHistorie()">${icon('history', 13)} Historie laden</button>
       <button class="btn btn-ghost" onclick="neuePosition()">${icon('plus', 13)} Position</button>
       <button class="btn btn-ghost" onclick="neueBeobachtung()">${icon('eye', 13)} Beobachten</button>
-      <span id="bs-status" style="font-size:11.5px;color:var(--text3);font-family:'Space Mono',monospace">
-        ${b.fehler ? esc(b.fehler.join(' · ')) : b.hinweis ? esc(b.hinweis) : 'Stand ' + fmtDate(b.stand)}
-      </span>
+      <div style="display:flex;gap:3px;margin-left:auto">
+        ${[[22, '1M'], [66, '3M'], [132, '6M'], [0, 'Alles']].map(([n, l]) => `
+          <button class="btn ${BOERSE_ZEITRAUM === n ? 'btn-primary' : 'btn-ghost'} btn-sm"
+                  onclick="BOERSE_ZEITRAUM=${n};zeichneBoerse();refreshIcons()">${l}</button>`).join('')}
+      </div>
+    </div>
+    <div id="bs-status" style="font-size:11.5px;color:${b.fehler ? '#f87171' : 'var(--text3)'};font-family:'Space Mono',monospace;margin-bottom:14px">
+      ${b.fehler ? esc(b.fehler.join(' · ')) : b.hinweis ? esc(b.hinweis) : 'Stand ' + fmtDate(b.stand)}
     </div>
 
     ${summeBlock}
@@ -978,11 +1106,61 @@ function zeichneBoerse() {
     ${(b.beobachtet || []).length ? b.beobachtet.map(p => karte(p, false)).join('') : '<div class="leer">Nichts auf der Beobachtungsliste.</div>'}`;
 }
 
+// Suche: tippt man „Nvidia" oder „NVDA", kommen Vorschläge mit Kürzel und
+// vollem Namen. Der Name wird beim Anklicken mit übernommen.
+let SUCHE_WARTE = null;
+
+function sucheFeld(idSymbol, idName) {
+  return `
+    <div style="position:relative">
+      <input id="${idSymbol}" placeholder="Nvidia oder NVDA" autocomplete="off"
+             oninput="symbolSuchen('${idSymbol}','${idName}')"
+             onblur="setTimeout(()=>{const l=document.getElementById('${idSymbol}-liste'); if(l) l.style.display='none'},180)">
+      <div id="${idSymbol}-liste" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:20;
+           background:var(--surface2);border:1px solid var(--border2);border-radius:9px;margin-top:4px;
+           max-height:230px;overflow-y:auto;box-shadow:0 12px 28px -12px rgba(0,0,0,.9)"></div>
+    </div>`;
+}
+
+async function symbolSuchen(idSymbol, idName) {
+  const q = document.getElementById(idSymbol).value.trim();
+  const liste = document.getElementById(idSymbol + '-liste');
+  clearTimeout(SUCHE_WARTE);
+  if (q.length < 2) { liste.style.display = 'none'; return; }
+
+  SUCHE_WARTE = setTimeout(async () => {
+    const d = await api('/api/agentur/boerse/suche?q=' + encodeURIComponent(q));
+    const treffer = d?.treffer || [];
+    if (!treffer.length) {
+      liste.innerHTML = `<div style="padding:9px 11px;font-size:11.5px;color:var(--text3)">
+        ${d && d.error ? esc(d.error) : 'Nichts gefunden. Kürzel lässt sich auch direkt eintragen.'}</div>`;
+      liste.style.display = 'block';
+      return;
+    }
+    liste.innerHTML = treffer.map(t => `
+      <div onmousedown="symbolWaehlen('${idSymbol}','${idName}','${esc(t.symbol)}','${esc((t.name || '').replace(/'/g, ''))}')"
+           style="padding:8px 11px;cursor:pointer;border-bottom:1px solid var(--border)"
+           onmouseover="this.style.background='rgba(255,255,255,.05)'"
+           onmouseout="this.style.background='none'">
+        <div style="font-size:12.5px;font-weight:700">${esc(t.symbol)}</div>
+        <div style="font-size:11px;color:var(--text2)">${esc(t.name || '')}${t.art ? ` · ${esc(t.art)}` : ''}</div>
+      </div>`).join('');
+    liste.style.display = 'block';
+  }, 260);
+}
+
+function symbolWaehlen(idSymbol, idName, symbol, name) {
+  document.getElementById(idSymbol).value = symbol;
+  const n = document.getElementById(idName);
+  if (n && name) n.value = name;
+  document.getElementById(idSymbol + '-liste').style.display = 'none';
+}
+
 function neuePosition() {
   zeigeDetail('<h2>Position hinterlegen</h2><div class="page-sub">Reine Buchführung — was du hältst und zu welchem Kurs</div>', `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      <div class="feld"><label>Symbol</label><input id="np-symbol" placeholder="AAPL"></div>
-      <div class="feld"><label>Name (optional)</label><input id="np-name" placeholder="Apple"></div>
+      <div class="feld"><label>Suche oder Kürzel</label>${sucheFeld('np-symbol', 'np-name')}</div>
+      <div class="feld"><label>Name</label><input id="np-name" placeholder="füllt sich beim Auswählen"></div>
       <div class="feld"><label>Stück</label><input id="np-stueck" type="number" step="any" placeholder="12"></div>
       <div class="feld"><label>Kaufkurs je Stück</label><input id="np-kurs" type="number" step="any" placeholder="178.50"></div>
       <div class="feld"><label>Währung</label><input id="np-waehrung" value="USD"></div>
@@ -1010,7 +1188,8 @@ async function speicherePosition() {
 
 function neueBeobachtung() {
   zeigeDetail('<h2>Wert beobachten</h2><div class="page-sub">Ohne Bestand, nur verfolgen</div>', `
-    <div class="feld"><label>Symbol</label><input id="nb-symbol" placeholder="MSFT"></div>
+    <div class="feld"><label>Suche oder Kürzel</label>${sucheFeld('nb-symbol', 'nb-name')}</div>
+    <div class="feld"><label>Name</label><input id="nb-name" placeholder="füllt sich beim Auswählen"></div>
     <div class="feld"><label>Warum</label><input id="nb-grund" placeholder="Vergleichswert"></div>
     <div id="nb-fehler" style="color:#f87171;font-size:11.5px"></div>`,
     `<button class="btn btn-primary" onclick="speichereBeobachtung()">${icon('check', 13)} Speichern</button>`);
@@ -1020,10 +1199,30 @@ async function speichereBeobachtung() {
   const symbol = document.getElementById('nb-symbol').value.trim();
   if (!symbol) { document.getElementById('nb-fehler').textContent = 'Symbol fehlt.'; return; }
   await api('/api/agentur/boerse/watchlist', { method: 'POST', body: {
-    symbol, grund: document.getElementById('nb-grund').value.trim() || null,
+    symbol,
+    name: document.getElementById('nb-name').value.trim() || null,
+    grund: document.getElementById('nb-grund').value.trim() || null,
   }});
   schliesse();
   ladeBoerse(true);
+}
+
+// Historie nachladen: einmal je Wert, danach steht die Linie.
+async function ladeHistorie() {
+  const s = document.getElementById('bs-status');
+  if (s) { s.textContent = 'Hole Historie…'; s.style.color = 'var(--text3)'; }
+  const d = await api('/api/agentur/boerse/historie', { method: 'POST', body: { tage: 250 } });
+  await ladeBoerse();
+  const s2 = document.getElementById('bs-status');
+  if (s2) {
+    if (d?.geladen?.length) {
+      s2.style.color = '#4ade80';
+      s2.textContent = d.geladen.map(g => `${g.symbol}: ${g.punkte} Tage (${g.quelle})`).join(' · ');
+    } else {
+      s2.style.color = '#fbbf24';
+      s2.textContent = d?.erklaerung || d?.hinweise?.join(' · ') || 'Keine Historie erhalten.';
+    }
+  }
 }
 
 async function verkauft(id) {

@@ -116,6 +116,116 @@ async function wertHolen(env, db, symbol) {
   return satz;
 }
 
+// ── Historie ─────────────────────────────────────────────────────
+// Eine Kette aus Quellen, jede einzeln verzichtbar. Welche Angaben zur
+// kostenlosen Stufe eines Anbieters gehören, ändert sich – deshalb wird
+// nicht geraten, sondern der Reihe nach versucht.
+//
+//   1. Finnhub-Kerzen        (falls die Stufe sie hergibt)
+//   2. Alpha Vantage         (ein Abruf liefert die volle Tageshistorie)
+//   3. gar nichts            → der Verlauf wächst weiter aus Tagesabrufen
+async function historieSchreiben(db, symbol, punkte, quelle) {
+  let n = 0;
+  for (const p of punkte) {
+    if (!p.datum || !Number.isFinite(p.kurs)) continue;
+    await db.prepare(
+      `INSERT INTO ag_kurse (symbol, datum, kurs, eroeffnung, hoch, tief, quelle)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(symbol, datum) DO UPDATE SET
+         kurs=excluded.kurs, eroeffnung=COALESCE(excluded.eroeffnung, ag_kurse.eroeffnung),
+         hoch=COALESCE(excluded.hoch, ag_kurse.hoch), tief=COALESCE(excluded.tief, ag_kurse.tief)`
+    ).bind(symbol, p.datum, p.kurs, p.eroeffnung ?? null, p.hoch ?? null, p.tief ?? null, quelle)
+      .run().catch(() => {});
+    n++;
+  }
+  return n;
+}
+
+async function vonFinnhubKerzen(env, symbol, tage) {
+  const bis = Math.floor(Date.now() / 1000);
+  const von = bis - tage * 86400;
+  const d = await holen(env, '/stock/candle', { symbol, resolution: 'D', from: von, to: bis });
+  if (!d || d.s !== 'ok' || !Array.isArray(d.c)) throw new Error('keine Kerzen');
+  return d.c.map((kurs, i) => ({
+    datum: new Date(d.t[i] * 1000).toISOString().slice(0, 10),
+    kurs: zahl(kurs), eroeffnung: zahl(d.o?.[i]), hoch: zahl(d.h?.[i]), tief: zahl(d.l?.[i]),
+  }));
+}
+
+async function vonAlphaVantage(env, symbol) {
+  const key = (env.ALPHAVANTAGE_KEY || '').trim();
+  if (!key) throw new Error('ALPHAVANTAGE_KEY ist nicht gesetzt');
+  const u = new URL('https://www.alphavantage.co/query');
+  u.searchParams.set('function', 'TIME_SERIES_DAILY');
+  u.searchParams.set('symbol', symbol);
+  u.searchParams.set('outputsize', 'compact');   // die letzten 100 Handelstage
+  u.searchParams.set('apikey', key);
+  const r = await fetch(u.toString());
+  const d = await r.json().catch(() => ({}));
+  if (d.Note || d.Information) throw new Error('Abruflimit des Anbieters erreicht');
+  const reihe = d['Time Series (Daily)'];
+  if (!reihe) throw new Error(d['Error Message'] || 'keine Zeitreihe erhalten');
+  return Object.entries(reihe).map(([datum, w]) => ({
+    datum, kurs: zahl(w['4. close']), eroeffnung: zahl(w['1. open']),
+    hoch: zahl(w['2. high']), tief: zahl(w['3. low']),
+  }));
+}
+
+// ── POST /api/agentur/boerse/historie ────────────────────────────
+export async function boerseHistorie(env, db, body, json, err) {
+  const tage = Math.min(parseInt(body?.tage, 10) || 180, 800);
+  const liste = body?.symbole?.length ? body.symbole.slice(0, 10) : await symbole(db);
+  if (!liste.length) return json({ success: true, hinweis: 'Keine Werte hinterlegt.' });
+
+  const ergebnis = [], hinweise = [];
+  for (const s of liste) {
+    let punkte = null, quelle = null;
+    try {
+      punkte = await vonFinnhubKerzen(env, s, tage);
+      quelle = 'finnhub';
+    } catch (e1) {
+      try {
+        punkte = await vonAlphaVantage(env, s);
+        quelle = 'alphavantage';
+      } catch (e2) {
+        hinweise.push(`${s}: ${e1.message} · ${e2.message}`);
+        continue;
+      }
+    }
+    const n = await historieSchreiben(db, s, punkte, quelle);
+    ergebnis.push({ symbol: s, punkte: n, quelle });
+  }
+
+  return json({
+    success: ergebnis.length > 0,
+    geladen: ergebnis,
+    hinweise: hinweise.length ? hinweise : null,
+    erklaerung: ergebnis.length ? null
+      : 'Keine Quelle für Historie verfügbar. Der Verlauf wächst dann aus den täglichen Kursabrufen – ab dem zweiten Tag entsteht eine Linie.',
+  });
+}
+
+// ── GET /api/agentur/boerse/suche ────────────────────────────────
+// Sucht nach Name oder Kürzel und liefert Vorschläge samt Namen.
+export async function boerseSuche(env, url, json, err) {
+  const q = (url.searchParams.get('q') || '').trim();
+  if (q.length < 1) return json({ treffer: [] });
+  try {
+    const d = await holen(env, '/search', { q });
+    const treffer = (d?.result || [])
+      // Vorrang für gewöhnliche Aktien; Optionen und Derivate stören nur.
+      .filter(x => !x.symbol?.includes('.') || x.type === 'Common Stock')
+      .slice(0, 12)
+      .map(x => ({
+        symbol: x.symbol, name: x.description,
+        art: x.type || null, anzeige: x.displaySymbol || x.symbol,
+      }));
+    return json({ suche: q, treffer });
+  } catch (e) {
+    return json({ error: String(e.message || e), treffer: [] }, 502);
+  }
+}
+
 // Welche Symbole verfolgt werden: Depot plus Beobachtungsliste.
 async function symbole(db) {
   const [d, w] = await Promise.all([
