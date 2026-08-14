@@ -190,6 +190,61 @@ async function laeufeAufraeumen(db) {
   ).bind(jetzt(), grenze).run().catch(() => {});
 }
 
+// ── Diskussionsrunde ─────────────────────────────────────────────
+// Rollen laufen nacheinander, nie gleichzeitig. Eine "Diskussion" ist
+// deshalb ein Staffellauf: jeder liest alle bisherigen Beiträge und hängt
+// einen an. Das Weiterreichen macht der Server, damit es nicht daran
+// scheitert, dass eine Rolle es vergisst.
+async function rundeWeiter(db, aufgabeId, autorId) {
+  const a = await db.prepare('SELECT * FROM ag_aufgaben WHERE id=?').bind(aufgabeId).first();
+  if (!a || a.modus !== 'runde') return null;
+
+  let teilnehmer = [];
+  try { teilnehmer = JSON.parse(a.runde_teilnehmer || '[]'); } catch (e) { teilnehmer = []; }
+  if (!Array.isArray(teilnehmer) || teilnehmer.length < 2) return null;
+
+  const index = Number(a.runde_index) || 0;
+  // Nur wer gerade dran ist, schiebt die Runde weiter. Sonst könnte ein
+  // Nachzügler die Reihenfolge durcheinanderbringen.
+  if (teilnehmer[index] !== autorId) {
+    return { weitergereicht: false, grund: 'nicht an der Reihe', dran: teilnehmer[index] };
+  }
+
+  const naechsterIndex = index + 1;
+  const jetztIso = jetzt();
+
+  if (naechsterIndex < teilnehmer.length) {
+    const naechster = teilnehmer[naechsterIndex];
+    await db.prepare(
+      `UPDATE ag_aufgaben SET runde_index=?, zustaendig=?, uebergeben_von=?,
+              status='in_arbeit', faellig_am=?, aktualisiert_am=? WHERE id=?`
+    ).bind(naechsterIndex, naechster, autorId, jetztIso, jetztIso, aufgabeId).run();
+    await db.prepare(
+      `INSERT INTO ag_eintraege (aufgabe_id, abteilung_id, mitarbeiter_id, art, titel, text)
+       VALUES (?,?,?,'uebergabe',?,?)`
+    ).bind(aufgabeId, a.abteilung_id, autorId,
+           `Runde: weiter an ${naechster}`,
+           `Beitrag ${naechsterIndex} von ${teilnehmer.length} liegt vor.`).run().catch(() => {});
+    return { weitergereicht: true, dran: naechster, beitrag: naechsterIndex, von: teilnehmer.length };
+  }
+
+  // Runde durch: zurück an die Person, die sie einberufen hat.
+  const moderator = a.erstellt_von && teilnehmer.includes(a.erstellt_von) === false && a.erstellt_von !== 'mensch'
+    ? a.erstellt_von
+    : teilnehmer[0];
+  await db.prepare(
+    `UPDATE ag_aufgaben SET zustaendig=?, uebergeben_von=?, status='in_arbeit',
+            faellig_am=?, aktualisiert_am=? WHERE id=?`
+  ).bind(moderator, autorId, jetztIso, jetztIso, aufgabeId).run();
+  await db.prepare(
+    `INSERT INTO ag_eintraege (aufgabe_id, abteilung_id, mitarbeiter_id, art, titel, text)
+     VALUES (?,?,?,'uebergabe',?,?)`
+  ).bind(aufgabeId, a.abteilung_id, autorId,
+         `Runde vollständig – Zusammenfassung durch ${moderator}`,
+         `Alle ${teilnehmer.length} Beiträge liegen vor.`).run().catch(() => {});
+  return { weitergereicht: true, runde_vollstaendig: true, dran: moderator, beitraege: teilnehmer.length };
+}
+
 // ── Zustand eines Mitarbeiters fürs Büro ─────────────────────────
 // Rein aus Board-Daten abgeleitet, nichts Dekoratives.
 function zustandVon(m, offenerLauf, letzterLauf, aufgaben) {
@@ -573,7 +628,15 @@ export async function handleAgentur(request, env, helpers) {
         await db.prepare('UPDATE ag_aufgaben SET aktualisiert_am=? WHERE id=?')
           .bind(jetzt(), num(body.aufgabe_id)).run().catch(() => {});
       }
-      return json({ success: true, id: res.meta?.last_row_id });
+
+      // Diskussionsrunde weiterreichen. Bewusst hier und nicht in den
+      // Skills: eine Rolle, die das Weiterreichen vergisst, würde die Runde
+      // stillschweigend anhalten. Serverseitig kann das nicht passieren.
+      let runde = null;
+      if (body.aufgabe_id && einsVon(body.art, EINTRAG_ART, 'notiz') === 'beitrag') {
+        runde = await rundeWeiter(db, num(body.aufgabe_id), txt(body.mitarbeiter_id, 40));
+      }
+      return json({ success: true, id: res.meta?.last_row_id, runde });
     }
   }
 
