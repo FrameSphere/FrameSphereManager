@@ -132,7 +132,23 @@ async function ensureAgenturTables(db) {
     db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_kerg_kampagne ON ag_kampagnen_ergebnisse(kampagne_id)'),
     db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_wissen_abt ON ag_wissen(abteilung_id, veraltet)'),
   ]);
+  // Fragen an den Menschen – der Rückkanal aus dem System heraus
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS ag_fragen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, abteilung_id TEXT NOT NULL,
+      mitarbeiter_id TEXT, aufgabe_id INTEGER, frage TEXT NOT NULL, kontext TEXT,
+      dringlichkeit TEXT DEFAULT 'normal', status TEXT DEFAULT 'offen',
+      antwort TEXT, beantwortet_am DATETIME,
+      erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_fragen_status ON ag_fragen(status, dringlichkeit)'),
+    db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_fragen_abt ON ag_fragen(abteilung_id, status)'),
+  ]);
   // Nachträgliche Spalten (schlagen fehl, wenn sie schon da sind – das ist ok)
+  // Absender einer Aufgabe: ohne den weiß die Entwicklung nicht, wem sie
+  // zurückmelden soll, wenn Marketing oder SEO etwas beauftragt hat.
+  await db.prepare('ALTER TABLE ag_aufgaben ADD COLUMN angefragt_von_abteilung TEXT').run().catch(() => {});
+  await db.prepare('ALTER TABLE ag_aufgaben ADD COLUMN angefragt_von TEXT').run().catch(() => {});
   await db.prepare('ALTER TABLE ag_abteilungen ADD COLUMN gsc_property TEXT').run().catch(() => {});
   await db.prepare('ALTER TABLE ag_laeufe ADD COLUMN kosten_usd REAL').run().catch(() => {});
   await db.prepare('ALTER TABLE ag_aufgaben ADD COLUMN kampagne_id INTEGER').run().catch(() => {});
@@ -528,8 +544,9 @@ export async function handleAgentur(request, env, helpers) {
       const res = await db.prepare(
         `INSERT INTO ag_aufgaben
          (abteilung_id, titel, beschreibung, status, zustaendig, uebergeben_von, prioritaet,
-          modus, runde_teilnehmer, quelle_befund_id, erstellt_von, faellig_am, kampagne_id)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          modus, runde_teilnehmer, quelle_befund_id, erstellt_von, faellig_am, kampagne_id,
+          angefragt_von_abteilung, angefragt_von)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       ).bind(
         txt(body.abteilung_id, 40), txt(body.titel, 200), txt(body.beschreibung, 8000),
         einsVon(body.status, AUFGABE_STATUS, 'offen'),
@@ -541,6 +558,8 @@ export async function handleAgentur(request, env, helpers) {
         rolle === 'runner' ? txt(body.erstellt_von, 40) || 'automation' : 'mensch',
         txt(body.faellig_am, 40),
         num(body.kampagne_id),
+        txt(body.angefragt_von_abteilung, 40),
+        txt(body.angefragt_von, 40),
       ).run();
       return json({ success: true, id: res.meta?.last_row_id });
     }
@@ -1016,6 +1035,87 @@ export async function handleAgentur(request, env, helpers) {
     }
   }
 
+  // ── Fragen an Karol ────────────────────────────────────────────
+  // Der Rückkanal aus dem System heraus. Eine Rolle, die etwas nicht
+  // entscheiden kann, fragt – statt zu raten oder stillzustehen.
+  if (teil === 'fragen') {
+    if (method === 'GET') {
+      const status = url.searchParams.get('status') || 'offen';
+      const abt = url.searchParams.get('abteilung');
+      const bed = ['f.status=?'], w = [status];
+      if (abt) { bed.push('f.abteilung_id=?'); w.push(abt); }
+      const r = await db.prepare(
+        `SELECT f.*, m.name AS steller, m.farbe AS steller_farbe
+           FROM ag_fragen f LEFT JOIN ag_mitarbeiter m ON m.id = f.mitarbeiter_id
+          WHERE ${bed.join(' AND ')}
+          ORDER BY CASE f.dringlichkeit WHEN 'blockiert' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END, f.id DESC
+          LIMIT 100`
+      ).bind(...w).all();
+      return json({ fragen: r.results || [] });
+    }
+
+    if (method === 'POST') {
+      if (!body.frage || !body.abteilung_id) return err('frage und abteilung_id sind Pflicht');
+      // Dieselbe Frage nicht zweimal stellen – sonst füllt sich das Postfach
+      // bei jedem Lauf erneut mit derselben offenen Sache.
+      const fp = await fingerprintVon(body.abteilung_id, body.frage);
+      const da = await db.prepare(
+        `SELECT id FROM ag_fragen WHERE status='offen' AND abteilung_id=? AND frage=? LIMIT 1`
+      ).bind(txt(body.abteilung_id, 40), txt(body.frage, 2000)).first();
+      if (da) return json({ success: true, id: da.id, bereits_gestellt: true });
+
+      const res = await db.prepare(
+        `INSERT INTO ag_fragen (abteilung_id, mitarbeiter_id, aufgabe_id, frage, kontext, dringlichkeit)
+         VALUES (?,?,?,?,?,?)`
+      ).bind(
+        txt(body.abteilung_id, 40), txt(body.mitarbeiter_id, 40), num(body.aufgabe_id),
+        txt(body.frage, 2000), txt(body.kontext, 4000),
+        ['blockiert', 'normal', 'irgendwann'].includes(body.dringlichkeit) ? body.dringlichkeit : 'normal',
+      ).run();
+      return json({ success: true, id: res.meta?.last_row_id, fingerprint: fp });
+    }
+
+    // Antworten darf nur der Mensch – das ist der ganze Zweck.
+    if (method === 'PATCH' && id3) {
+      if (!nurDashboard()) return err('Fragen beantwortet nur der Mensch', 403);
+      const felder = [], werte = [];
+      if (body.antwort !== undefined) {
+        felder.push('antwort=?', 'status=?', 'beantwortet_am=?');
+        werte.push(txt(body.antwort, 4000), 'beantwortet', jetzt());
+      }
+      if (body.status === 'verworfen') { felder.push('status=?'); werte.push('verworfen'); }
+      if (!felder.length) return err('Nichts zu ändern');
+      werte.push(num(id3));
+      await db.prepare(`UPDATE ag_fragen SET ${felder.join(', ')} WHERE id=?`).bind(...werte).run();
+
+      // Die fragende Aufgabe wieder anstoßen, sonst wartet sie ewig.
+      const f = await db.prepare('SELECT aufgabe_id FROM ag_fragen WHERE id=?').bind(num(id3)).first();
+      if (f?.aufgabe_id) {
+        await db.prepare('UPDATE ag_aufgaben SET faellig_am=?, aktualisiert_am=? WHERE id=?')
+          .bind(jetzt(), jetzt(), f.aufgabe_id).run().catch(() => {});
+      }
+      return json({ success: true });
+    }
+  }
+
+  // ── Kosten ─────────────────────────────────────────────────────
+  // Grundlage der Tagesbremse: ein System, das selbst Geld ausgibt,
+  // braucht eine Decke.
+  if (method === 'GET' && teil === 'kosten') {
+    const tage = Math.min(num(url.searchParams.get('tage')) || 1, 90);
+    const ab = new Date(Date.now() - tage * 86400000).toISOString();
+    const r = await db.prepare(
+      `SELECT COALESCE(SUM(kosten_usd),0) AS summe, COALESCE(SUM(kosten_tokens),0) AS tokens,
+              COUNT(*) AS laeufe
+         FROM ag_laeufe WHERE gestartet_am >= ?`
+    ).bind(ab).first();
+    return json({
+      zeitraum_tage: tage, seit: ab,
+      kosten_usd: Math.round((r?.summe || 0) * 10000) / 10000,
+      tokens: r?.tokens || 0, laeufe: r?.laeufe || 0,
+    });
+  }
+
   // ── Verteiler ──────────────────────────────────────────────────
   // Wer hat jetzt etwas zu tun? Der Runner fragt das stündlich und startet
   // nur die Genannten. Damit hängt die Rechnung an der Arbeit, nicht am
@@ -1067,9 +1167,17 @@ export async function handleAgentur(request, env, helpers) {
       proPerson.get(a.zustaendig).aufgaben.push({ id: a.id, titel: a.titel, faellig_am: a.faellig_am });
     }
 
+    // Tageskosten mitliefern: der Verteiler bremst selbst, wenn eine
+    // Obergrenze gesetzt ist. Ein System, das ohne Aufsicht läuft und dabei
+    // Geld ausgibt, braucht eine Decke.
+    const heute = await db.prepare(
+      `SELECT COALESCE(SUM(kosten_usd),0) AS summe FROM ag_laeufe WHERE gestartet_am >= ?`
+    ).bind(new Date(Date.now() - 86400000).toISOString()).first().catch(() => null);
+
     return json({
       zeitpunkt: jetzt(),
       ruhe_stunden: ruhe,
+      kosten_24h_usd: Math.round((heute?.summe || 0) * 10000) / 10000,
       dran: [...proPerson.values()],
       uebersprungen: [...sperre].filter(id => (faellige.results || []).some(a => a.zustaendig === id)),
     });

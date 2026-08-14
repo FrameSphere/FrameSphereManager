@@ -365,6 +365,7 @@ let BERICHTE = [];
 let KENNZAHLEN = [];
 let KAMPAGNEN = [];
 let WISSEN = [];
+let FRAGEN = [];
 let AKTIVER_TAB = 'buero';
 
 const ZUSTAND_TEXT = {
@@ -474,7 +475,11 @@ function zeigeTab(name, btn) {
 // ── Laden ────────────────────────────────────────────────────────
 async function ladeBoard() {
   const q = ABTEILUNG ? `?abteilung=${encodeURIComponent(ABTEILUNG)}` : '';
-  const data = await api('/api/agentur/board' + q);
+  const [data, f] = await Promise.all([
+    api('/api/agentur/board' + q),
+    api('/api/agentur/fragen?status=offen'),
+  ]);
+  FRAGEN = f?.fragen || [];
   if (!data) {
     document.getElementById('pane-buero').innerHTML = errState();
     document.getElementById('ag-sub').textContent = 'API nicht erreichbar';
@@ -612,6 +617,30 @@ function zeichneBuero() {
     </div>`;
   }).join('') : `<div style="font-size:11.5px;color:var(--text3)">Noch nichts passiert.</div>`;
 
+  // Fragen an dich – der Rückkanal. Was hier liegt, blockiert jemanden.
+  const fragen = FRAGEN || [];
+  const fragenHtml = fragen.length ? fragen.map(f => {
+    const tage = tageSeit(f.erstellt_am);
+    const d = f.dringlichkeit === 'blockiert' ? ['m-rot', 'blockiert']
+            : f.dringlichkeit === 'irgendwann' ? ['m-grau', 'irgendwann'] : ['m-gelb', 'normal'];
+    return `<div class="postfach-item" style="cursor:default;display:block">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:5px">
+        ${marke(d)}
+        <span style="font-size:11px;font-weight:700">${esc(f.steller || f.mitarbeiter_id || '?')}</span>
+        <span class="pf-meta" style="margin:0">${tage === 0 ? 'heute' : `seit ${tage} Tag${tage === 1 ? '' : 'en'}`}</span>
+      </div>
+      <div class="pf-titel" style="font-weight:600">${esc(f.frage)}</div>
+      ${f.kontext ? `<div class="pf-meta" style="margin-top:3px">${esc(f.kontext)}</div>` : ''}
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <input id="antw-${f.id}" placeholder="Antwort…" style="flex:1;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:7px;padding:6px 9px;font-family:inherit;font-size:12px">
+        <button class="btn btn-primary btn-sm" onclick="beantworte(${f.id})">${icon('check', 11)}</button>
+        <button class="btn btn-ghost btn-sm" onclick="verwirfFrage(${f.id})" title="Verwerfen">${icon('x', 11)}</button>
+      </div>
+    </div>`;
+  }).join('') : `<div style="font-size:11.5px;color:var(--text3)">Niemand hat eine Frage.</div>`;
+
+  const blockierend = fragen.filter(f => f.dringlichkeit === 'blockiert').length;
+
   el.innerHTML = `
     <div class="buero-wrap">
       <div class="buero">
@@ -619,6 +648,10 @@ function zeichneBuero() {
         <div class="desks">${schreibtische}</div>
       </div>
       <div>
+        <div class="karte"${blockierend ? ' style="border-color:rgba(239,68,68,.45)"' : ''}>
+          <div class="karte-kopf">${icon('help-circle', 12)} Fragen an dich <span class="zahl"${blockierend ? ' style="color:#f87171"' : ''}>${fragen.length}</span></div>
+          ${fragenHtml}
+        </div>
         <div class="karte">
           <div class="karte-kopf">${icon('inbox', 12)} Dein Postfach <span class="zahl">${freigaben.length}</span></div>
           ${postfach}
@@ -777,6 +810,22 @@ async function gscHolen() {
   }
   const b = document.getElementById('gsc-btn');
   if (b) b.disabled = false;
+}
+
+// ── Fragen beantworten ───────────────────────────────────────────
+// Deine Antwort macht die fragende Aufgabe automatisch wieder fällig –
+// der Verteiler holt die Rolle dann von selbst zurück.
+async function beantworte(id) {
+  const feld = document.getElementById('antw-' + id);
+  const antwort = feld.value.trim();
+  if (!antwort) { feld.focus(); return; }
+  await api('/api/agentur/fragen/' + id, { method: 'PATCH', body: { antwort } });
+  ladeBoard();
+}
+
+async function verwirfFrage(id) {
+  await api('/api/agentur/fragen/' + id, { method: 'PATCH', body: { status: 'verworfen' } });
+  ladeBoard();
 }
 
 // ── Kampagnen und Wissenspool ────────────────────────────────────

@@ -308,3 +308,68 @@ INSERT OR IGNORE INTO ag_mitarbeiter
 -- Florian zieht ins Marketing um: dort ist er Allrounder, in der
 -- FrameTrain-Kette war er ein Anhängsel ohne Auftraggeber.
 UPDATE ag_mitarbeiter SET abteilung_id='marketing', schreibtisch=2 WHERE id='florian';
+
+-- =============================================
+-- ENTWICKLUNG, LEITUNG UND DER RÜCKKANAL ZU KAROL
+-- =============================================
+
+-- Fragen an den Menschen. Ohne diesen Kanal blockiert jede Rolle, die etwas
+-- nicht entscheiden kann – oder schlimmer: sie rät und schreibt es hin.
+CREATE TABLE IF NOT EXISTS ag_fragen (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  abteilung_id   TEXT NOT NULL,
+  mitarbeiter_id TEXT,
+  aufgabe_id     INTEGER,
+  frage          TEXT NOT NULL,
+  kontext        TEXT,                     -- warum es ohne Antwort nicht weitergeht
+  dringlichkeit  TEXT DEFAULT 'normal',    -- blockiert | normal | irgendwann
+  status         TEXT DEFAULT 'offen',     -- offen | beantwortet | verworfen
+  antwort        TEXT,
+  beantwortet_am DATETIME,
+  erstellt_am    DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS ix_ag_fragen_status ON ag_fragen(status, dringlichkeit);
+CREATE INDEX IF NOT EXISTS ix_ag_fragen_abt    ON ag_fragen(abteilung_id, status);
+
+-- ── Entwicklung und Leitung ──────────────────────────────────────
+INSERT OR IGNORE INTO ag_abteilungen (id, name, projekt, kontext_datei, beschreibung, farbe, sortierung) VALUES
+  ('entwicklung', 'Entwicklung', NULL, 'abteilungen/entwicklung.md',
+   'Nimmt Aufträge aller Abteilungen an und erarbeitet Lösungen', '#22c55e', 3),
+  ('leitung', 'Leitung', NULL, 'abteilungen/leitung.md',
+   'Behält das Ganze im Blick, priorisiert zwischen Abteilungen, berichtet an Karol', '#ef4444', 0);
+
+INSERT OR IGNORE INTO ag_funktionen (id, name, skill, beschreibung, icon, liefert) VALUES
+  ('code-analyst', 'Code-Analyst', 'code-analyst',
+   'Nimmt eingehende Aufträge und Fehler an, findet die Ursache und leitet an den richtigen Spezialisten weiter.',
+   'search-code', 'befund'),
+  ('desktop-entwickler', 'Desktop-Entwickler', 'desktop-entwickler',
+   'Tauri, React, TypeScript und Rust in der Desktop-App. Erarbeitet Lösungsvorschläge mit Datei und Zeile.',
+   'monitor', 'vorschlag'),
+  ('web-entwickler', 'Web-Entwickler', 'web-entwickler',
+   'Next.js, Vercel, Tailwind auf den Webseiten. Setzt Anforderungen von Marketing und SEO in konkrete Änderungen um.',
+   'globe', 'vorschlag'),
+  ('datenbank-entwickler', 'Datenbank-Entwickler', 'datenbank-entwickler',
+   'D1, Supabase, Worker-APIs. Schema, Migrationen, Abfragen – und die Frage, was Daten überhaupt hergeben.',
+   'database', 'vorschlag'),
+  ('agentur-leitung', 'Leitung', 'agentur-leitung',
+   'Sieht alle Abteilungen, priorisiert zwischen ihnen, erkennt Hänger und schreibt Karol die Lage.',
+   'crown', 'lagebericht');
+
+INSERT OR IGNORE INTO ag_mitarbeiter
+  (id, name, funktion_id, abteilung_id, charakter, charakter_datei, farbe, avatar, schreibtisch, aktiv) VALUES
+  ('viktor', 'Viktor', 'agentur-leitung', 'leitung',
+   'Fragt bei allem zuerst, was liegen bleibt, wenn man es macht. Schreibt kurz, weil Karol wenig Zeit hat.',
+   'personal/viktor.md', '#ef4444', 'e', 1, 1),
+  ('anna', 'Anna', 'code-analyst', 'entwicklung',
+   'Sucht die Ursache, nicht den Schuldigen. Gibt nichts weiter, was sie nicht selbst nachvollzogen hat.',
+   'personal/anna.md', '#22c55e', 'b', 1, 1),
+  ('dominik', 'Dominik', 'desktop-entwickler', 'entwicklung',
+   'Kennt die App von innen. Misstraut Änderungen, die er nicht lokal nachstellen kann.',
+   'personal/dominik.md', '#3b82f6', 'a', 2, 1),
+  ('sarah', 'Sarah', 'web-entwickler', 'entwicklung',
+   'Denkt vom Besucher her. Fragt bei jeder Anforderung, was der Nutzer davon hat.',
+   'personal/sarah.md', '#f59e0b', 'c', 3, 1),
+  ('elias', 'Elias', 'datenbank-entwickler', 'entwicklung',
+   'Vorsichtig bei allem, was Daten verändert. Schreibt Migrationen so, dass sie zweimal laufen können.',
+   'personal/elias.md', '#06b6d4', 'd', 4, 1);
