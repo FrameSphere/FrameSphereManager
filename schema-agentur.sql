@@ -485,9 +485,9 @@ INSERT OR IGNORE INTO ag_mitarbeiter
   ('robert', 'Robert', 'markt-analyst', 'boerse',
    'Rechnet nach, bevor er etwas hinschreibt. Sagt "die Zahl sagt", nie "ich glaube".',
    'personal/robert.md', '#eab308', 'd', 1, 1),
-  ('clara', 'Clara', 'nachrichten-analyst', 'boerse',
+  ('ines', 'Ines', 'nachrichten-analyst', 'boerse',
    'Unterscheidet zwischen Meldung und Meinung. Nennt bei allem die Quelle und das Datum.',
-   'personal/clara.md', '#f97316', 'c', 2, 1),
+   'personal/ines.md', '#f97316', 'c', 2, 1),
   ('malte', 'Malte', 'depot-beobachter', 'boerse',
    'Aufmerksam, nicht nervös. Meldet, was sich geändert hat, und schweigt, wenn nichts war.',
    'personal/malte.md', '#06b6d4', 'a', 3, 1);
