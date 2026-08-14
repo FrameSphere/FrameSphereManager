@@ -13,6 +13,10 @@
 // =============================================
 
 import { gscSync, gscQueries, gscReport, gscInspect } from './gsc.js';
+import {
+  boerseUebersicht, boerseAuffrischen, boerseNachrichten,
+  depotSchreiben, watchlistSchreiben,
+} from './boerse.js';
 
 // Ein Lauf ohne Ende gilt nach zwei Stunden als abgestürzt.
 const LAUF_TIMEOUT_MS = 2 * 60 * 60 * 1000;
@@ -1326,6 +1330,17 @@ export async function handleAgentur(request, env, helpers) {
       kosten_24h_usd: Math.round((heute?.summe || 0) * 10000) / 10000,
       uebersprungen: [...sperre].filter(id => (faellige.results || []).some(a => a.zustaendig === id)),
     });
+  }
+
+  // ── Börse ──────────────────────────────────────────────────────
+  // Faktenlage: Kurse, Kennzahlen, Termine, Meldungen. Keine Empfehlungen –
+  // das wäre personalisierte Anlageberatung. Entschieden wird von Karol.
+  if (teil === 'boerse') {
+    if (method === 'GET'  && id3 === 'uebersicht')   return boerseUebersicht(env, db, url, json, err);
+    if (method === 'POST' && id3 === 'auffrischen')  return boerseAuffrischen(env, db, body, json, err);
+    if (method === 'GET'  && id3 === 'nachrichten')  return boerseNachrichten(env, db, url, json, err);
+    if (id3 === 'depot')     return depotSchreiben(request, env, db, body, method, teil4, json, err);
+    if (id3 === 'watchlist') return watchlistSchreiben(env, db, body, method, teil4, json, err);
   }
 
   // ── Search Console ─────────────────────────────────────────────

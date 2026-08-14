@@ -314,6 +314,9 @@
       <button class="ag-tab" onclick="zeigeTab('befunde',this)">
         <i data-lucide="search-check" style="width:13px;height:13px"></i> Befunde <span class="ag-count" id="c-befunde">0</span>
       </button>
+      <button class="ag-tab" onclick="zeigeTab('boerse',this)">
+        <i data-lucide="candlestick-chart" style="width:13px;height:13px"></i> Börse
+      </button>
       <button class="ag-tab" onclick="zeigeTab('kampagnen',this)">
         <i data-lucide="megaphone" style="width:13px;height:13px"></i> Kampagnen <span class="ag-count" id="c-kampagnen">0</span>
       </button>
@@ -329,6 +332,7 @@
     <div class="ag-pane" id="pane-aufgaben"></div>
     <div class="ag-pane" id="pane-berichte"></div>
     <div class="ag-pane" id="pane-befunde"></div>
+    <div class="ag-pane" id="pane-boerse"></div>
     <div class="ag-pane" id="pane-kampagnen"></div>
     <div class="ag-pane" id="pane-laeufe"></div>
     <div class="ag-pane" id="pane-team"></div>
@@ -470,6 +474,7 @@ function zeigeTab(name, btn) {
   document.getElementById('pane-' + name).classList.add('active');
   if (name === 'berichte') ladeBerichte();
   if (name === 'kampagnen') ladeKampagnen();
+  if (name === 'boerse') ladeBoerse();
   refreshIcons();
 }
 
@@ -860,6 +865,170 @@ async function gscHolen() {
   }
   const b = document.getElementById('gsc-btn');
   if (b) b.disabled = false;
+}
+
+// ── Börse ────────────────────────────────────────────────────────
+// Faktenlage, keine Beratung: Zahlen, Verlauf, Termine. Was daraus folgt,
+// entscheidet Karol.
+let BOERSE = null;
+
+async function ladeBoerse(auffrischen) {
+  const el = document.getElementById('pane-boerse');
+  if (auffrischen) {
+    el.querySelector('#bs-status')?.replaceChildren(document.createTextNode('Hole Kurse…'));
+    await api('/api/agentur/boerse/auffrischen', { method: 'POST', body: {} });
+  }
+  BOERSE = await api('/api/agentur/boerse/uebersicht?tage=90');
+  zeichneBoerse();
+  refreshIcons();
+}
+
+function kursLinie(verlauf, farbe) {
+  if (!verlauf || verlauf.length < 2) {
+    return `<div style="height:40px;display:flex;align-items:center;font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">Verlauf entsteht ab dem zweiten Abruf</div>`;
+  }
+  const werte = verlauf.map(v => v.kurs);
+  const min = Math.min(...werte), max = Math.max(...werte);
+  const spanne = (max - min) || 1;
+  const punkte = werte.map((w, i) => `${(i / (werte.length - 1) * 100).toFixed(1)},${(36 - ((w - min) / spanne) * 32).toFixed(1)}`).join(' ');
+  return `<svg viewBox="0 0 100 40" preserveAspectRatio="none" style="display:block;width:100%;height:40px;overflow:visible">
+    <polyline points="${punkte}" fill="none" stroke="${farbe}" stroke-width="1.6"
+              stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+  </svg>`;
+}
+
+function zeichneBoerse() {
+  const el = document.getElementById('pane-boerse');
+  if (!BOERSE) { el.innerHTML = errState(); return; }
+  const b = BOERSE;
+  const geld = (n, w) => n === null || n === undefined ? '–' : `${Number(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${w || ''}`.trim();
+  const vz = n => n > 0 ? '+' : '';
+  const farbeVon = n => n === null || n === undefined ? 'var(--text2)' : n > 0 ? '#4ade80' : n < 0 ? '#f87171' : 'var(--text2)';
+
+  const s = b.summe || {};
+  const summeBlock = `
+    <div class="zahlen-grid">
+      <div class="zahl-karte">
+        <div class="zahl-name">Depotwert</div>
+        <div class="zahl-wert">${s.wert === null || s.wert === undefined ? '–' : geld(s.wert)}</div>
+        <div style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:4px">
+          ${s.bewertet || 0} von ${s.von || 0} Positionen bewertet
+        </div>
+      </div>
+      <div class="zahl-karte">
+        <div class="zahl-name">Einsatz</div>
+        <div class="zahl-wert" style="color:var(--text2)">${s.einsatz === null || s.einsatz === undefined ? '–' : geld(s.einsatz)}</div>
+      </div>
+      <div class="zahl-karte">
+        <div class="zahl-name">Ergebnis</div>
+        <div class="zahl-wert" style="color:${farbeVon(s.ergebnis)}">
+          ${s.ergebnis === null || s.ergebnis === undefined ? '–' : vz(s.ergebnis) + geld(s.ergebnis)}
+        </div>
+        ${s.ergebnis_prozent !== null && s.ergebnis_prozent !== undefined
+          ? `<div style="font-size:10.5px;color:${farbeVon(s.ergebnis_prozent)};font-family:'Space Mono',monospace;margin-top:4px">${vz(s.ergebnis_prozent)}${s.ergebnis_prozent} %</div>` : ''}
+      </div>
+    </div>`;
+
+  const karte = (p, gehalten) => {
+    const st = p.stammdaten || {};
+    const farbe = p.veraenderung_prozent > 0 ? '#4ade80' : p.veraenderung_prozent < 0 ? '#f87171' : '#60a5fa';
+    return `<div class="zeile" style="cursor:default">
+      <div class="zeile-kopf">
+        <div class="zeile-titel">${esc(p.symbol)}<span style="color:var(--text3);font-weight:400"> · ${esc(p.name || st.name || '')}</span></div>
+        ${p.kurs !== null ? `<span class="marke" style="background:rgba(255,255,255,.06);color:${farbe}">
+          ${geld(p.kurs, st.waehrung || p.waehrung)} ${p.veraenderung_prozent !== null ? `(${vz(p.veraenderung_prozent)}${p.veraenderung_prozent} %)` : ''}
+        </span>` : marke(['m-grau', 'kein Kurs'])}
+      </div>
+      ${kursLinie(p.verlauf, farbe)}
+      <div class="zeile-meta">
+        ${gehalten ? `<span style="font-size:11.5px;color:var(--text2)">${p.stueck} Stück zu ${geld(p.kaufkurs, p.waehrung)}</span>` : ''}
+        ${gehalten && p.ergebnis !== null ? `<span class="marke" style="background:rgba(255,255,255,.06);color:${farbeVon(p.ergebnis)}">${vz(p.ergebnis)}${geld(p.ergebnis, p.waehrung)} · ${vz(p.ergebnis_prozent)}${p.ergebnis_prozent} %</span>` : ''}
+        ${st.naechste_zahlen ? marke(['m-gelb', 'Zahlen ' + st.naechste_zahlen]) : ''}
+        ${st.hoch_52w ? `<span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">52W ${st.tief_52w?.toFixed?.(0) ?? '–'}–${st.hoch_52w?.toFixed?.(0) ?? '–'}</span>` : ''}
+        ${st.kgv ? `<span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">KGV ${Number(st.kgv).toFixed(1)}</span>` : ''}
+        ${!gehalten && p.grund ? `<span style="font-size:10.5px;color:var(--text3)">${esc(p.grund)}</span>` : ''}
+        ${gehalten ? `<button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="verkauft(${p.id})">${icon('archive', 11)} verkauft</button>` : ''}
+      </div>
+    </div>`;
+  };
+
+  el.innerHTML = `
+    <div class="hinweis">${icon('info', 15)}<span>
+      Dieser Bereich trägt <b>Fakten</b> zusammen: Kurse, Kennzahlen, Termine, Meldungen.
+      Er gibt keine Kauf-, Verkaufs- oder Halteempfehlungen — das wäre Anlageberatung.
+      Entschieden wird von dir.
+    </span></div>
+
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+      <button class="btn btn-ghost" onclick="ladeBoerse(true)">${icon('refresh-cw', 13)} Kurse holen</button>
+      <button class="btn btn-ghost" onclick="neuePosition()">${icon('plus', 13)} Position</button>
+      <button class="btn btn-ghost" onclick="neueBeobachtung()">${icon('eye', 13)} Beobachten</button>
+      <span id="bs-status" style="font-size:11.5px;color:var(--text3);font-family:'Space Mono',monospace">
+        ${b.fehler ? esc(b.fehler.join(' · ')) : b.hinweis ? esc(b.hinweis) : 'Stand ' + fmtDate(b.stand)}
+      </span>
+    </div>
+
+    ${summeBlock}
+    ${b.ohne_kurs ? `<div class="hinweis" style="background:rgba(245,158,11,.07);border-color:rgba(245,158,11,.25)">${icon('alert-triangle', 15)}<span>Ohne Kurs und deshalb nicht bewertet: ${esc(b.ohne_kurs.join(', '))}</span></div>` : ''}
+
+    <div class="karte-kopf" style="margin-top:6px">${icon('briefcase', 12)} Depot <span class="zahl">${(b.positionen || []).length}</span></div>
+    ${(b.positionen || []).length ? b.positionen.map(p => karte(p, true)).join('') : '<div class="leer">Noch keine Positionen hinterlegt.</div>'}
+
+    <div class="karte-kopf" style="margin-top:20px">${icon('eye', 12)} Beobachtet <span class="zahl">${(b.beobachtet || []).length}</span></div>
+    ${(b.beobachtet || []).length ? b.beobachtet.map(p => karte(p, false)).join('') : '<div class="leer">Nichts auf der Beobachtungsliste.</div>'}`;
+}
+
+function neuePosition() {
+  zeigeDetail('<h2>Position hinterlegen</h2><div class="page-sub">Reine Buchführung — was du hältst und zu welchem Kurs</div>', `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="feld"><label>Symbol</label><input id="np-symbol" placeholder="AAPL"></div>
+      <div class="feld"><label>Name (optional)</label><input id="np-name" placeholder="Apple"></div>
+      <div class="feld"><label>Stück</label><input id="np-stueck" type="number" step="any" placeholder="12"></div>
+      <div class="feld"><label>Kaufkurs je Stück</label><input id="np-kurs" type="number" step="any" placeholder="178.50"></div>
+      <div class="feld"><label>Währung</label><input id="np-waehrung" value="USD"></div>
+      <div class="feld"><label>Kaufdatum</label><input id="np-datum" type="date"></div>
+      <div class="feld" style="grid-column:1/-1"><label>Notiz</label><input id="np-notiz" placeholder="warum gekauft"></div>
+    </div>
+    <div id="np-fehler" style="color:#f87171;font-size:11.5px"></div>`,
+    `<button class="btn btn-primary" onclick="speicherePosition()">${icon('check', 13)} Speichern</button>`);
+}
+
+async function speicherePosition() {
+  const symbol = document.getElementById('np-symbol').value.trim();
+  if (!symbol) { document.getElementById('np-fehler').textContent = 'Symbol fehlt.'; return; }
+  await api('/api/agentur/boerse/depot', { method: 'POST', body: {
+    symbol, name: document.getElementById('np-name').value.trim() || null,
+    stueck: Number(document.getElementById('np-stueck').value) || 0,
+    kaufkurs: document.getElementById('np-kurs').value ? Number(document.getElementById('np-kurs').value) : null,
+    waehrung: document.getElementById('np-waehrung').value.trim() || 'USD',
+    kaufdatum: document.getElementById('np-datum').value || null,
+    notiz: document.getElementById('np-notiz').value.trim() || null,
+  }});
+  schliesse();
+  ladeBoerse(true);
+}
+
+function neueBeobachtung() {
+  zeigeDetail('<h2>Wert beobachten</h2><div class="page-sub">Ohne Bestand, nur verfolgen</div>', `
+    <div class="feld"><label>Symbol</label><input id="nb-symbol" placeholder="MSFT"></div>
+    <div class="feld"><label>Warum</label><input id="nb-grund" placeholder="Vergleichswert"></div>
+    <div id="nb-fehler" style="color:#f87171;font-size:11.5px"></div>`,
+    `<button class="btn btn-primary" onclick="speichereBeobachtung()">${icon('check', 13)} Speichern</button>`);
+}
+
+async function speichereBeobachtung() {
+  const symbol = document.getElementById('nb-symbol').value.trim();
+  if (!symbol) { document.getElementById('nb-fehler').textContent = 'Symbol fehlt.'; return; }
+  await api('/api/agentur/boerse/watchlist', { method: 'POST', body: {
+    symbol, grund: document.getElementById('nb-grund').value.trim() || null,
+  }});
+  schliesse();
+  ladeBoerse(true);
+}
+
+async function verkauft(id) {
+  await api('/api/agentur/boerse/depot/' + id, { method: 'DELETE' });
+  ladeBoerse();
 }
 
 // ── Takt stellen ─────────────────────────────────────────────────

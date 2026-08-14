@@ -398,3 +398,96 @@ CREATE TABLE IF NOT EXISTS ag_takt (
 );
 
 INSERT OR IGNORE INTO ag_takt (id) VALUES (1);
+
+-- =============================================
+-- BÖRSE: Depot, Beobachtung, Kursverlauf
+-- =============================================
+-- Dieser Bereich liefert Faktenlage, keine Anlageberatung. Die Rollen
+-- tragen Zahlen, Termine und Meldungen zusammen; entschieden wird von Karol.
+
+-- Was Karol hält. Reine Buchführung.
+CREATE TABLE IF NOT EXISTS ag_depot (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol        TEXT NOT NULL,
+  name          TEXT,
+  stueck        REAL NOT NULL DEFAULT 0,
+  kaufkurs      REAL,                     -- je Stück, in Währung des Werts
+  waehrung      TEXT DEFAULT 'USD',
+  kaufdatum     TEXT,
+  notiz         TEXT,
+  aktiv         INTEGER DEFAULT 1,        -- 0 = verkauft, bleibt für die Historie
+  erstellt_am   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  aktualisiert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Beobachtungsliste: Werte ohne Bestand, die trotzdem verfolgt werden.
+CREATE TABLE IF NOT EXISTS ag_watchlist (
+  symbol       TEXT PRIMARY KEY,
+  name         TEXT,
+  grund        TEXT,                      -- warum beobachtet
+  erstellt_am  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Kursverlauf, den wir selbst aufbauen. Unabhängig davon, wie weit die
+-- Historie des Anbieters auf der kostenlosen Stufe zurückreicht.
+CREATE TABLE IF NOT EXISTS ag_kurse (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol         TEXT NOT NULL,
+  datum          TEXT NOT NULL,           -- YYYY-MM-DD
+  kurs           REAL NOT NULL,
+  eroeffnung     REAL,
+  hoch           REAL,
+  tief           REAL,
+  vortag         REAL,
+  veraenderung_prozent REAL,
+  quelle         TEXT DEFAULT 'finnhub',
+  erstellt_am    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(symbol, datum)
+);
+
+-- Kennzahlen und Termine je Wert, als Momentaufnahme.
+CREATE TABLE IF NOT EXISTS ag_werte (
+  symbol          TEXT PRIMARY KEY,
+  name            TEXT,
+  branche         TEXT,
+  waehrung        TEXT,
+  boerse          TEXT,
+  marktwert       REAL,
+  kgv             REAL,
+  hoch_52w        REAL,
+  tief_52w        REAL,
+  naechste_zahlen TEXT,                   -- Datum der nächsten Quartalszahlen
+  webseite        TEXT,
+  aktualisiert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS ix_ag_kurse_symbol ON ag_kurse(symbol, datum);
+CREATE INDEX IF NOT EXISTS ix_ag_depot_aktiv  ON ag_depot(aktiv, symbol);
+
+-- ── Abteilung Börse ──────────────────────────────────────────────
+INSERT OR IGNORE INTO ag_abteilungen (id, name, projekt, kontext_datei, beschreibung, farbe, sortierung) VALUES
+  ('boerse', 'Börse', NULL, 'abteilungen/boerse.md',
+   'Research-Desk: trägt Zahlen, Termine und Meldungen zusammen. Entschieden wird von Karol.', '#eab308', 4);
+
+INSERT OR IGNORE INTO ag_funktionen (id, name, skill, beschreibung, icon, liefert) VALUES
+  ('markt-analyst', 'Marktanalyst', 'markt-analyst',
+   'Verdichtet Kurse, Kennzahlen und Quartalszahlen zu einem Faktenbericht. Keine Empfehlungen.',
+   'candlestick-chart', 'bericht'),
+  ('nachrichten-analyst', 'Nachrichten-Analyst', 'nachrichten-analyst',
+   'Sammelt Meldungen zu beobachteten Werten, mit Quelle und Datum, ohne Deutung.',
+   'newspaper', 'bericht'),
+  ('depot-beobachter', 'Depot-Beobachter', 'depot-beobachter',
+   'Meldet Veränderungen an gehaltenen Werten: Kurssprünge, anstehende Termine, Dividenden.',
+   'eye', 'befund');
+
+INSERT OR IGNORE INTO ag_mitarbeiter
+  (id, name, funktion_id, abteilung_id, charakter, charakter_datei, farbe, avatar, schreibtisch, aktiv) VALUES
+  ('robert', 'Robert', 'markt-analyst', 'boerse',
+   'Rechnet nach, bevor er etwas hinschreibt. Sagt "die Zahl sagt", nie "ich glaube".',
+   'personal/robert.md', '#eab308', 'd', 1, 1),
+  ('clara', 'Clara', 'nachrichten-analyst', 'boerse',
+   'Unterscheidet zwischen Meldung und Meinung. Nennt bei allem die Quelle und das Datum.',
+   'personal/clara.md', '#f97316', 'c', 2, 1),
+  ('malte', 'Malte', 'depot-beobachter', 'boerse',
+   'Aufmerksam, nicht nervös. Meldet, was sich geändert hat, und schweigt, wenn nichts war.',
+   'personal/malte.md', '#06b6d4', 'a', 3, 1);
