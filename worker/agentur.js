@@ -206,6 +206,90 @@ async function laeufeAufraeumen(db) {
   ).bind(jetzt(), grenze).run().catch(() => {});
 }
 
+// ── Takt: was die Agentur gerade verbrauchen darf ────────────────
+// Der Bezugswert ist eine Annahme, kein Messwert – Anthropic gibt für
+// Abo-Limits keinen Tokenwert heraus. Karols eigener Verbrauch ist hier
+// nicht enthalten und kann es auch nicht sein.
+const TAKT_STANDARD = {
+  kontingent_tokens: 12000000,
+  block_morgen: 25, block_nachmittag: 60, block_abend: 25, block_nacht: 90,
+  zeitzone: 'Europe/Berlin', fenster_stunden: 5, aktiv: 1,
+};
+
+async function taktLesen(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS ag_takt (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    kontingent_tokens INTEGER NOT NULL DEFAULT 12000000,
+    block_morgen INTEGER NOT NULL DEFAULT 25, block_nachmittag INTEGER NOT NULL DEFAULT 60,
+    block_abend INTEGER NOT NULL DEFAULT 25, block_nacht INTEGER NOT NULL DEFAULT 90,
+    zeitzone TEXT NOT NULL DEFAULT 'Europe/Berlin', fenster_stunden INTEGER NOT NULL DEFAULT 5,
+    aktiv INTEGER NOT NULL DEFAULT 1, aktualisiert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`).run().catch(() => {});
+  await db.prepare('INSERT OR IGNORE INTO ag_takt (id) VALUES (1)').run().catch(() => {});
+  const t = await db.prepare('SELECT * FROM ag_takt WHERE id=1').first().catch(() => null);
+  return t || { ...TAKT_STANDARD, id: 1 };
+}
+
+// Stunde in Karols Zeitzone – der Worker läuft in UTC, sein Tag nicht.
+function ortsStunde(zeitzone) {
+  try {
+    return parseInt(new Intl.DateTimeFormat('de-DE', {
+      timeZone: zeitzone || 'Europe/Berlin', hour: '2-digit', hour12: false,
+    }).format(new Date()), 10);
+  } catch (e) {
+    return new Date().getUTCHours();
+  }
+}
+
+function blockVon(stunde) {
+  if (stunde >= 6 && stunde < 12) return { name: 'morgen', label: 'Morgen', feld: 'block_morgen' };
+  if (stunde >= 12 && stunde < 18) return { name: 'nachmittag', label: 'Nachmittag', feld: 'block_nachmittag' };
+  if (stunde >= 18 && stunde < 23) return { name: 'abend', label: 'Abend', feld: 'block_abend' };
+  return { name: 'nacht', label: 'Nacht', feld: 'block_nacht' };
+}
+
+async function taktLage(db) {
+  const t = await taktLesen(db);
+  const stunde = ortsStunde(t.zeitzone);
+  const block = blockVon(stunde);
+  const anteil = Number(t[block.feld]) || 0;
+  const erlaubt = Math.round((Number(t.kontingent_tokens) || 0) * anteil / 100);
+
+  const fensterMs = (Number(t.fenster_stunden) || 5) * 3600000;
+  const seit = new Date(Date.now() - fensterMs).toISOString();
+  const v = await db.prepare(
+    `SELECT COALESCE(SUM(kosten_tokens),0) AS tokens, COUNT(*) AS laeufe
+       FROM ag_laeufe WHERE gestartet_am >= ?`
+  ).bind(seit).first().catch(() => null);
+
+  const verbraucht = Number(v?.tokens) || 0;
+  const auslastung = erlaubt > 0 ? Math.round((verbraucht / erlaubt) * 100) : 0;
+
+  // Am echten Limit gescheiterte Läufe: dann war der Bezugswert zu hoch.
+  const limitTreffer = await db.prepare(
+    `SELECT COUNT(*) AS n FROM ag_laeufe
+      WHERE status='fehlgeschlagen' AND gestartet_am >= ?
+        AND (fehler LIKE '%limit%' OR fehler LIKE '%rate%' OR fehler LIKE '%429%')`
+  ).bind(new Date(Date.now() - 7 * 86400000).toISOString()).first().catch(() => null);
+
+  return {
+    aktiv: !!t.aktiv,
+    stunde, block: block.name, block_label: block.label, anteil_prozent: anteil,
+    kontingent_tokens: Number(t.kontingent_tokens) || 0,
+    fenster_stunden: Number(t.fenster_stunden) || 5,
+    erlaubt_tokens: erlaubt,
+    verbraucht_tokens: verbraucht,
+    laeufe_im_fenster: Number(v?.laeufe) || 0,
+    auslastung_prozent: auslastung,
+    frei: !t.aktiv || auslastung < 100,
+    limit_treffer_7tage: Number(limitTreffer?.n) || 0,
+    hinweis: (limitTreffer?.n || 0) > 0
+      ? 'Läufe sind am echten Limit gescheitert – der Bezugswert ist zu hoch angesetzt.'
+      : null,
+    einstellungen: t,
+  };
+}
+
 // ── Diskussionsrunde ─────────────────────────────────────────────
 // Rollen laufen nacheinander, nie gleichzeitig. Eine "Diskussion" ist
 // deshalb ein Staffellauf: jeder liest alle bisherigen Beiträge und hängt
@@ -1116,6 +1200,34 @@ export async function handleAgentur(request, env, helpers) {
     });
   }
 
+  // ── Takt ───────────────────────────────────────────────────────
+  if (teil === 'takt') {
+    if (method === 'GET') return json(await taktLage(db));
+    if (method === 'PATCH') {
+      if (!nurDashboard()) return err('Den Takt stellt nur der Mensch', 403);
+      await taktLesen(db);
+      const felder = [], werte = [];
+      for (const k of ['block_morgen', 'block_nachmittag', 'block_abend', 'block_nacht']) {
+        if (body[k] !== undefined) {
+          const p = Math.max(0, Math.min(100, num(body[k]) ?? 0));
+          felder.push(`${k}=?`); werte.push(p);
+        }
+      }
+      if (body.kontingent_tokens !== undefined) {
+        felder.push('kontingent_tokens=?'); werte.push(Math.max(0, num(body.kontingent_tokens) ?? 0));
+      }
+      if (body.fenster_stunden !== undefined) {
+        felder.push('fenster_stunden=?'); werte.push(Math.max(1, Math.min(24, num(body.fenster_stunden) ?? 5)));
+      }
+      if (body.zeitzone !== undefined) { felder.push('zeitzone=?'); werte.push(txt(body.zeitzone, 40)); }
+      if (body.aktiv !== undefined) { felder.push('aktiv=?'); werte.push(einsAus(body.aktiv)); }
+      if (!felder.length) return err('Nichts zu ändern');
+      felder.push('aktualisiert_am=?'); werte.push(jetzt());
+      await db.prepare(`UPDATE ag_takt SET ${felder.join(', ')} WHERE id=1`).bind(...werte).run();
+      return json(await taktLage(db));
+    }
+  }
+
   // ── Verteiler ──────────────────────────────────────────────────
   // Wer hat jetzt etwas zu tun? Der Runner fragt das stündlich und startet
   // nur die Genannten. Damit hängt die Rechnung an der Arbeit, nicht am
@@ -1167,18 +1279,51 @@ export async function handleAgentur(request, env, helpers) {
       proPerson.get(a.zustaendig).aufgaben.push({ id: a.id, titel: a.titel, faellig_am: a.faellig_am });
     }
 
+    // Takt: ist gerade überhaupt etwas frei?
+    const lage = await taktLage(db);
+    if (!lage.frei) {
+      return json({
+        zeitpunkt: jetzt(), takt: lage, dran: [], pause: true,
+        grund: `Anteil für ${lage.block_label} ausgeschöpft: ${lage.verbraucht_tokens.toLocaleString('de-DE')} von ${lage.erlaubt_tokens.toLocaleString('de-DE')} Tokens im ${lage.fenster_stunden}-Stunden-Fenster.`,
+        wartend: [...proPerson.values()].map(p => p.name),
+      });
+    }
+
+    // Eine Abteilung pro Durchgang, und zwar die, deren letzter Lauf am
+    // längsten her ist. So kommt jede regelmäßig dran, ohne dass alle
+    // gleichzeitig loslaufen – das ist die eigentliche Spitzenbremse.
+    const zuletzt = await db.prepare(
+      `SELECT abteilung_id, MAX(gestartet_am) AS letzter FROM ag_laeufe GROUP BY abteilung_id`
+    ).all().catch(() => ({ results: [] }));
+    const letzterLauf = new Map((zuletzt.results || []).map(r => [r.abteilung_id, r.letzter]));
+
+    const abteilungen = [...new Set([...proPerson.values()].map(p => p.abteilung_id))];
+    abteilungen.sort((x, y) => String(letzterLauf.get(x) || '').localeCompare(String(letzterLauf.get(y) || '')));
+    const dieseAbteilung = abteilungen[0] || null;
+    const dran = [...proPerson.values()].filter(p => p.abteilung_id === dieseAbteilung);
+    const zurueckgestellt = [...proPerson.values()].filter(p => p.abteilung_id !== dieseAbteilung);
+
     // Tageskosten mitliefern: der Verteiler bremst selbst, wenn eine
     // Obergrenze gesetzt ist. Ein System, das ohne Aufsicht läuft und dabei
     // Geld ausgibt, braucht eine Decke.
     const heute = await db.prepare(
-      `SELECT COALESCE(SUM(kosten_usd),0) AS summe FROM ag_laeufe WHERE gestartet_am >= ?`
+      `SELECT COALESCE(SUM(kosten_usd),0) AS summe, COALESCE(SUM(kosten_tokens),0) AS tokens,
+              COUNT(*) AS laeufe
+         FROM ag_laeufe WHERE gestartet_am >= ?`
     ).bind(new Date(Date.now() - 86400000).toISOString()).first().catch(() => null);
 
     return json({
       zeitpunkt: jetzt(),
       ruhe_stunden: ruhe,
+      takt: lage,
+      abteilung_dran: dieseAbteilung,
+      dran,
+      // Nichts wird verworfen – wer jetzt nicht drankommt, kommt später.
+      zurueckgestellt: zurueckgestellt.map(p => ({ name: p.name, abteilung_id: p.abteilung_id })),
+      // Beim Abo-Token ist der Dollarwert nur ein Gegenwert, keine Rechnung.
+      tokens_24h: heute?.tokens || 0,
+      laeufe_24h: heute?.laeufe || 0,
       kosten_24h_usd: Math.round((heute?.summe || 0) * 10000) / 10000,
-      dran: [...proPerson.values()],
       uebersprungen: [...sperre].filter(id => (faellige.results || []).some(a => a.zustaendig === id)),
     });
   }

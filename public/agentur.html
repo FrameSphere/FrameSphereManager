@@ -366,6 +366,7 @@ let KENNZAHLEN = [];
 let KAMPAGNEN = [];
 let WISSEN = [];
 let FRAGEN = [];
+let TAKT = null;
 let AKTIVER_TAB = 'buero';
 
 const ZUSTAND_TEXT = {
@@ -475,11 +476,13 @@ function zeigeTab(name, btn) {
 // ── Laden ────────────────────────────────────────────────────────
 async function ladeBoard() {
   const q = ABTEILUNG ? `?abteilung=${encodeURIComponent(ABTEILUNG)}` : '';
-  const [data, f] = await Promise.all([
+  const [data, f, t] = await Promise.all([
     api('/api/agentur/board' + q),
     api('/api/agentur/fragen?status=offen'),
+    api('/api/agentur/takt'),
   ]);
   FRAGEN = f?.fragen || [];
+  TAKT = t;
   if (!data) {
     document.getElementById('pane-buero').innerHTML = errState();
     document.getElementById('ag-sub').textContent = 'API nicht erreichbar';
@@ -617,6 +620,49 @@ function zeichneBuero() {
     </div>`;
   }).join('') : `<div style="font-size:11.5px;color:var(--text3)">Noch nichts passiert.</div>`;
 
+  // Takt: was die Agentur gerade verbrauchen darf.
+  const t = TAKT;
+  const bloecke = [
+    ['block_morgen', 'Morgen', '06–12'],
+    ['block_nachmittag', 'Nachmittag', '12–18'],
+    ['block_abend', 'Abend', '18–23'],
+    ['block_nacht', 'Nacht', '23–06'],
+  ];
+  const mio = n => (n / 1000000).toFixed(1).replace('.', ',') + ' Mio';
+  const taktHtml = t ? `
+    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px">
+      <span style="font-size:19px;font-weight:800;color:${t.auslastung_prozent >= 100 ? '#f87171' : t.auslastung_prozent >= 70 ? '#fbbf24' : '#4ade80'}">${t.auslastung_prozent} %</span>
+      <span style="font-size:11px;color:var(--text2)">${esc(t.block_label)} · ${t.anteil_prozent} % freigegeben</span>
+    </div>
+    <div style="height:6px;border-radius:3px;background:var(--bg3);overflow:hidden;margin-bottom:6px">
+      <div style="height:100%;width:${Math.min(100, t.auslastung_prozent)}%;background:${t.auslastung_prozent >= 100 ? '#ef4444' : t.auslastung_prozent >= 70 ? '#f59e0b' : '#22c55e'}"></div>
+    </div>
+    <div class="pf-meta" style="margin-bottom:10px">
+      ${t.verbraucht_tokens.toLocaleString('de-DE')} von ${t.erlaubt_tokens.toLocaleString('de-DE')} Tokens
+      · ${t.laeufe_im_fenster} Läufe im ${t.fenster_stunden}-Stunden-Fenster
+    </div>
+    ${t.hinweis ? `<div style="font-size:11px;color:#fbbf24;line-height:1.5;margin-bottom:10px">${icon('alert-triangle', 11)} ${esc(t.hinweis)}</div>` : ''}
+    ${bloecke.map(([feld, label, zeit]) => `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:10.5px;width:78px;color:${t.block === feld.replace('block_', '') ? 'var(--text)' : 'var(--text3)'};font-family:'Space Mono',monospace">${esc(label)}</span>
+        <span style="font-size:9.5px;color:var(--text3);width:40px;font-family:'Space Mono',monospace">${zeit}</span>
+        <input type="range" min="0" max="100" step="5" value="${t.einstellungen[feld]}"
+               oninput="document.getElementById('w-${feld}').textContent=this.value+' %'"
+               onchange="stelleTakt('${feld}', this.value)" style="flex:1;accent-color:var(--accent)">
+        <span id="w-${feld}" style="font-size:10.5px;width:38px;text-align:right;font-family:'Space Mono',monospace">${t.einstellungen[feld]} %</span>
+      </div>`).join('')}
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:9px;border-top:1px solid var(--border)">
+      <span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">Bezugswert</span>
+      <input type="number" step="1000000" min="0" value="${t.kontingent_tokens}"
+             onchange="stelleTakt('kontingent_tokens', this.value)"
+             style="flex:1;background:var(--bg3);border:1px solid var(--border2);color:var(--text);border-radius:6px;padding:4px 7px;font-size:11px;font-family:'Space Mono',monospace">
+      <span style="font-size:10.5px;color:var(--text3)">${esc(mio(t.kontingent_tokens))}</span>
+    </div>
+    <div style="font-size:10px;color:var(--text3);line-height:1.5;margin-top:7px">
+      Angenommener Gesamtwert deines ${t.fenster_stunden}-Stunden-Fensters. Anthropic gibt dafür keinen
+      Tokenwert heraus — <b>deine eigene Arbeit ist hier nicht mitgezählt</b>.
+    </div>` : '<div style="font-size:11.5px;color:var(--text3)">Takt nicht geladen.</div>';
+
   // Fragen an dich – der Rückkanal. Was hier liegt, blockiert jemanden.
   const fragen = FRAGEN || [];
   const fragenHtml = fragen.length ? fragen.map(f => {
@@ -648,6 +694,10 @@ function zeichneBuero() {
         <div class="desks">${schreibtische}</div>
       </div>
       <div>
+        <div class="karte">
+          <div class="karte-kopf">${icon('gauge', 12)} Takt</div>
+          ${taktHtml}
+        </div>
         <div class="karte"${blockierend ? ' style="border-color:rgba(239,68,68,.45)"' : ''}>
           <div class="karte-kopf">${icon('help-circle', 12)} Fragen an dich <span class="zahl"${blockierend ? ' style="color:#f87171"' : ''}>${fragen.length}</span></div>
           ${fragenHtml}
@@ -810,6 +860,12 @@ async function gscHolen() {
   }
   const b = document.getElementById('gsc-btn');
   if (b) b.disabled = false;
+}
+
+// ── Takt stellen ─────────────────────────────────────────────────
+async function stelleTakt(feld, wert) {
+  const t = await api('/api/agentur/takt', { method: 'PATCH', body: { [feld]: Number(wert) } });
+  if (t) { TAKT = t; zeichneBuero(); refreshIcons(); }
 }
 
 // ── Fragen beantworten ───────────────────────────────────────────
@@ -1061,25 +1117,31 @@ function zeichneLaeufe() {
     fehlgeschlagen: ['m-rot',   'fehlgeschlagen'],
   };
 
-  // Was die Läufe gekostet haben – die Zahl, an der hängt, wie oft die
-  // Kette überhaupt laufen darf.
-  const mitKosten = laeufe.filter(l => l.kosten_usd > 0);
-  const summe = mitKosten.reduce((s, l) => s + l.kosten_usd, 0);
-  const schnitt = mitKosten.length ? summe / mitKosten.length : 0;
-  const eur = w => w.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const kostenBlock = mitKosten.length ? `
+  // Tokens statt Dollar: über das Abo-Token ist der Dollarwert nur ein
+  // Gegenwert. Was zählt, ist der Verbrauch am Kontingent.
+  const mitTokens = laeufe.filter(l => l.kosten_tokens > 0);
+  const summeTok = mitTokens.reduce((s, l) => s + l.kosten_tokens, 0);
+  const schnittTok = mitTokens.length ? Math.round(summeTok / mitTokens.length) : 0;
+  const summeUsd = mitTokens.reduce((s, l) => s + (l.kosten_usd || 0), 0);
+  const zahl = n => Number(n).toLocaleString('de-DE');
+  const kostenBlock = mitTokens.length ? `
     <div class="zahlen-grid">
       <div class="zahl-karte">
-        <div class="zahl-name">Summe der Läufe</div>
-        <div class="zahl-wert" style="color:#fbbf24">$ ${eur(summe)}</div>
-        <div style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:4px">${mitKosten.length} Läufe mit Kostenangabe</div>
+        <div class="zahl-name">Tokens gesamt</div>
+        <div class="zahl-wert" style="color:#fbbf24">${zahl(summeTok)}</div>
+        <div style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:4px">${mitTokens.length} Läufe · Gegenwert $ ${summeUsd.toFixed(2)}</div>
       </div>
       <div class="zahl-karte">
         <div class="zahl-name">Ø je Lauf</div>
-        <div class="zahl-wert" style="color:#60a5fa">$ ${eur(schnitt)}</div>
-        <div style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:4px">bei 5 Läufen pro Woche: rund $ ${eur(schnitt * 5)}</div>
+        <div class="zahl-wert" style="color:#60a5fa">${zahl(schnittTok)}</div>
+        <div style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:4px">Tokens</div>
       </div>
-    </div>` : `<div class="hinweis">${icon('wallet', 15)}<span>Noch kein Lauf mit Kostenangabe. Sobald einer über den Runner lief, steht hier, was er gekostet hat – und was das pro Woche bedeutet.</span></div>`;
+      ${TAKT ? `<div class="zahl-karte">
+        <div class="zahl-name">${esc(TAKT.fenster_stunden)}-Stunden-Fenster</div>
+        <div class="zahl-wert" style="color:${TAKT.auslastung_prozent >= 100 ? '#f87171' : '#4ade80'}">${TAKT.auslastung_prozent} %</div>
+        <div style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace;margin-top:4px">${zahl(TAKT.verbraucht_tokens)} von ${zahl(TAKT.erlaubt_tokens)}</div>
+      </div>` : ''}
+    </div>` : `<div class="hinweis">${icon('gauge', 15)}<span>Noch kein Lauf mit Tokenangabe. Sobald einer über den Runner lief, steht hier der Verbrauch – und wie er sich zu deinem freigegebenen Anteil verhält.</span></div>`;
 
   el.innerHTML = kostenBlock + laeufe.map(l => {
     const p = person(l.mitarbeiter_id);
@@ -1095,9 +1157,9 @@ function zeichneLaeufe() {
       <div class="zeile-meta">
         <span class="marke m-grau">${esc(l.ausloeser || 'manuell')}</span>
         <span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">
-          ${esc(fmtDate(l.gestartet_am))} · ${esc(dauer)} · ${l.eintraege_anzahl || 0} Einträge${l.kosten_tokens ? ` · ${Number(l.kosten_tokens).toLocaleString('de-DE')} Tokens` : ''}
+          ${esc(fmtDate(l.gestartet_am))} · ${esc(dauer)} · ${l.eintraege_anzahl || 0} Einträge
         </span>
-        ${l.kosten_usd > 0 ? `<span class="marke m-gelb">$ ${Number(l.kosten_usd).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>` : ''}
+        ${l.kosten_tokens > 0 ? `<span class="marke m-gelb">${Number(l.kosten_tokens).toLocaleString('de-DE')} Tokens</span>` : ''}
       </div>
     </div>`;
   }).join('');

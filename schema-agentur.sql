@@ -373,3 +373,28 @@ INSERT OR IGNORE INTO ag_mitarbeiter
   ('elias', 'Elias', 'datenbank-entwickler', 'entwicklung',
    'Vorsichtig bei allem, was Daten verändert. Schreibt Migrationen so, dass sie zweimal laufen können.',
    'personal/elias.md', '#06b6d4', 'd', 4, 1);
+
+-- =============================================
+-- TAKT: wie viel darf die Agentur wann verbrauchen
+-- =============================================
+-- Eine Zeile, von Karol über Regler im Manager gepflegt.
+--
+-- kontingent_tokens ist ein ANGENOMMENER Bezugswert für ein volles
+-- 5-Stunden-Fenster – Anthropic gibt keinen Tokenwert für Abo-Limits heraus.
+-- Die Prozentwerte je Tagesblock sagen, welchen Anteil davon die Agentur in
+-- diesem Block nutzen darf. Karols eigene Arbeit ist darin NICHT enthalten;
+-- deshalb ist der Anteil bewusst kleiner als das, was er selbst spürt.
+CREATE TABLE IF NOT EXISTS ag_takt (
+  id                 INTEGER PRIMARY KEY CHECK (id = 1),
+  kontingent_tokens  INTEGER NOT NULL DEFAULT 12000000,
+  block_morgen       INTEGER NOT NULL DEFAULT 25,   -- 06–12 Uhr
+  block_nachmittag   INTEGER NOT NULL DEFAULT 60,   -- 12–18 Uhr
+  block_abend        INTEGER NOT NULL DEFAULT 25,   -- 18–23 Uhr
+  block_nacht        INTEGER NOT NULL DEFAULT 90,   -- 23–06 Uhr
+  zeitzone           TEXT NOT NULL DEFAULT 'Europe/Berlin',
+  fenster_stunden    INTEGER NOT NULL DEFAULT 5,
+  aktiv              INTEGER NOT NULL DEFAULT 1,
+  aktualisiert_am    DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT OR IGNORE INTO ag_takt (id) VALUES (1);
