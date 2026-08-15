@@ -28,7 +28,7 @@ async function holen(env, pfad, params = {}) {
     // Auch hier den Originaltext mitgeben – "403" allein sagt nicht, ob es
     // am Schlüssel, an der Stufe oder am Symbol liegt.
     const roh = await r.text().catch(() => '');
-    const text = roh.replace(/\s+/g, ' ').slice(0, 160);
+    const text = ohneSchluessel(roh.replace(/\s+/g, ' '), env).slice(0, 160);
     if (r.status === 401 || r.status === 403) {
       throw new Error(`Zugriff verweigert (${r.status})${text ? ': ' + text : ''}`);
     }
@@ -36,6 +36,20 @@ async function holen(env, pfad, params = {}) {
     throw new Error(`Antwort ${r.status}${text ? ': ' + text : ''}`);
   }
   return r.json();
+}
+
+// Anbieter schreiben den Schlüssel gern in ihre Fehlermeldungen. Bevor eine
+// solche Meldung irgendwo angezeigt oder protokolliert wird, fliegt alles
+// raus, was nach Schlüssel aussieht.
+function ohneSchluessel(text, env) {
+  let s = String(text || '');
+  for (const k of [env?.ALPHAVANTAGE_KEY, env?.FINNHUB_KEY]) {
+    const wert = (k || '').trim();
+    if (wert.length >= 8) s = s.split(wert).join('«Schlüssel»');
+  }
+  // Auch unbekannte Schlüssel abfangen: lange Blöcke aus Großbuchstaben
+  // und Ziffern, wie sie diese Anbieter vergeben.
+  return s.replace(/\b[A-Z0-9]{12,}\b/g, '«Schlüssel»');
 }
 
 const heute = () => new Date().toISOString().slice(0, 10);
@@ -171,7 +185,7 @@ async function vonAlphaVantage(env, symbol) {
   // "kostenpflichtige Angabe" – das auseinanderzuhalten ist nicht meine
   // Aufgabe, sondern die des Lesers.
   const meldung = d.Note || d.Information || d['Error Message'];
-  if (meldung) throw new Error(String(meldung).replace(/\s+/g, ' ').slice(0, 220));
+  if (meldung) throw new Error(ohneSchluessel(String(meldung).replace(/\s+/g, ' '), env).slice(0, 220));
   const reihe = d['Time Series (Daily)'];
   if (!reihe) throw new Error('keine Zeitreihe erhalten (unerwartete Antwort)');
   return Object.entries(reihe).map(([datum, w]) => ({
@@ -202,6 +216,11 @@ export async function boerseHistorie(env, db, body, json, err) {
     for (const [name, fn] of quellen) {
       try { punkte = await fn(s); quelle = name; break; }
       catch (e) { versuche.push(`${name}: ${e.message}`); }
+    }
+    // Alpha Vantage verlangt ausdrücklich höchstens einen Abruf je Sekunde.
+    // Ohne Pause holt sich das Werkzeug beim zweiten Wert selbst eine Absage.
+    if (quellen.some(([n]) => n === 'alphavantage')) {
+      await new Promise(r => setTimeout(r, 1200));
     }
     if (!punkte) { hinweise.push(`${s} — ${versuche.join(' · ')}`); continue; }
     const n = await historieSchreiben(db, s, punkte, quelle);
@@ -285,19 +304,29 @@ export async function boerseUebersicht(env, db, url, json, err) {
 
   // Bestand bewerten. Reine Rechnung, keine Beurteilung.
   const positionen = (depot.results || []).map(p => {
+    const st = wertNach.get(p.symbol) || null;
     const l = letzter(p.symbol);
     const kurs = l?.kurs ?? null;
     const wert = kurs !== null ? kurs * p.stueck : null;
-    const einsatz = p.kaufkurs !== null ? p.kaufkurs * p.stueck : null;
+    const einsatz = p.kaufkurs !== null && p.kaufkurs !== undefined ? p.kaufkurs * p.stueck : null;
+
+    // Kurs und Kaufkurs dürfen nur verglichen werden, wenn sie dieselbe
+    // Währung haben. Ein Kurs in USD minus ein Kaufpreis in EUR ergibt eine
+    // Zahl, die nach Gewinn aussieht und keine ist.
+    const kursWaehrung = st?.waehrung || null;
+    const konflikt = !!(kursWaehrung && p.waehrung && kursWaehrung !== p.waehrung);
+    const vergleichbar = wert !== null && einsatz !== null && !konflikt;
+
     return {
       ...p,
-      stammdaten: wertNach.get(p.symbol) || null,
+      stammdaten: st,
       kurs, kurs_datum: l?.datum ?? null,
+      kurs_waehrung: kursWaehrung,
       veraenderung_prozent: l?.veraenderung_prozent ?? null,
-      wert,
-      einsatz,
-      ergebnis: (wert !== null && einsatz !== null) ? Math.round((wert - einsatz) * 100) / 100 : null,
-      ergebnis_prozent: (wert !== null && einsatz) ? Math.round(((wert - einsatz) / einsatz) * 10000) / 100 : null,
+      wert, einsatz,
+      waehrung_konflikt: konflikt,
+      ergebnis: vergleichbar ? Math.round((wert - einsatz) * 100) / 100 : null,
+      ergebnis_prozent: (vergleichbar && einsatz) ? Math.round(((wert - einsatz) / einsatz) * 10000) / 100 : null,
       verlauf: reihen.get(p.symbol) || [],
     };
   });
@@ -316,8 +345,10 @@ export async function boerseUebersicht(env, db, url, json, err) {
   // Nur bewerten, wofür ein Kurs vorliegt. Sonst läse sich ein fehlender
   // Kurs wie ein Totalverlust – die Zahl wäre nicht nur falsch, sondern
   // erschreckend falsch.
-  const bewertbar = positionen.filter(p => p.wert !== null && p.einsatz !== null);
+  const bewertbar = positionen.filter(p => p.ergebnis !== null);
   const ohneKurs = positionen.filter(p => p.wert === null).map(p => p.symbol);
+  const konflikte = positionen.filter(p => p.waehrung_konflikt)
+    .map(p => `${p.symbol}: Kurs in ${p.kurs_waehrung}, Kauf in ${p.waehrung}`);
   const gesamtwert = bewertbar.reduce((s, p) => s + p.wert, 0);
   const gesamteinsatz = bewertbar.reduce((s, p) => s + p.einsatz, 0);
 
@@ -333,6 +364,7 @@ export async function boerseUebersicht(env, db, url, json, err) {
       von: positionen.length,
     } : { bewertet: 0, von: positionen.length, wert: null, einsatz: null, ergebnis: null, ergebnis_prozent: null },
     ohne_kurs: ohneKurs.length ? ohneKurs : null,
+    waehrung_konflikte: konflikte.length ? konflikte : null,
     verlauf_tage: tage,
     fehler: fehler.length ? fehler : null,
     hinweis: (verlauf.results || []).length ? null
