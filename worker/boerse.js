@@ -24,13 +24,17 @@ async function holen(env, pfad, params = {}) {
   u.searchParams.set('token', key);
 
   const r = await fetch(u.toString(), { headers: { 'User-Agent': 'webcontrol-hq-boerse' } });
-  if (r.status === 401 || r.status === 403) {
-    throw new Error('Anbieter lehnt den Schlüssel ab oder die Angabe gehört nicht zur kostenlosen Stufe.');
+  if (!r.ok) {
+    // Auch hier den Originaltext mitgeben – "403" allein sagt nicht, ob es
+    // am Schlüssel, an der Stufe oder am Symbol liegt.
+    const roh = await r.text().catch(() => '');
+    const text = roh.replace(/\s+/g, ' ').slice(0, 160);
+    if (r.status === 401 || r.status === 403) {
+      throw new Error(`Zugriff verweigert (${r.status})${text ? ': ' + text : ''}`);
+    }
+    if (r.status === 429) throw new Error('Abruflimit erreicht (429)');
+    throw new Error(`Antwort ${r.status}${text ? ': ' + text : ''}`);
   }
-  if (r.status === 429) {
-    throw new Error('Abruflimit des Anbieters erreicht. Später erneut versuchen.');
-  }
-  if (!r.ok) throw new Error(`Anbieter antwortet mit ${r.status}`);
   return r.json();
 }
 
@@ -162,9 +166,14 @@ async function vonAlphaVantage(env, symbol) {
   u.searchParams.set('apikey', key);
   const r = await fetch(u.toString());
   const d = await r.json().catch(() => ({}));
-  if (d.Note || d.Information) throw new Error('Abruflimit des Anbieters erreicht');
+  // Den Anbietertext durchreichen statt zu deuten. "Information" kann
+  // Abruflimit heißen, aber genauso "Symbol nicht abgedeckt" oder
+  // "kostenpflichtige Angabe" – das auseinanderzuhalten ist nicht meine
+  // Aufgabe, sondern die des Lesers.
+  const meldung = d.Note || d.Information || d['Error Message'];
+  if (meldung) throw new Error(String(meldung).replace(/\s+/g, ' ').slice(0, 220));
   const reihe = d['Time Series (Daily)'];
-  if (!reihe) throw new Error(d['Error Message'] || 'keine Zeitreihe erhalten');
+  if (!reihe) throw new Error('keine Zeitreihe erhalten (unerwartete Antwort)');
   return Object.entries(reihe).map(([datum, w]) => ({
     datum, kurs: zahl(w['4. close']), eroeffnung: zahl(w['1. open']),
     hoch: zahl(w['2. high']), tief: zahl(w['3. low']),
