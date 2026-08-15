@@ -1219,8 +1219,13 @@ async function ladeHistorie() {
       s2.style.color = '#4ade80';
       s2.textContent = d.geladen.map(g => `${g.symbol}: ${g.punkte} Tage (${g.quelle})`).join(' · ');
     } else {
+      // Der genaue Grund je Quelle ist brauchbarer als die allgemeine
+      // Erklärung – deshalb steht er zuerst.
       s2.style.color = '#fbbf24';
-      s2.textContent = d?.erklaerung || d?.hinweise?.join(' · ') || 'Keine Historie erhalten.';
+      s2.innerHTML = [
+        d?.hinweise?.length ? esc(d.hinweise.join(' | ')) : null,
+        d?.erklaerung ? `<span style="opacity:.7">${esc(d.erklaerung)}</span>` : null,
+      ].filter(Boolean).join('<br>') || 'Keine Historie erhalten.';
     }
   }
 }

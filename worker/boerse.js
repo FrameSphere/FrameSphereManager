@@ -177,21 +177,24 @@ export async function boerseHistorie(env, db, body, json, err) {
   const liste = body?.symbole?.length ? body.symbole.slice(0, 10) : await symbole(db);
   if (!liste.length) return json({ success: true, hinweis: 'Keine Werte hinterlegt.' });
 
+  // Reihenfolge nach Verfügbarkeit: liegt ein Alpha-Vantage-Schlüssel vor,
+  // wird der zuerst gefragt. Finnhub-Kerzen gehören nicht zu jeder Stufe –
+  // sie zuerst zu versuchen hieße, jedes Mal einen Abruf zu verschenken.
+  const quellen = [];
+  if ((env.ALPHAVANTAGE_KEY || '').trim()) {
+    quellen.push(['alphavantage', s => vonAlphaVantage(env, s)]);
+  }
+  quellen.push(['finnhub', s => vonFinnhubKerzen(env, s, tage)]);
+
   const ergebnis = [], hinweise = [];
   for (const s of liste) {
     let punkte = null, quelle = null;
-    try {
-      punkte = await vonFinnhubKerzen(env, s, tage);
-      quelle = 'finnhub';
-    } catch (e1) {
-      try {
-        punkte = await vonAlphaVantage(env, s);
-        quelle = 'alphavantage';
-      } catch (e2) {
-        hinweise.push(`${s}: ${e1.message} · ${e2.message}`);
-        continue;
-      }
+    const versuche = [];
+    for (const [name, fn] of quellen) {
+      try { punkte = await fn(s); quelle = name; break; }
+      catch (e) { versuche.push(`${name}: ${e.message}`); }
     }
+    if (!punkte) { hinweise.push(`${s} — ${versuche.join(' · ')}`); continue; }
     const n = await historieSchreiben(db, s, punkte, quelle);
     ergebnis.push({ symbol: s, punkte: n, quelle });
   }
