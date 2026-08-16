@@ -743,8 +743,14 @@ export async function boerseUebersicht(env, db, url, json, err) {
     // aktuelle Wert zum heutigen Kurs umgerechnet – so rechnet auch die
     // Depotbank. Der Kaufpreis bleibt unangetastet: was damals gezahlt
     // wurde, steht fest und wird nicht rückwirkend umgerechnet.
+    // Faktor für ADRs: ein Hinterlegungsschein bildet die Heimataktie
+    // selten eins zu eins ab. Ohne ihn wäre der Depotwert um genau diesen
+    // Faktor daneben – plausibel aussehend und trotzdem falsch.
+    const faktor = Number.isFinite(Number(p.kurs_faktor)) && Number(p.kurs_faktor) > 0
+      ? Number(p.kurs_faktor) : 1;
+
     const anders = !!(kursWaehrung && p.waehrung && kursWaehrung !== p.waehrung);
-    const wertRoh = kurs !== null ? kurs * p.stueck : null;
+    const wertRoh = kurs !== null ? kurs * p.stueck * faktor : null;
     const wert = anders ? umrechnen(wertRoh, kursWaehrung, p.waehrung, fx) : wertRoh;
     const umgerechnet = anders && wert !== null;
     const gesperrt = anders && wert === null;   // Umrechnung nicht möglich
@@ -759,6 +765,7 @@ export async function boerseUebersicht(env, db, url, json, err) {
       veraenderung_prozent: l?.veraenderung_prozent ?? null,
       wert_original: wertRoh,
       wert, einsatz,
+      kurs_faktor: faktor,
       umgerechnet,
       fx_datum: umgerechnet ? fx?._datum || null : null,
       waehrung_konflikt: gesperrt,
@@ -881,7 +888,7 @@ export async function depotSchreiben(request, env, db, body, method, id, json, e
     for (const k of ['name', 'waehrung', 'kaufdatum', 'notiz']) {
       if (body[k] !== undefined) { felder.push(`${k}=?`); werte.push(body[k] === null ? null : String(body[k]).slice(0, 1000)); }
     }
-    for (const k of ['stueck', 'kaufkurs']) {
+    for (const k of ['stueck', 'kaufkurs', 'kurs_faktor']) {
       if (body[k] !== undefined) { felder.push(`${k}=?`); werte.push(zahl(body[k])); }
     }
     if (body.aktiv !== undefined) { felder.push('aktiv=?'); werte.push(body.aktiv ? 1 : 0); }

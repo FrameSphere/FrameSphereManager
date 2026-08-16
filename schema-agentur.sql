@@ -491,3 +491,8 @@ INSERT OR IGNORE INTO ag_mitarbeiter
   ('malte', 'Malte', 'depot-beobachter', 'boerse',
    'Aufmerksam, nicht nervös. Meldet, was sich geändert hat, und schweigt, wenn nichts war.',
    'personal/malte.md', '#06b6d4', 'a', 3, 1);
+
+-- ADRs bilden die Heimataktie selten 1:1 ab. Ohne Faktor ergäbe
+-- "ADR-Kurs × Stückzahl der Heimataktien" einen falschen Depotwert.
+-- 1 = Kurs gilt unverändert je Stück.
+ALTER TABLE ag_depot ADD COLUMN kurs_faktor REAL DEFAULT 1;
