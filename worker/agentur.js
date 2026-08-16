@@ -16,6 +16,7 @@ import { gscSync, gscQueries, gscReport, gscInspect } from './gsc.js';
 import {
   boerseUebersicht, boerseAuffrischen, boerseNachrichten,
   boerseHistorie, boerseSuche, boerseTerminal, boersePortfolio,
+  boerseMonitor, boerseKorrelation, boerseKalender, boerseNachrichtenstrom,
   depotSchreiben, watchlistSchreiben,
 } from './boerse.js';
 
@@ -1344,6 +1345,10 @@ export async function handleAgentur(request, env, helpers) {
     if (method === 'GET'  && id3 === 'suche')        return boerseSuche(env, url, json, err);
     if (method === 'GET'  && id3 === 'terminal')     return boerseTerminal(env, db, url, json, err);
     if (method === 'GET'  && id3 === 'portfolio')    return boersePortfolio(env, db, url, json, err);
+    if (method === 'GET'  && id3 === 'monitor')      return boerseMonitor(env, db, url, json, err);
+    if (method === 'GET'  && id3 === 'korrelation')  return boerseKorrelation(env, db, url, json, err);
+    if (method === 'GET'  && id3 === 'kalender')     return boerseKalender(env, db, url, json, err);
+    if (method === 'GET'  && id3 === 'nachrichtenstrom') return boerseNachrichtenstrom(env, db, url, json, err);
     if (id3 === 'depot')     return depotSchreiben(request, env, db, body, method, teil4, json, err);
     if (id3 === 'watchlist') return watchlistSchreiben(env, db, body, method, teil4, json, err);
   }

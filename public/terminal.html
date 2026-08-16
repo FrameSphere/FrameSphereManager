@@ -6,136 +6,127 @@
   <title>Terminal – WebControl HQ</title>
   <link rel="stylesheet" href="css/main.css">
   <style>
-    /* ── Terminal: dicht, sachlich, tastaturfreundlich ───────────── */
-    #main { overflow: hidden; }
-    .tm { display:flex; flex-direction:column; height:100%; font-family:'Space Mono',monospace; }
-
-    /* Kommandozeile */
-    .tm-kopf {
-      display:flex; align-items:center; gap:12px; padding:9px 14px;
-      background:var(--bg2); border-bottom:1px solid var(--border); flex-shrink:0;
+    /* ════════════════════════════════════════════════════════════
+       Terminal – eigene Handschrift: dichter, sachlicher, wärmer im
+       Akzent als der übrige Manager. Zahlen durchgehend dicktengleich,
+       damit Spalten untereinander lesbar bleiben.
+       ════════════════════════════════════════════════════════════ */
+    :root {
+      --t-bg:      #07090d;
+      --t-panel:   #0d1117;
+      --t-panel2:  #131a23;
+      --t-linie:   #1c2733;
+      --t-linie2:  #2a3a4d;
+      --t-text:    #e6edf5;
+      --t-text2:   #8b9bb0;
+      --t-text3:   #526074;
+      --t-akzent:  #f0b429;
+      --t-akzent2: #ffd166;
+      --t-auf:     #3fd68c;
+      --t-ab:      #ff6b6b;
+      --t-info:    #58a6ff;
     }
-    .tm-marke { font-size:11px; font-weight:700; letter-spacing:.16em; color:var(--accent2); white-space:nowrap; }
-    .tm-eingabe {
-      flex:1; max-width:420px; position:relative;
-    }
-    .tm-eingabe input {
-      width:100%; background:var(--bg); border:1px solid var(--border2); color:var(--text);
-      border-radius:6px; padding:6px 11px; font-family:inherit; font-size:12px; letter-spacing:.05em;
-    }
-    .tm-eingabe input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 2px rgba(59,130,246,.15); }
-    .tm-vorschlaege {
-      display:none; position:absolute; top:100%; left:0; right:0; z-index:60; margin-top:4px;
-      background:var(--surface2); border:1px solid var(--border2); border-radius:8px;
-      max-height:300px; overflow-y:auto; box-shadow:0 16px 34px -14px rgba(0,0,0,.95);
-    }
-    .tm-vorschlag { padding:7px 11px; cursor:pointer; border-bottom:1px solid var(--border); }
-    .tm-vorschlag:hover, .tm-vorschlag.aktiv { background:rgba(59,130,246,.16); }
-    .tm-vorschlag b { font-size:12px; }
-    .tm-vorschlag span { font-size:10.5px; color:var(--text2); display:block; }
+    #main { overflow: hidden; background: var(--t-bg); }
+    .tm { display:flex; flex-direction:column; height:100%; background:var(--t-bg); color:var(--t-text);
+          font-family:'Space Mono',ui-monospace,monospace; }
 
-    .tm-uhr { margin-left:auto; font-size:10.5px; color:var(--text3); }
-    .tm-taste {
-      display:inline-block; padding:1px 5px; border:1px solid var(--border2); border-radius:4px;
-      font-size:9.5px; color:var(--text3); margin:0 2px;
-    }
+    /* ── Kopfleiste ─────────────────────────────────────────── */
+    .tm-kopf { display:flex; align-items:center; gap:10px; padding:0 12px; height:42px;
+               background:linear-gradient(180deg,#0e141c,#0a0f15); border-bottom:1px solid var(--t-linie);
+               flex-shrink:0; }
+    .tm-logo { font-size:11px; font-weight:700; letter-spacing:.22em; color:var(--t-akzent);
+               white-space:nowrap; padding-right:10px; border-right:1px solid var(--t-linie); }
+    .tm-cmd { position:relative; width:min(340px,34vw); }
+    .tm-cmd input { width:100%; background:#050709; border:1px solid var(--t-linie2); color:var(--t-akzent2);
+                    border-radius:3px; padding:5px 10px; font-family:inherit; font-size:11.5px;
+                    letter-spacing:.08em; text-transform:uppercase; }
+    .tm-cmd input::placeholder { color:var(--t-text3); text-transform:none; letter-spacing:.02em; }
+    .tm-cmd input:focus { outline:none; border-color:var(--t-akzent); box-shadow:0 0 0 2px rgba(240,180,41,.14); }
+    .tm-vor { display:none; position:absolute; top:100%; left:0; right:0; z-index:80; margin-top:3px;
+              background:var(--t-panel2); border:1px solid var(--t-linie2); border-radius:3px;
+              max-height:320px; overflow-y:auto; box-shadow:0 18px 40px -16px #000; }
+    .tm-vor-z { padding:6px 10px; cursor:pointer; border-bottom:1px solid var(--t-linie); }
+    .tm-vor-z:hover, .tm-vor-z.an { background:rgba(240,180,41,.14); }
+    .tm-vor-z b { font-size:11.5px; color:var(--t-akzent2); }
+    .tm-vor-z i { display:block; font-style:normal; font-size:10px; color:var(--t-text2); }
 
-    /* Dreispaltiges Raster */
-    .tm-raster {
-      flex:1; display:grid; grid-template-columns:230px minmax(0,1fr) 290px;
-      gap:1px; background:var(--border); overflow:hidden; min-height:0;
-    }
-    .tm-spalte { background:var(--bg); overflow-y:auto; min-height:0; }
+    .tm-schirme { display:flex; gap:1px; margin-left:4px; }
+    .tm-schirm { padding:5px 10px; font-size:10px; font-family:inherit; letter-spacing:.1em;
+                 background:none; border:1px solid transparent; border-radius:3px; color:var(--t-text3);
+                 cursor:pointer; white-space:nowrap; }
+    .tm-schirm:hover { color:var(--t-text2); background:#11181f; }
+    .tm-schirm.an { color:#0a0d12; background:var(--t-akzent); font-weight:700; }
+    .tm-schirm span { opacity:.55; margin-right:4px; }
+    .tm-schirm.an span { opacity:.7; }
 
-    /* Tickerliste */
-    .tm-gruppe {
-      padding:6px 12px; font-size:9.5px; letter-spacing:.14em; text-transform:uppercase;
-      color:var(--text3); background:var(--bg2); position:sticky; top:0; z-index:2;
-      border-bottom:1px solid var(--border);
-    }
-    .tm-ticker {
-      display:grid; grid-template-columns:1fr auto; gap:2px 8px; align-items:center;
-      padding:7px 12px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,.04);
-    }
-    .tm-ticker:hover { background:rgba(255,255,255,.045); }
-    .tm-ticker.aktiv { background:rgba(59,130,246,.15); box-shadow:inset 2px 0 0 var(--accent); }
-    .tm-ticker-sym { font-size:12px; font-weight:700; letter-spacing:.03em; }
-    .tm-ticker-name { grid-column:1/2; font-size:9.5px; color:var(--text3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .tm-ticker-kurs { font-size:11.5px; text-align:right; }
-    .tm-ticker-vz { font-size:10px; text-align:right; }
+    .tm-status { margin-left:auto; display:flex; align-items:center; gap:14px; font-size:10px; color:var(--t-text3); }
+    .tm-led { width:6px; height:6px; border-radius:50%; background:var(--t-auf); display:inline-block; margin-right:5px; }
 
-    /* Kopfzeile des Werts */
-    .tm-wert-kopf { padding:14px 18px 10px; border-bottom:1px solid var(--border); background:var(--bg2); }
-    .tm-wert-sym { font-size:22px; font-weight:800; letter-spacing:-.01em; font-family:'Syne',sans-serif; }
-    .tm-wert-name { font-size:11px; color:var(--text2); }
-    .tm-wert-kurs { font-size:30px; font-weight:800; letter-spacing:-.02em; line-height:1.1; }
-    .tm-wert-vz { font-size:13px; font-weight:700; }
+    /* ── Fläche ─────────────────────────────────────────────── */
+    .tm-flaeche { flex:1; overflow:hidden; display:flex; min-height:0; }
+    .tm-haupt { flex:1; overflow-y:auto; min-width:0; }
+    .tm-seite { width:250px; border-left:1px solid var(--t-linie); overflow-y:auto; background:var(--t-panel);
+                flex-shrink:0; }
+    @media (max-width:1180px){ .tm-seite{ display:none; } }
 
-    /* Kachelreihe */
-    .tm-kacheln { display:grid; grid-template-columns:repeat(auto-fit,minmax(96px,1fr)); gap:1px; background:var(--border); }
-    .tm-kachel { background:var(--bg2); padding:7px 10px; }
-    .tm-kachel-name { font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text3); }
-    .tm-kachel-wert { font-size:13px; font-weight:700; margin-top:2px; }
+    /* ── Bausteine ──────────────────────────────────────────── */
+    .tm-block { border-bottom:1px solid var(--t-linie); }
+    .tm-titel { display:flex; align-items:center; gap:8px; padding:6px 12px; font-size:9.5px;
+                letter-spacing:.16em; text-transform:uppercase; color:var(--t-text3);
+                background:var(--t-panel); border-bottom:1px solid var(--t-linie); position:sticky; top:0; z-index:3; }
+    .tm-titel .zahl { margin-left:auto; color:var(--t-text2); }
 
-    /* Chart */
-    .tm-chart-leiste {
-      display:flex; align-items:center; gap:5px; padding:8px 14px;
-      border-bottom:1px solid var(--border); flex-wrap:wrap;
-    }
-    .tm-knopf {
-      padding:3px 9px; font-size:10px; font-family:inherit; letter-spacing:.05em;
-      background:none; border:1px solid var(--border2); border-radius:5px;
-      color:var(--text3); cursor:pointer;
-    }
-    .tm-knopf:hover { color:var(--text); border-color:var(--border2); }
-    .tm-knopf.an { background:var(--accent); border-color:var(--accent); color:#fff; }
-    .tm-chart { padding:12px 14px 6px; position:relative; }
+    .tm-kacheln { display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:1px; background:var(--t-linie); }
+    .tm-kachel { background:var(--t-panel); padding:8px 11px; }
+    .tm-k-name { font-size:8.5px; letter-spacing:.13em; text-transform:uppercase; color:var(--t-text3); }
+    .tm-k-wert { font-size:15px; font-weight:700; margin-top:3px; letter-spacing:-.01em; }
+    .tm-k-neben { font-size:9.5px; color:var(--t-text3); margin-top:2px; }
 
-    /* Panels unten */
-    .tm-reiter { display:flex; gap:1px; background:var(--border); border-top:1px solid var(--border); flex-shrink:0; }
-    .tm-reiter button {
-      flex:1; padding:7px 4px; font-size:10px; font-family:inherit; letter-spacing:.08em;
-      text-transform:uppercase; background:var(--bg2); border:none; color:var(--text3); cursor:pointer;
-    }
-    .tm-reiter button.an { background:var(--bg); color:var(--accent2); box-shadow:inset 0 -2px 0 var(--accent); }
-    .tm-panel { padding:12px 16px; font-family:'Syne',sans-serif; }
+    table.tm-t { width:100%; border-collapse:collapse; font-size:11px; }
+    table.tm-t th { position:sticky; top:0; background:var(--t-panel); text-align:right; font-weight:400;
+                    font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--t-text3);
+                    padding:6px 8px; border-bottom:1px solid var(--t-linie); cursor:pointer; white-space:nowrap; z-index:2; }
+    table.tm-t th:first-child, table.tm-t td:first-child { text-align:left; }
+    table.tm-t th.an { color:var(--t-akzent); }
+    table.tm-t td { padding:5px 8px; text-align:right; border-bottom:1px solid rgba(255,255,255,.035); white-space:nowrap; }
+    table.tm-t tr:hover td { background:rgba(240,180,41,.06); cursor:pointer; }
+    table.tm-t tr.aktiv td { background:rgba(240,180,41,.12); }
+    .sym { font-weight:700; color:var(--t-akzent2); }
+    .nm { color:var(--t-text2); font-size:10px; }
 
-    /* Tabellen */
-    .tm-tab { width:100%; border-collapse:collapse; font-size:11.5px; font-family:'Space Mono',monospace; }
-    .tm-tab th {
-      text-align:left; font-size:9px; letter-spacing:.1em; text-transform:uppercase;
-      color:var(--text3); font-weight:400; padding:5px 8px 5px 0; border-bottom:1px solid var(--border);
-    }
-    .tm-tab td { padding:5px 8px 5px 0; border-bottom:1px solid rgba(255,255,255,.04); }
-    .tm-tab td.z { text-align:right; }
+    .auf { color:var(--t-auf); } .ab { color:var(--t-ab); } .neutr { color:var(--t-text2); }
+    .dim { color:var(--t-text3); }
 
-    .tm-zeile { display:flex; justify-content:space-between; gap:12px; padding:4px 0; font-size:11.5px; border-bottom:1px solid rgba(255,255,255,.04); }
-    .tm-zeile span:first-child { color:var(--text3); }
+    .balken { height:4px; border-radius:2px; background:var(--t-linie); overflow:hidden; }
+    .balken > div { height:100%; }
 
-    .tm-meldung { padding:8px 0; border-bottom:1px solid rgba(255,255,255,.05); }
-    .tm-meldung a { color:var(--text); text-decoration:none; font-size:12px; font-family:'Syne',sans-serif; line-height:1.4; display:block; }
-    .tm-meldung a:hover { color:var(--accent2); }
-    .tm-meldung .q { font-size:9.5px; color:var(--text3); font-family:'Space Mono',monospace; margin-top:3px; }
+    .tm-zeile { display:flex; justify-content:space-between; gap:10px; padding:4px 12px; font-size:11px;
+                border-bottom:1px solid rgba(255,255,255,.035); }
+    .tm-zeile > span:first-child { color:var(--t-text3); }
 
-    .auf { color:#4ade80; } .ab { color:#f87171; } .neutral { color:var(--text2); }
+    .tm-hint { margin:10px 12px; padding:8px 11px; border-radius:3px; font-size:10.5px; line-height:1.55;
+               background:rgba(88,166,255,.07); border-left:2px solid var(--t-info); color:var(--t-text2);
+               font-family:'Syne',sans-serif; }
+    .tm-warn { background:rgba(240,180,41,.07); border-left-color:var(--t-akzent); }
+    .tm-leer { padding:30px 14px; text-align:center; color:var(--t-text3); font-size:11px; }
 
-    .tm-hinweis {
-      margin:10px 16px; padding:8px 11px; border-radius:7px; font-size:10.5px; line-height:1.5;
-      background:rgba(96,165,250,.07); border:1px solid rgba(96,165,250,.22); color:var(--text2);
-      font-family:'Syne',sans-serif;
-    }
-    .tm-warn { background:rgba(245,158,11,.07); border-color:rgba(245,158,11,.25); }
+    .knopf { padding:3px 9px; font-size:9.5px; font-family:inherit; letter-spacing:.08em; background:none;
+             border:1px solid var(--t-linie2); border-radius:3px; color:var(--t-text2); cursor:pointer; }
+    .knopf:hover { border-color:var(--t-akzent); color:var(--t-akzent2); }
+    .knopf.an { background:var(--t-akzent); border-color:var(--t-akzent); color:#0a0d12; font-weight:700; }
 
-    .tm-leer { padding:26px 16px; text-align:center; color:var(--text3); font-size:11.5px; }
+    .marke2 { font-size:8.5px; padding:1px 5px; border-radius:2px; letter-spacing:.06em; }
+    .m-auf { background:rgba(63,214,140,.16); color:var(--t-auf); }
+    .m-ab  { background:rgba(255,107,107,.16); color:var(--t-ab); }
+    .m-neu { background:rgba(255,255,255,.07); color:var(--t-text2); }
+    .m-akz { background:rgba(240,180,41,.16); color:var(--t-akzent2); }
 
-    @media (max-width: 1100px) {
-      .tm-raster { grid-template-columns:180px minmax(0,1fr); }
-      .tm-spalte:last-child { display:none; }
-    }
-    @media (max-width: 760px) {
-      .tm-raster { grid-template-columns:minmax(0,1fr); }
-      .tm-spalte:first-child { display:none; }
-    }
+    .md { font-size:12px; line-height:1.65; color:var(--t-text2); font-family:'Syne',sans-serif; }
+    .md h1,.md h2,.md h3 { color:var(--t-text); font-size:13px; margin:12px 0 5px; }
+    .md code { background:#050709; padding:1px 4px; border-radius:2px; color:var(--t-akzent2); font-size:11px; }
+    .md pre { background:#050709; border:1px solid var(--t-linie); border-radius:3px; padding:9px; overflow-x:auto; }
+    .md table { border-collapse:collapse; font-size:11px; margin:8px 0; }
+    .md th,.md td { border:1px solid var(--t-linie); padding:3px 7px; }
   </style>
 </head>
 <body>
@@ -144,26 +135,21 @@
   <div id="main">
     <div class="tm">
       <div class="tm-kopf">
-        <span class="tm-marke">TERMINAL</span>
-        <div class="tm-eingabe">
-          <input id="tm-such" placeholder="Symbol oder Name — z. B. NVDA" autocomplete="off"
-                 onkeydown="tastatur(event)" oninput="vorschlagen()">
-          <div class="tm-vorschlaege" id="tm-vorschlaege"></div>
+        <span class="tm-logo">TERMINAL</span>
+        <div class="tm-cmd">
+          <input id="cmd" placeholder="Symbol oder Kürzel — DEP, MON, VGL, RIS, KAL, NEW, KI"
+                 autocomplete="off" onkeydown="cmdTaste(event)" oninput="cmdTippen()">
+          <div class="tm-vor" id="cmd-vor"></div>
         </div>
-        <button class="tm-knopf" onclick="alleKurse()" id="tm-refresh">Kurse holen</button>
-        <button class="tm-knopf" onclick="analyseAnfordern()">Analyse anfordern</button>
-        <span class="tm-uhr">
-          <span class="tm-taste">/</span> Suche
-          <span class="tm-taste">↑↓</span> Wert
-          <span class="tm-taste">1-5</span> Panel
-          <span id="tm-stand"></span>
-        </span>
+        <div class="tm-schirme" id="schirme"></div>
+        <div class="tm-status">
+          <span id="st-fx"></span>
+          <span><span class="tm-led" id="st-led"></span><span id="st-zeit">–</span></span>
+        </div>
       </div>
-
-      <div class="tm-raster">
-        <div class="tm-spalte" id="tm-liste"></div>
-        <div class="tm-spalte" id="tm-mitte"></div>
-        <div class="tm-spalte" id="tm-rechts"></div>
+      <div class="tm-flaeche">
+        <div class="tm-haupt" id="haupt"></div>
+        <div class="tm-seite" id="seite"></div>
       </div>
     </div>
   </div>
@@ -174,521 +160,993 @@
 <script src="js/auth.js"></script>
 <script src="js/layout.js"></script>
 <script>
-// =============================================
-// Terminal – dichte Sicht auf einen Wert
-// =============================================
-// Fakten: Kurse, Kennzahlen, Termine, Meldungen, dazu was die Agentur
-// geschrieben hat. Keine Kauf-, Verkaufs- oder Halteempfehlung – fremde
-// Einschätzungen erscheinen ausdrücklich als fremd.
-// =============================================
+// ════════════════════════════════════════════════════════════════
+// Terminal
+// ════════════════════════════════════════════════════════════════
+// Schirme werden über Kürzel angesprungen, wie in einem Handelssystem.
+// Alles Gerechnete stammt aus dem eigenen Kursspeicher; externe Abrufe
+// nur dort, wo es ohne sie nicht geht, und dann sichtbar begrenzt.
+//
+// Grenze wie überall in diesem Bereich: Fakten ja, Empfehlungen nein.
+// Fremde Einschätzungen erscheinen ausdrücklich als fremd.
+// ════════════════════════════════════════════════════════════════
 
-let LISTE = null;        // Depot + Beobachtung
-let AKTIV = null;        // aktuelles Symbol
-let DATEN = null;        // Antwort von /terminal
-let PANEL = 'nachrichten';
-let ZEITRAUM = 0;        // 0 = alles
-let LINIEN = { sma20: true, sma50: true, sma200: false };
-let VORSCHLAG_INDEX = -1;
-let VORSCHLAEGE = [];
+const SCHIRME = [
+  ['DEP', 'Depot',      'schirmDepot'],
+  ['MON', 'Monitor',    'schirmMonitor'],
+  ['WRT', 'Einzelwert', 'schirmWert'],
+  ['VGL', 'Vergleich',  'schirmVergleich'],
+  ['RIS', 'Risiko',     'schirmRisiko'],
+  ['KAL', 'Kalender',   'schirmKalender'],
+  ['NEW', 'Meldungen',  'schirmMeldungen'],
+  ['KI',  'Agentur',    'schirmAgentur'],
+];
 
-const zahl = (n, s = 2) => n === null || n === undefined || !Number.isFinite(Number(n))
+let SCHIRM   = 'DEP';
+let MONITOR  = null;   // Zeilen je Wert, aus eigenem Speicher
+let UEBER    = null;   // Depotübersicht
+let AKTIV    = null;   // gewähltes Symbol
+let DETAIL   = null;   // Antwort von /terminal
+let KORR     = null;
+let KALENDER = null;
+let STROM    = null;
+let AGENTUR  = null;
+let SORT     = { feld: 'wert_eur', ab: true };
+let VGL_WAHL = [];
+let ZEITRAUM = 0;
+let LINIEN   = { sma20: true, sma50: true, sma200: false, bollinger: false };
+let PANEL    = 'nachrichten';
+
+// ── Formatierung ────────────────────────────────────────────────
+const z2 = (n, s = 2) => n === null || n === undefined || !Number.isFinite(Number(n))
   ? '–' : Number(n).toLocaleString('de-DE', { minimumFractionDigits: s, maximumFractionDigits: s });
-const proz = n => n === null || n === undefined || !Number.isFinite(Number(n))
-  ? '–' : `${n > 0 ? '+' : ''}${Number(n).toFixed(2)} %`;
-const klasse = n => n === null || n === undefined || !Number.isFinite(Number(n))
-  ? 'neutral' : n > 0 ? 'auf' : n < 0 ? 'ab' : 'neutral';
+const pz = n => n === null || n === undefined || !Number.isFinite(Number(n))
+  ? '–' : `${n > 0 ? '+' : ''}${Number(n).toFixed(2)}`;
+const kl = n => n === null || n === undefined || !Number.isFinite(Number(n))
+  ? 'neutr' : n > 0 ? 'auf' : n < 0 ? 'ab' : 'neutr';
+const gr = (n, w) => n === null || n === undefined ? '–'
+  : `${Number(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${w ? ' ' + w : ''}`;
 
-// ── Tickerliste links ────────────────────────────────────────────
-async function ladeListe() {
-  LISTE = await api('/api/agentur/boerse/uebersicht?tage=400');
-  zeichneListe();
-  if (!AKTIV) {
-    const erst = LISTE?.positionen?.[0]?.symbol || LISTE?.beobachtet?.[0]?.symbol;
-    if (erst) waehle(erst);
-    else document.getElementById('tm-mitte').innerHTML =
-      `<div class="tm-leer">Noch keine Werte hinterlegt.<br>Oben suchen und mit Enter aufrufen.</div>`;
-  }
+// ── Laden ───────────────────────────────────────────────────────
+async function ladeGrunddaten() {
+  const [m, u] = await Promise.all([
+    api('/api/agentur/boerse/monitor'),
+    api('/api/agentur/boerse/uebersicht?tage=400'),
+  ]);
+  MONITOR = m; UEBER = u;
+  document.getElementById('st-fx').textContent = m?.fx_stand ? `EZB ${m.fx_stand}` : '';
+  document.getElementById('st-zeit').textContent = new Date().toLocaleTimeString('de-DE');
+  if (!AKTIV) AKTIV = m?.zeilen?.[0]?.symbol || null;
 }
 
-function tickerZeile(p, gehalten) {
-  const v = p.veraenderung_prozent;
-  return `<div class="tm-ticker ${AKTIV === p.symbol ? 'aktiv' : ''}" onclick="waehle('${esc(p.symbol)}')">
-    <div class="tm-ticker-sym">${esc(p.symbol)}</div>
-    <div class="tm-ticker-kurs">${p.kurs !== null ? zahl(p.kurs) : '–'}</div>
-    <div class="tm-ticker-name">${esc((p.name || p.stammdaten?.name || '').slice(0, 26))}</div>
-    <div class="tm-ticker-vz ${klasse(v)}">${v !== null && v !== undefined ? proz(v) : ''}</div>
+async function zeichne() {
+  document.getElementById('schirme').innerHTML = SCHIRME.map(([k, n]) =>
+    `<button class="tm-schirm ${SCHIRM === k ? 'an' : ''}" onclick="geheZu('${k}')"><span>${k}</span>${n}</button>`).join('');
+  const fn = SCHIRME.find(s => s[0] === SCHIRM)?.[2];
+  if (fn && window[fn]) await window[fn]();
+  refreshIcons();
+}
+
+async function geheZu(k, symbol) {
+  if (!SCHIRME.some(s => s[0] === k)) return;
+  SCHIRM = k;
+  if (symbol) AKTIV = symbol;
+  await zeichne();
+}
+
+// ════════════════════════════════════════════════════════════════
+// DEP — Depot
+// ════════════════════════════════════════════════════════════════
+async function schirmDepot() {
+  const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
+  if (!UEBER) { haupt.innerHTML = '<div class="tm-leer">Lade…</div>'; return; }
+  const s = UEBER.summe || {}, pos = (UEBER.positionen || []);
+
+  const bewertet = pos.filter(p => p.wert !== null);
+  const gesamt = bewertet.reduce((a, p) => a + p.wert, 0) || 1;
+  const sortiert = [...bewertet].sort((a, b) => b.wert - a.wert);
+
+  // Beitrag zum Gesamtergebnis – zeigt, woran das Depot wirklich hängt.
+  const mitErgebnis = bewertet.filter(p => p.ergebnis !== null)
+    .sort((a, b) => Math.abs(b.ergebnis) - Math.abs(a.ergebnis));
+
+  const branchen = {};
+  for (const p of bewertet) {
+    const b = p.stammdaten?.branche || 'ohne Angabe';
+    branchen[b] = (branchen[b] || 0) + p.wert;
+  }
+  const branchenListe = Object.entries(branchen).sort((a, b) => b[1] - a[1]);
+  const farben = ['#f0b429', '#58a6ff', '#3fd68c', '#c084fc', '#ff6b6b', '#22d3ee', '#fb923c', '#94a3b8'];
+
+  haupt.innerHTML = `
+    <div class="tm-kacheln tm-block">
+      <div class="tm-kachel"><div class="tm-k-name">Depotwert</div>
+        <div class="tm-k-wert">${gr(s.wert)}</div>
+        <div class="tm-k-neben">${s.bewertet || 0} von ${s.von || 0} bewertet</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Einsatz</div>
+        <div class="tm-k-wert dim">${gr(s.einsatz)}</div>
+        <div class="tm-k-neben">nur bewertete Positionen</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Ergebnis</div>
+        <div class="tm-k-wert ${kl(s.ergebnis)}">${s.ergebnis === null ? '–' : pz(s.ergebnis)}</div>
+        <div class="tm-k-neben ${kl(s.ergebnis_prozent)}">${s.ergebnis_prozent === null ? '' : pz(s.ergebnis_prozent) + ' %'}</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Positionen</div>
+        <div class="tm-k-wert">${pos.length}</div>
+        <div class="tm-k-neben">${(UEBER.beobachtet || []).length} beobachtet</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Größte Position</div>
+        <div class="tm-k-wert">${esc(sortiert[0]?.symbol || '–')}</div>
+        <div class="tm-k-neben">${sortiert[0] ? (sortiert[0].wert / gesamt * 100).toFixed(1) + ' % des Depots' : ''}</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Klumpen</div>
+        <div class="tm-k-wert ${sortiert.slice(0, 3).reduce((a, p) => a + p.wert, 0) / gesamt > 0.6 ? 'ab' : ''}">
+          ${(sortiert.slice(0, 3).reduce((a, p) => a + p.wert, 0) / gesamt * 100).toFixed(0)} %</div>
+        <div class="tm-k-neben">in den größten drei</div></div>
+    </div>
+
+    <div class="tm-block">
+      <div class="tm-titel">Aufteilung nach Position <span class="zahl">${bewertet.length}</span></div>
+      <div style="padding:10px 12px">
+        <div style="display:flex;height:22px;border-radius:3px;overflow:hidden;margin-bottom:10px">
+          ${sortiert.map((p, i) => `<div title="${esc(p.symbol)} ${(p.wert / gesamt * 100).toFixed(1)} %"
+            style="width:${(p.wert / gesamt * 100).toFixed(2)}%;background:${farben[i % farben.length]};
+                   ${i ? 'border-left:1px solid var(--t-bg);' : ''}"></div>`).join('')}
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px 14px;font-size:9.5px;color:var(--t-text2)">
+          ${sortiert.map((p, i) => `<span><span style="display:inline-block;width:7px;height:7px;border-radius:1px;
+            background:${farben[i % farben.length]};margin-right:4px"></span>${esc(p.symbol)}
+            ${(p.wert / gesamt * 100).toFixed(1)} %</span>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="tm-block">
+      <div class="tm-titel">Positionen</div>
+      <table class="tm-t">
+        <tr><th>Symbol</th><th>Stück</th><th>Kurs</th><th>Wert</th><th>Anteil</th><th>Einsatz</th><th>Ergebnis</th><th>%</th></tr>
+        ${sortiert.map(p => `<tr onclick="geheZu('WRT','${esc(p.symbol)}')">
+          <td><span class="sym">${esc(p.symbol)}</span> <span class="nm">${esc((p.name || '').slice(0, 22))}</span>
+            ${p.umgerechnet ? '<span class="marke2 m-neu">FX</span>' : ''}
+            ${p.kurs_faktor && p.kurs_faktor !== 1 ? `<span class="marke2 m-akz">×${p.kurs_faktor}</span>` : ''}</td>
+          <td>${z2(p.stueck, 0)}</td>
+          <td>${z2(p.kurs)} <span class="dim">${esc(p.kurs_waehrung || '')}</span></td>
+          <td>${gr(p.wert)}</td>
+          <td>${(p.wert / gesamt * 100).toFixed(1)} %</td>
+          <td class="dim">${gr(p.einsatz)}</td>
+          <td class="${kl(p.ergebnis)}">${p.ergebnis === null ? '–' : pz(p.ergebnis)}</td>
+          <td class="${kl(p.ergebnis_prozent)}">${p.ergebnis_prozent === null ? '–' : pz(p.ergebnis_prozent)}</td>
+        </tr>`).join('')}
+        ${pos.filter(p => p.wert === null).map(p => `<tr onclick="geheZu('WRT','${esc(p.symbol)}')">
+          <td><span class="sym">${esc(p.symbol)}</span> <span class="nm">${esc((p.name || '').slice(0, 22))}</span></td>
+          <td>${z2(p.stueck, 0)}</td><td class="dim">kein Kurs</td><td class="dim">–</td><td class="dim">–</td>
+          <td class="dim">${gr(p.einsatz)}</td><td class="dim">–</td><td class="dim">–</td></tr>`).join('')}
+      </table>
+    </div>
+
+    <div class="tm-block">
+      <div class="tm-titel">Woran das Ergebnis hängt</div>
+      <div style="padding:10px 12px">
+        ${mitErgebnis.slice(0, 8).map(p => {
+          const anteil = Math.abs(p.ergebnis) / Math.max(...mitErgebnis.map(x => Math.abs(x.ergebnis))) * 100;
+          return `<div style="margin-bottom:7px">
+            <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:2px">
+              <span class="sym">${esc(p.symbol)}</span>
+              <span class="${kl(p.ergebnis)}">${pz(p.ergebnis)} €</span></div>
+            <div class="balken"><div style="width:${anteil.toFixed(1)}%;background:${p.ergebnis >= 0 ? 'var(--t-auf)' : 'var(--t-ab)'}"></div></div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    ${UEBER.ohne_kurs ? `<div class="tm-hint tm-warn">Ohne Kurs und deshalb weder im Wert noch im Einsatz enthalten:
+      <b>${esc(UEBER.ohne_kurs.join(', '))}</b>. Die Prozentangabe oben bezieht sich nur auf die bewerteten Positionen —
+      sie ist deshalb nicht mit dem Depotauszug vergleichbar, in dem alles enthalten ist.</div>` : ''}
+    ${UEBER.umgerechnet ? `<div class="tm-hint">Umgerechnet zum EZB-Kurs vom ${esc(UEBER.umgerechnet.stand || '–')}:
+      ${esc(UEBER.umgerechnet.werte.join(', '))}. Der Kaufpreis bleibt, wie er gezahlt wurde.</div>` : ''}`;
+
+  seite.innerHTML = `
+    <div class="tm-titel">Nach Branche</div>
+    <div style="padding:10px 12px">
+      ${branchenListe.length ? branchenListe.map(([b, w], i) => `
+        <div style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:3px">
+            <span style="color:var(--t-text2)">${esc(b)}</span><span>${(w / gesamt * 100).toFixed(0)} %</span></div>
+          <div class="balken"><div style="width:${(w / gesamt * 100).toFixed(1)}%;background:${farben[i % farben.length]}"></div></div>
+        </div>`).join('') : '<div class="dim" style="font-size:10.5px">Keine Branchendaten.</div>'}
+    </div>
+    <div class="tm-titel">Heute</div>
+    ${(MONITOR?.zeilen || []).filter(z => z.gehalten && z.tag !== null)
+      .sort((a, b) => Math.abs(b.tag) - Math.abs(a.tag)).slice(0, 8)
+      .map(z => `<div class="tm-zeile" onclick="geheZu('WRT','${esc(z.symbol)}')" style="cursor:pointer">
+        <span class="sym">${esc(z.symbol)}</span><span class="${kl(z.tag)}">${pz(z.tag)} %</span></div>`).join('')
+      || '<div class="tm-leer">Keine Tagesdaten.</div>'}
+    <div class="tm-hint">Fakten, keine Beratung. Entschieden wird von dir.</div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// MON — Monitor
+// ════════════════════════════════════════════════════════════════
+const SPALTEN = [
+  ['symbol', 'Symbol', z => `<span class="sym">${esc(z.symbol)}</span> <span class="nm">${esc((z.name || '').slice(0, 20))}</span>`],
+  ['kurs', 'Kurs', z => `${z2(z.kurs)} <span class="dim">${esc(z.waehrung || '')}</span>`],
+  ['tag', 'Tag %', z => `<span class="${kl(z.tag)}">${pz(z.tag)}</span>`],
+  ['w1', '1W %', z => `<span class="${kl(z.w1)}">${pz(z.w1)}</span>`],
+  ['m1', '1M %', z => `<span class="${kl(z.m1)}">${pz(z.m1)}</span>`],
+  ['m3', '3M %', z => `<span class="${kl(z.m3)}">${pz(z.m3)}</span>`],
+  ['j1', '1J %', z => `<span class="${kl(z.j1)}">${pz(z.j1)}</span>`],
+  ['rsi', 'RSI', z => z.rsi === null ? '–' :
+    `<span class="${z.rsi >= 70 ? 'ab' : z.rsi <= 30 ? 'auf' : 'neutr'}">${z2(z.rsi, 1)}</span>`],
+  ['vola', 'Vola %', z => z2(z.vola, 1)],
+  ['unter_hoch', 'z. Hoch %', z => `<span class="${kl(z.unter_hoch)}">${pz(z.unter_hoch)}</span>`],
+  ['bollinger_lage', 'Band', z => z.bollinger_lage === null ? '–' : `${z2(z.bollinger_lage, 0)} %`],
+  ['kgv', 'KGV', z => z2(z.kgv, 1)],
+  ['wert_eur', 'Wert €', z => z.wert_eur === null ? '–' : gr(z.wert_eur)],
+  ['ergebnis_prozent', 'Erg. %', z => `<span class="${kl(z.ergebnis_prozent)}">${pz(z.ergebnis_prozent)}</span>`],
+];
+
+function sortiere(feld) {
+  if (SORT.feld === feld) SORT.ab = !SORT.ab; else { SORT.feld = feld; SORT.ab = true; }
+  schirmMonitor();
+}
+
+function funke(werte, breit = 60, hoch = 16) {
+  if (!werte || werte.length < 2) return '';
+  const min = Math.min(...werte), max = Math.max(...werte), sp = (max - min) || 1;
+  const p = werte.map((w, i) => `${(i / (werte.length - 1) * breit).toFixed(1)},${(hoch - ((w - min) / sp) * hoch).toFixed(1)}`).join(' ');
+  const auf = werte[werte.length - 1] >= werte[0];
+  return `<svg viewBox="0 0 ${breit} ${hoch}" style="width:${breit}px;height:${hoch}px;vertical-align:middle">
+    <polyline points="${p}" fill="none" stroke="${auf ? 'var(--t-auf)' : 'var(--t-ab)'}" stroke-width="1"
+              vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+async function schirmMonitor() {
+  const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
+  if (!MONITOR) { haupt.innerHTML = '<div class="tm-leer">Lade…</div>'; return; }
+  const zeilen = [...(MONITOR.zeilen || [])].sort((a, b) => {
+    const x = a[SORT.feld], y = b[SORT.feld];
+    if (x === null || x === undefined) return 1;
+    if (y === null || y === undefined) return -1;
+    const v = typeof x === 'string' ? String(x).localeCompare(String(y)) : x - y;
+    return SORT.ab ? -v : v;
+  });
+
+  haupt.innerHTML = `
+    <div class="tm-titel">Monitor — alle verfolgten Werte <span class="zahl">${zeilen.length}</span></div>
+    <table class="tm-t">
+      <tr>${SPALTEN.map(([f, t]) => `<th class="${SORT.feld === f ? 'an' : ''}" onclick="sortiere('${f}')">
+        ${t}${SORT.feld === f ? (SORT.ab ? ' ▾' : ' ▴') : ''}</th>`).join('')}<th>Verlauf</th></tr>
+      ${zeilen.map(z => `<tr class="${AKTIV === z.symbol ? 'aktiv' : ''}" onclick="geheZu('WRT','${esc(z.symbol)}')">
+        ${SPALTEN.map(([f, t, fn]) => `<td>${fn(z)}</td>`).join('')}
+        <td>${funke(z.spur)}</td>
+      </tr>`).join('')}
+    </table>
+    <div class="tm-hint">RSI, Volatilität, Bandlage und Perioden stammen aus dem eigenen Kursspeicher —
+      keine fremde Bewertung, nur Rechnung auf den gespeicherten Kursen. Spalten sind sortierbar.</div>`;
+
+  const auffaellig = zeilen.filter(z => z.rsi !== null && (z.rsi >= 70 || z.rsi <= 30));
+  seite.innerHTML = `
+    <div class="tm-titel">Ablesbare Auffälligkeiten <span class="zahl">${auffaellig.length}</span></div>
+    ${auffaellig.length ? auffaellig.map(z => `<div class="tm-zeile" style="cursor:pointer" onclick="geheZu('WRT','${esc(z.symbol)}')">
+      <span class="sym">${esc(z.symbol)}</span>
+      <span class="${z.rsi >= 70 ? 'ab' : 'auf'}">RSI ${z2(z.rsi, 0)}</span></div>`).join('')
+      : '<div class="tm-leer">Nichts außerhalb 30–70.</div>'}
+    <div class="tm-titel">Unter Reihenhoch</div>
+    ${zeilen.filter(z => z.unter_hoch !== null).sort((a, b) => a.unter_hoch - b.unter_hoch).slice(0, 8)
+      .map(z => `<div class="tm-zeile" style="cursor:pointer" onclick="geheZu('WRT','${esc(z.symbol)}')">
+        <span class="sym">${esc(z.symbol)}</span><span class="${kl(z.unter_hoch)}">${pz(z.unter_hoch)} %</span></div>`).join('')}
+    <div class="tm-hint">RSI über 70 oder unter 30 ist eine <b>Feststellung</b> über die Kursreihe,
+      keine Aussage darüber, was zu tun wäre.</div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// WRT — Einzelwert
+// ════════════════════════════════════════════════════════════════
+let CHART = [];
+
+async function schirmWert() {
+  const haupt = document.getElementById('haupt');
+  if (!AKTIV) { haupt.innerHTML = '<div class="tm-leer">Kein Wert gewählt. Oben ein Symbol eingeben.</div>'; return; }
+  if (!DETAIL || DETAIL.symbol !== AKTIV) {
+    haupt.innerHTML = `<div class="tm-leer">Lade ${esc(AKTIV)}…</div>`;
+    DETAIL = await api('/api/agentur/boerse/terminal?symbol=' + encodeURIComponent(AKTIV));
+  }
+  zeichneWert();
+}
+
+// Fehlt der Live-Kurs, tritt der letzte gespeicherte Schlusskurs an seine
+// Stelle – datiert. Ein leeres Terminal wäre nicht ehrlicher, nur nutzloser.
+function kursLage(d) {
+  if (d?.kurs) return { ...d.kurs, live: true };
+  const v = d?.verlauf || [];
+  if (!v.length) return null;
+  const l = v[v.length - 1];
+  return { aktuell: l.kurs, veraenderung: null, veraenderung_prozent: l.veraenderung_prozent ?? null,
+           eroeffnung: l.eroeffnung, hoch: l.hoch, tief: l.tief,
+           vortag: v.length > 1 ? v[v.length - 2].kurs : null, live: false, datum: l.datum };
+}
+
+function zeichneWert() {
+  const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
+  const d = DETAIL;
+  if (!d || d.error) { haupt.innerHTML = `<div class="tm-leer">${esc(d?.error || 'Nicht geladen.')}</div>`; return; }
+  const k = kursLage(d), a = d.analytik || {}, st = d.stammdaten || {};
+  const mon = (MONITOR?.zeilen || []).find(z => z.symbol === d.symbol);
+
+  const kacheln = [
+    ['Eröffnung', z2(k?.eroeffnung), ''], ['Hoch', z2(k?.hoch), ''],
+    ['Tief', z2(k?.tief), ''], ['Vortag', z2(k?.vortag), ''],
+    ['1 Woche', pz(a.ertrag?.w1), kl(a.ertrag?.w1)], ['1 Monat', pz(a.ertrag?.m1), kl(a.ertrag?.m1)],
+    ['3 Monate', pz(a.ertrag?.m3), kl(a.ertrag?.m3)], ['1 Jahr', pz(a.ertrag?.j1), kl(a.ertrag?.j1)],
+    ['RSI 14', z2(a.rsi, 1), a.rsi >= 70 ? 'ab' : a.rsi <= 30 ? 'auf' : ''],
+    ['Vola p.a.', a.volatilitaet_jahr ? z2(a.volatilitaet_jahr, 1) + ' %' : '–', ''],
+    ['Max. Rückgang', a.max_rueckgang !== undefined ? '−' + z2(a.max_rueckgang, 1) + ' %' : '–', 'ab'],
+    ['Zum Reihenhoch', pz(a.unter_hoch), kl(a.unter_hoch)],
+  ];
+
+  haupt.innerHTML = `
+    <div class="tm-block" style="padding:12px 14px 10px;background:var(--t-panel)">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:21px;font-weight:800;letter-spacing:.02em;color:var(--t-akzent2)">${esc(d.symbol)}</div>
+          <div style="font-size:10.5px;color:var(--t-text2)">${esc(st.name || d.position?.name || '')}
+            ${st.branche ? '· ' + esc(st.branche) : ''} ${st.boerse ? '· ' + esc(st.boerse) : ''}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:26px;font-weight:800;letter-spacing:-.02em" class="${kl(k?.veraenderung_prozent)}">
+            ${z2(k?.aktuell)} <span style="font-size:11px;color:var(--t-text3);font-weight:400">${esc(st.waehrung || '')}</span></div>
+          <div style="font-size:11.5px;font-weight:700" class="${kl(k?.veraenderung_prozent)}">
+            ${!k ? 'kein Kurs' : k.live
+              ? `${k.veraenderung > 0 ? '+' : ''}${z2(k.veraenderung)} · ${pz(k.veraenderung_prozent)} %`
+              : `${pz(k.veraenderung_prozent)} % <span class="dim">Schluss ${esc(k.datum)}</span>`}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tm-kacheln tm-block">
+      ${kacheln.map(([n, w, c]) => `<div class="tm-kachel"><div class="tm-k-name">${esc(n)}</div>
+        <div class="tm-k-wert ${c}">${w}</div></div>`).join('')}
+    </div>
+
+    <div class="tm-block" style="display:flex;align-items:center;gap:5px;padding:7px 12px;flex-wrap:wrap">
+      ${[[22, '1M'], [66, '3M'], [132, '6M'], [252, '1J'], [0, 'MAX']].map(([n, l]) =>
+        `<button class="knopf ${ZEITRAUM === n ? 'an' : ''}" onclick="ZEITRAUM=${n};zeichneWert()">${l}</button>`).join('')}
+      <span style="width:10px"></span>
+      ${[['sma20', 'SMA20'], ['sma50', 'SMA50'], ['sma200', 'SMA200'], ['bollinger', 'BOLL']].map(([f, l]) =>
+        `<button class="knopf ${LINIEN[f] ? 'an' : ''}" onclick="LINIEN.${f}=!LINIEN.${f};zeichneWert()">${l}</button>`).join('')}
+      <span style="margin-left:auto;font-size:9.5px;color:var(--t-text3)">${a.punkte || 0} Handelstage gespeichert</span>
+    </div>
+
+    ${chartGross()}
+    ${panelLeiste()}
+    <div style="padding:12px 14px" id="panel">${panelInhalt()}</div>`;
+
+  const sp = (st.tief_52w && st.hoch_52w && k && st.hoch_52w > st.tief_52w)
+    ? Math.max(0, Math.min(100, ((k.aktuell - st.tief_52w) / (st.hoch_52w - st.tief_52w)) * 100)) : null;
+
+  seite.innerHTML = `
+    ${d.position ? `<div class="tm-titel">Position</div>
+      <div class="tm-zeile"><span>Stück</span><span>${z2(d.position.stueck, 0)}</span></div>
+      <div class="tm-zeile"><span>Kaufkurs</span><span>${z2(d.position.kaufkurs, 4)} ${esc(d.position.waehrung || '')}</span></div>
+      ${d.position.kurs_faktor && d.position.kurs_faktor !== 1
+        ? `<div class="tm-zeile"><span>Kursfaktor</span><span class="m-akz marke2">×${d.position.kurs_faktor}</span></div>` : ''}
+      ${mon?.wert_eur !== null && mon?.wert_eur !== undefined
+        ? `<div class="tm-zeile"><span>Wert</span><span>${gr(mon.wert_eur, 'EUR')}</span></div>` : ''}
+      ${mon?.ergebnis_prozent !== null && mon?.ergebnis_prozent !== undefined
+        ? `<div class="tm-zeile"><span>Ergebnis</span><span class="${kl(mon.ergebnis_prozent)}">${pz(mon.ergebnis_prozent)} %</span></div>` : ''}
+      ${d.position.notiz ? `<div style="padding:6px 12px;font-size:10px;color:var(--t-text3);line-height:1.5">${esc(d.position.notiz)}</div>` : ''}` : ''}
+
+    <div class="tm-titel">52 Wochen</div>
+    <div style="padding:10px 12px">
+      ${sp !== null ? `
+        <div class="balken" style="height:5px;position:relative">
+          <div style="width:100%;background:var(--t-linie2)"></div>
+          <div style="position:absolute;left:${sp.toFixed(1)}%;top:-3px;width:2px;height:11px;background:var(--t-akzent)"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--t-text3);margin-top:5px">
+          <span>${z2(st.tief_52w)}</span><span>${z2(st.hoch_52w)}</span></div>` :
+        '<div class="dim" style="font-size:10.5px">Nicht verfügbar.</div>'}
+    </div>
+
+    ${a.bollinger ? `<div class="tm-titel">Bollinger 20/2</div>
+      <div class="tm-zeile"><span>Oberes Band</span><span>${z2(a.bollinger.oben)}</span></div>
+      <div class="tm-zeile"><span>Mitte</span><span>${z2(a.bollinger.mitte)}</span></div>
+      <div class="tm-zeile"><span>Unteres Band</span><span>${z2(a.bollinger.unten)}</span></div>
+      <div class="tm-zeile"><span>Lage im Band</span><span>${z2(a.bollinger.lage, 0)} %</span></div>
+      <div class="tm-zeile"><span>Bandbreite</span><span>${z2(a.bollinger.breite, 1)} %</span></div>` : ''}
+
+    ${a.macd ? `<div class="tm-titel">MACD 12/26/9</div>
+      <div class="tm-zeile"><span>Linie</span><span>${z2(a.macd.linie, 3)}</span></div>
+      <div class="tm-zeile"><span>Signal</span><span>${z2(a.macd.signal, 3)}</span></div>
+      <div class="tm-zeile"><span>Histogramm</span><span class="${kl(a.macd.histogramm)}">${pz(a.macd.histogramm)}</span></div>` : ''}
+
+    ${a.lage_sma ? `<div class="tm-titel">Lage zu den Durchschnitten</div>
+      <div class="tm-zeile"><span>über SMA 50</span><span class="${a.lage_sma.ueber_sma50 ? 'auf' : 'ab'}">${a.lage_sma.ueber_sma50 ? 'ja' : 'nein'}</span></div>
+      <div class="tm-zeile"><span>über SMA 200</span><span class="${a.lage_sma.ueber_sma200 ? 'auf' : 'ab'}">${a.lage_sma.ueber_sma200 ? 'ja' : 'nein'}</span></div>
+      <div class="tm-zeile"><span>SMA50 über SMA200</span><span class="${a.lage_sma.sma50_ueber_sma200 ? 'auf' : 'ab'}">${a.lage_sma.sma50_ueber_sma200 ? 'ja' : 'nein'}</span></div>` : ''}
+
+    <div class="tm-titel">Stammdaten</div>
+    ${[['Marktwert', st.marktwert ? z2(st.marktwert / 1000, 1) + ' Mrd' : '–'],
+       ['KGV', z2(st.kgv, 1)], ['Währung', st.waehrung || '–'],
+       ['Nächste Zahlen', st.naechste_zahlen || '–']].map(([n, w]) =>
+      `<div class="tm-zeile"><span>${esc(n)}</span><span>${esc(String(w))}</span></div>`).join('')}
+
+    ${d.vergleichbare?.length ? `<div class="tm-titel">Vergleichbare</div>
+      <div style="padding:8px 12px;display:flex;flex-wrap:wrap;gap:4px">
+        ${d.vergleichbare.map(s => `<button class="knopf" onclick="geheZu('WRT','${esc(s)}')">${esc(s)}</button>`).join('')}
+      </div>` : ''}
+
+    <div style="padding:10px 12px;display:flex;gap:5px;flex-wrap:wrap">
+      <button class="knopf" onclick="zurVergleich('${esc(d.symbol)}')">In Vergleich</button>
+      <button class="knopf" onclick="analyseAnfordern()">Analyse anfordern</button>
+    </div>
+
+    ${d.nicht_verfuegbar ? `<div class="tm-hint tm-warn"><b>Nicht verfügbar:</b><br>${d.nicht_verfuegbar.map(esc).join('<br>')}</div>` : ''}`;
+}
+
+function chartGross() {
+  const v = DETAIL?.verlauf || [];
+  if (v.length < 2) return `<div class="tm-leer" style="margin:12px;border:1px dashed var(--t-linie2);border-radius:3px">
+    Kein Verlauf gespeichert. „Historie laden“ im Börsen-Bereich holt die vergangenen Monate.</div>`;
+  const r = ZEITRAUM ? v.slice(-ZEITRAUM) : v;
+  CHART = r;
+  const w = r.map(p => p.kurs);
+  const min = Math.min(...w), max = Math.max(...w), sp = (max - min) || 1;
+  const B = 1200, H = 320, R = { o: 12, u: 24, r: 64 };
+  const px = i => (i / (r.length - 1)) * (B - R.r);
+  const py = x => R.o + (1 - (x - min) / sp) * (H - R.o - R.u);
+  const linie = r.map((p, i) => `${px(i).toFixed(1)},${py(p.kurs).toFixed(1)}`).join(' ');
+  const flaeche = `0,${H - R.u} ${linie} ${px(r.length - 1).toFixed(1)},${H - R.u}`;
+
+  const sma = (f, farbe) => {
+    if (r.length < f) return '';
+    const pts = [];
+    for (let i = f - 1; i < r.length; i++) {
+      const m = w.slice(i - f + 1, i + 1).reduce((s, x) => s + x, 0) / f;
+      pts.push(`${px(i).toFixed(1)},${py(m).toFixed(1)}`);
+    }
+    return `<polyline points="${pts.join(' ')}" fill="none" stroke="${farbe}" stroke-width="1"
+             stroke-dasharray="4 3" vector-effect="non-scaling-stroke" opacity=".8"/>`;
+  };
+
+  let band = '';
+  if (LINIEN.bollinger && r.length >= 20) {
+    const o = [], u = [];
+    for (let i = 19; i < r.length; i++) {
+      const t = w.slice(i - 19, i + 1);
+      const m = t.reduce((s, x) => s + x, 0) / 20;
+      const s = Math.sqrt(t.reduce((a, x) => a + (x - m) ** 2, 0) / 20);
+      o.push(`${px(i).toFixed(1)},${py(m + 2 * s).toFixed(1)}`);
+      u.push(`${px(i).toFixed(1)},${py(m - 2 * s).toFixed(1)}`);
+    }
+    band = `<polygon points="${o.join(' ')} ${u.reverse().join(' ')}" fill="rgba(88,166,255,.09)"/>`;
+  }
+
+  const stufen = 5;
+  const gitter = Array.from({ length: stufen + 1 }, (_, i) => {
+    const val = min + (sp * i) / stufen, y = py(val).toFixed(1);
+    return `<line x1="0" y1="${y}" x2="${B - R.r}" y2="${y}" stroke="rgba(255,255,255,.045)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+            <text x="${B - R.r + 7}" y="${y}" dy="3.5" fill="#526074" font-size="10" font-family="Space Mono">${z2(val)}</text>`;
+  }).join('');
+
+  const auf = w[w.length - 1] >= w[0];
+  const f = auf ? 'var(--t-auf)' : 'var(--t-ab)';
+  const wandel = w[0] ? ((w[w.length - 1] - w[0]) / w[0]) * 100 : 0;
+
+  return `<div class="tm-block" style="padding:10px 12px" onmousemove="chartLesen(event)" onmouseleave="chartRaus()">
+    <svg viewBox="0 0 ${B} ${H}" preserveAspectRatio="none" id="csvg" style="width:100%;height:320px;cursor:crosshair;display:block">
+      <defs><linearGradient id="cf" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${auf ? '#3fd68c' : '#ff6b6b'}" stop-opacity=".22"/>
+        <stop offset="100%" stop-color="${auf ? '#3fd68c' : '#ff6b6b'}" stop-opacity="0"/></linearGradient></defs>
+      ${gitter}${band}
+      <polygon points="${flaeche}" fill="url(#cf)"/>
+      <polyline points="${linie}" fill="none" stroke="${f}" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+      ${LINIEN.sma20 ? sma(20, '#58a6ff') : ''}${LINIEN.sma50 ? sma(50, '#c084fc') : ''}${LINIEN.sma200 ? sma(200, '#f0b429') : ''}
+      <line id="ckreuz" x1="0" y1="${R.o}" x2="0" y2="${H - R.u}" stroke="#8b9bb0" stroke-width="1" vector-effect="non-scaling-stroke" style="display:none"/>
+    </svg>
+    <div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--t-text3);padding-right:64px;margin-top:2px">
+      <span>${esc(r[0].datum)}</span>
+      <span id="clesen">${r.length} Tage · ${wandel >= 0 ? '+' : ''}${wandel.toFixed(1)} % im Zeitraum</span>
+      <span>${esc(r[r.length - 1].datum)}</span>
+    </div>
   </div>`;
 }
 
-function zeichneListe() {
-  const el = document.getElementById('tm-liste');
-  if (!LISTE) { el.innerHTML = `<div class="tm-leer">Lade…</div>`; return; }
-  const pos = LISTE.positionen || [], beo = LISTE.beobachtet || [];
-  el.innerHTML = `
-    <div class="tm-gruppe">Depot · ${pos.length}</div>
-    ${pos.length ? pos.map(p => tickerZeile(p, true)).join('') : '<div class="tm-leer">leer</div>'}
-    <div class="tm-gruppe">Beobachtet · ${beo.length}</div>
-    ${beo.length ? beo.map(p => tickerZeile(p, false)).join('') : '<div class="tm-leer">leer</div>'}`;
-}
-
-// ── Wert laden ───────────────────────────────────────────────────
-async function waehle(symbol) {
-  AKTIV = symbol;
-  zeichneListe();
-  document.getElementById('tm-mitte').innerHTML = `<div class="tm-leer">Lade ${esc(symbol)}…</div>`;
-  DATEN = await api('/api/agentur/boerse/terminal?symbol=' + encodeURIComponent(symbol));
-  zeichneMitte();
-  zeichneRechts();
-  document.getElementById('tm-stand').textContent = ' · ' + new Date().toLocaleTimeString('de-DE');
-}
-
-// ── Chart ────────────────────────────────────────────────────────
-let CHART_DATEN = [];
-
-function chart() {
-  const verlauf = DATEN?.verlauf || [];
-  if (verlauf.length < 2) {
-    return `<div class="tm-leer" style="border:1px dashed var(--border2);border-radius:8px;margin:12px 14px">
-      Kein Verlauf gespeichert. „Historie laden" im Börsen-Tab holt die vergangenen Monate,
-      sonst wächst die Linie ab dem zweiten Tagesabruf.
-    </div>`;
-  }
-  const reihe = ZEITRAUM ? verlauf.slice(-ZEITRAUM) : verlauf;
-  CHART_DATEN = reihe;
-
-  const w = reihe.map(p => p.kurs);
-  const min = Math.min(...w), max = Math.max(...w);
-  const spanne = (max - min) || 1;
-  const B = 1000, H = 300, R = { o: 14, u: 26, r: 62 };
-  const px = i => (i / (reihe.length - 1)) * (B - R.r);
-  const py = v => R.o + (1 - (v - min) / spanne) * (H - R.o - R.u);
-
-  const linie = reihe.map((p, i) => `${px(i).toFixed(1)},${py(p.kurs).toFixed(1)}`).join(' ');
-  const flaeche = `0,${H - R.u} ${linie} ${px(reihe.length - 1).toFixed(1)},${H - R.u}`;
-
-  // Gleitende Durchschnitte über denselben Ausschnitt
-  const smaLinie = (fenster, farbe) => {
-    if (reihe.length < fenster) return '';
-    const punkte = [];
-    for (let i = fenster - 1; i < reihe.length; i++) {
-      const mittel = w.slice(i - fenster + 1, i + 1).reduce((s, x) => s + x, 0) / fenster;
-      punkte.push(`${px(i).toFixed(1)},${py(mittel).toFixed(1)}`);
-    }
-    return `<polyline points="${punkte.join(' ')}" fill="none" stroke="${farbe}" stroke-width="1.1"
-             stroke-dasharray="4 3" vector-effect="non-scaling-stroke" opacity=".85"/>`;
-  };
-
-  // Waagerechte Hilfslinien
-  const stufen = 4;
-  const gitter = Array.from({ length: stufen + 1 }, (_, i) => {
-    const v = min + (spanne * i) / stufen;
-    const y = py(v).toFixed(1);
-    return `<line x1="0" y1="${y}" x2="${B - R.r}" y2="${y}" stroke="rgba(255,255,255,.05)" stroke-width="1" vector-effect="non-scaling-stroke"/>
-            <text x="${B - R.r + 6}" y="${y}" dy="3.5" fill="var(--text3)" font-size="10" font-family="Space Mono">${zahl(v)}</text>`;
-  }).join('');
-
-  const steigt = w[w.length - 1] >= w[0];
-  const farbe = steigt ? '#4ade80' : '#f87171';
-
-  return `
-    <div class="tm-chart" onmousemove="chartLesen(event)" onmouseleave="chartRaus()">
-      <svg viewBox="0 0 ${B} ${H}" preserveAspectRatio="none" id="tm-svg"
-           style="display:block;width:100%;height:300px;cursor:crosshair">
-        <defs><linearGradient id="tm-f" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="${farbe}" stop-opacity=".24"/>
-          <stop offset="100%" stop-color="${farbe}" stop-opacity="0"/>
-        </linearGradient></defs>
-        ${gitter}
-        <polygon points="${flaeche}" fill="url(#tm-f)"/>
-        <polyline points="${linie}" fill="none" stroke="${farbe}" stroke-width="1.7"
-                  stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
-        ${LINIEN.sma20 ? smaLinie(20, '#60a5fa') : ''}
-        ${LINIEN.sma50 ? smaLinie(50, '#c084fc') : ''}
-        ${LINIEN.sma200 ? smaLinie(200, '#fbbf24') : ''}
-        <line id="tm-kreuz" x1="0" y1="${R.o}" x2="0" y2="${H - R.u}" stroke="var(--text2)"
-              stroke-width="1" vector-effect="non-scaling-stroke" style="display:none"/>
-      </svg>
-      <div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--text3);padding-right:62px">
-        <span>${esc(reihe[0].datum)}</span>
-        <span id="tm-ablesen"></span>
-        <span>${esc(reihe[reihe.length - 1].datum)}</span>
-      </div>
-    </div>`;
-}
-
 function chartLesen(ev) {
-  if (!CHART_DATEN.length) return;
-  const svg = document.getElementById('tm-svg');
-  const k = svg.getBoundingClientRect();
-  const anteil = Math.max(0, Math.min(1, (ev.clientX - k.left) / k.width));
-  const i = Math.min(CHART_DATEN.length - 1, Math.round(anteil * (1000 / 938) * (CHART_DATEN.length - 1)));
-  const p = CHART_DATEN[i];
-  if (!p) return;
-  const kreuz = document.getElementById('tm-kreuz');
-  if (kreuz) {
-    const x = (i / (CHART_DATEN.length - 1)) * 938;
-    kreuz.setAttribute('x1', x); kreuz.setAttribute('x2', x); kreuz.style.display = '';
-  }
-  const l = document.getElementById('tm-ablesen');
-  if (l) l.innerHTML = `<b style="color:var(--text)">${esc(p.datum)}</b> · ${zahl(p.kurs)}` +
-    (p.hoch ? ` · H ${zahl(p.hoch)} T ${zahl(p.tief)}` : '');
+  if (!CHART.length) return;
+  const svg = document.getElementById('csvg'); if (!svg) return;
+  const b = svg.getBoundingClientRect();
+  const i = Math.min(CHART.length - 1, Math.max(0,
+    Math.round(((ev.clientX - b.left) / b.width) * (1200 / 1136) * (CHART.length - 1))));
+  const p = CHART[i]; if (!p) return;
+  const kr = document.getElementById('ckreuz');
+  if (kr) { const x = (i / (CHART.length - 1)) * 1136; kr.setAttribute('x1', x); kr.setAttribute('x2', x); kr.style.display = ''; }
+  const l = document.getElementById('clesen');
+  if (l) l.innerHTML = `<b style="color:var(--t-akzent2)">${esc(p.datum)}</b> · ${z2(p.kurs)}` +
+    (p.hoch ? ` · H ${z2(p.hoch)} T ${z2(p.tief)}` : '');
 }
-function chartRaus() {
-  const k = document.getElementById('tm-kreuz'); if (k) k.style.display = 'none';
-  const l = document.getElementById('tm-ablesen'); if (l) l.textContent = '';
-}
-
-// ── Mittelspalte ─────────────────────────────────────────────────
-// Fehlt der Live-Kurs, ist der letzte gespeicherte Schlusskurs immer noch
-// eine Zahl – nur eine ältere. Sie wegzulassen macht das Terminal leer,
-// ohne dass es dadurch ehrlicher würde. Also anzeigen und datieren.
-function kursLage(d) {
-  if (d.kurs) return { ...d.kurs, live: true, datum: null };
-  const v = d.verlauf || [];
-  if (!v.length) return null;
-  const letzt = v[v.length - 1];
-  return {
-    aktuell: letzt.kurs, veraenderung: null,
-    veraenderung_prozent: letzt.veraenderung_prozent ?? null,
-    eroeffnung: letzt.eroeffnung ?? null, hoch: letzt.hoch ?? null,
-    tief: letzt.tief ?? null, vortag: v.length > 1 ? v[v.length - 2].kurs : null,
-    live: false, datum: letzt.datum,
-  };
-}
-
-function zeichneMitte() {
-  const el = document.getElementById('tm-mitte');
-  if (!DATEN || DATEN.error) { el.innerHTML = `<div class="tm-leer">${esc(DATEN?.error || 'Nicht geladen.')}</div>`; return; }
-  const d = DATEN, k = kursLage(d), a = d.analytik || {}, st = d.stammdaten || {};
-
-  const kacheln = [
-    ['Eröffnung', k ? zahl(k.eroeffnung) : '–', ''],
-    ['Hoch', k ? zahl(k.hoch) : '–', ''],
-    ['Tief', k ? zahl(k.tief) : '–', ''],
-    ['Vortag', k ? zahl(k.vortag) : '–', ''],
-    ['1 Woche', proz(a.ertrag?.w1), klasse(a.ertrag?.w1)],
-    ['1 Monat', proz(a.ertrag?.m1), klasse(a.ertrag?.m1)],
-    ['3 Monate', proz(a.ertrag?.m3), klasse(a.ertrag?.m3)],
-    ['1 Jahr', proz(a.ertrag?.j1), klasse(a.ertrag?.j1)],
-  ];
-
-  el.innerHTML = `
-    <div class="tm-wert-kopf">
-      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">
-        <div>
-          <div class="tm-wert-sym">${esc(d.symbol)}</div>
-          <div class="tm-wert-name">${esc(st.name || d.position?.name || '')}${st.branche ? ' · ' + esc(st.branche) : ''}${st.boerse ? ' · ' + esc(st.boerse) : ''}</div>
-        </div>
-        <div style="text-align:right">
-          <div class="tm-wert-kurs ${klasse(k?.veraenderung_prozent)}">${k ? zahl(k.aktuell) : '–'}
-            <span style="font-size:12px;color:var(--text3);font-weight:400">${esc(st.waehrung || '')}</span></div>
-          <div class="tm-wert-vz ${klasse(k?.veraenderung_prozent)}">
-            ${!k ? 'kein Kurs'
-              : k.live
-                ? `${k.veraenderung > 0 ? '+' : ''}${zahl(k.veraenderung)} · ${proz(k.veraenderung_prozent)}`
-                : `${proz(k.veraenderung_prozent)} <span style="color:var(--text3);font-weight:400">· Schluss ${esc(k.datum)}</span>`}
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="tm-kacheln">
-      ${kacheln.map(([n, w, c]) => `<div class="tm-kachel">
-        <div class="tm-kachel-name">${esc(n)}</div>
-        <div class="tm-kachel-wert ${c}">${w}</div></div>`).join('')}
-    </div>
-
-    <div class="tm-chart-leiste">
-      ${[[22, '1M'], [66, '3M'], [132, '6M'], [252, '1J'], [0, 'MAX']].map(([n, l]) =>
-        `<button class="tm-knopf ${ZEITRAUM === n ? 'an' : ''}" onclick="ZEITRAUM=${n};zeichneMitte()">${l}</button>`).join('')}
-      <span style="width:12px"></span>
-      ${[['sma20', 'SMA 20', '#60a5fa'], ['sma50', 'SMA 50', '#c084fc'], ['sma200', 'SMA 200', '#fbbf24']].map(([k2, l, f]) =>
-        `<button class="tm-knopf ${LINIEN[k2] ? 'an' : ''}" onclick="LINIEN.${k2}=!LINIEN.${k2};zeichneMitte()"
-                 style="${LINIEN[k2] ? '' : `color:${f}`}">${l}</button>`).join('')}
-      <span style="margin-left:auto;font-size:10px;color:var(--text3)">
-        ${a.punkte || 0} Tage gespeichert${a.volatilitaet_jahr !== null && a.volatilitaet_jahr !== undefined ? ` · Vola ${zahl(a.volatilitaet_jahr, 1)} %` : ''}
-      </span>
-    </div>
-
-    ${chart()}
-    ${panelLeiste()}
-    <div class="tm-panel" id="tm-panel">${panelInhalt()}</div>`;
-}
+function chartRaus() { const k = document.getElementById('ckreuz'); if (k) k.style.display = 'none'; }
 
 function panelLeiste() {
-  const reiter = [
-    ['nachrichten', 'Nachrichten', (DATEN?.nachrichten || []).length],
-    ['kennzahlen', 'Kennzahlen', 0],
-    ['analysten', 'Analysten', (DATEN?.analysten?.konsens || []).length],
-    ['zahlen', 'Quartalszahlen', (DATEN?.quartalszahlen || []).length],
-    ['agentur', 'Agentur', (DATEN?.agentur?.berichte || []).length + (DATEN?.agentur?.befunde || []).length],
-  ];
-  return `<div class="tm-reiter">${reiter.map(([k, l, n], i) =>
-    `<button class="${PANEL === k ? 'an' : ''}" onclick="PANEL='${k}';document.getElementById('tm-panel').innerHTML=panelInhalt();zeichnePanelLeiste()">
-      ${i + 1} ${l}${n ? ` (${n})` : ''}</button>`).join('')}</div>`;
-}
-function zeichnePanelLeiste() {
-  document.querySelectorAll('.tm-reiter button').forEach((b, i) => {
-    b.classList.toggle('an', ['nachrichten', 'kennzahlen', 'analysten', 'zahlen', 'agentur'][i] === PANEL);
-  });
+  const r = [['nachrichten', 'Meldungen', (DETAIL?.nachrichten || []).length],
+             ['analysten', 'Analysten', (DETAIL?.analysten?.konsens || []).length],
+             ['zahlen', 'Quartalszahlen', (DETAIL?.quartalszahlen || []).length],
+             ['kennzahlen', 'Kennzahlen', 0],
+             ['agentur', 'Agentur', (DETAIL?.agentur?.berichte || []).length + (DETAIL?.agentur?.befunde || []).length]];
+  return `<div style="display:flex;gap:1px;background:var(--t-linie);border-top:1px solid var(--t-linie)">
+    ${r.map(([k, l, n]) => `<button class="tm-schirm ${PANEL === k ? 'an' : ''}" style="flex:1;border-radius:0"
+      onclick="PANEL='${k}';document.getElementById('panel').innerHTML=panelInhalt();zeichneWert()">${l}${n ? ` (${n})` : ''}</button>`).join('')}
+  </div>`;
 }
 
 function panelInhalt() {
-  const d = DATEN; if (!d) return '';
+  const d = DETAIL; if (!d) return '';
   if (PANEL === 'nachrichten') {
     const n = d.nachrichten;
-    if (!n) return `<div class="tm-leer">Meldungen nicht verfügbar${d.nicht_verfuegbar ? ' — ' + esc(d.nicht_verfuegbar.find(x => x.startsWith('nachrichten')) || '') : ''}</div>`;
+    if (!n) return `<div class="tm-leer">Meldungen nicht verfügbar.</div>`;
     if (!n.length) return `<div class="tm-leer">Keine Meldungen in den letzten 14 Tagen.</div>`;
-    return n.map(m => `<div class="tm-meldung">
-      <a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.schlagzeile)}</a>
-      <div class="q">${esc(m.datum)} · ${esc(m.quelle || '')}</div></div>`).join('');
-  }
-  if (PANEL === 'kennzahlen') {
-    const k = d.kennzahlen || {}, a = d.analytik || {};
-    const zeilen = [
-      ['KGV', zahl(k.kgv)], ['Kurs/Buchwert', zahl(k.kurs_buchwert)], ['Kurs/Umsatz', zahl(k.kurs_umsatz)],
-      ['Dividendenrendite', k.dividendenrendite !== null ? zahl(k.dividendenrendite) + ' %' : '–'],
-      ['Eigenkapitalrendite', k.eigenkapitalrendite !== null ? zahl(k.eigenkapitalrendite) + ' %' : '–'],
-      ['Nettomarge', k.marge !== null ? zahl(k.marge) + ' %' : '–'],
-      ['Verschuldung/EK', zahl(k.verschuldung)], ['Beta', zahl(k.beta)],
-      ['52W Hoch', zahl(k.hoch_52w)], ['52W Tief', zahl(k.tief_52w)],
-      ['— aus eigenem Verlauf —', ''],
-      ['SMA 20', zahl(a.sma20) + (a.abstand_sma20 !== null ? `  (${proz(a.abstand_sma20)})` : '')],
-      ['SMA 50', zahl(a.sma50) + (a.abstand_sma50 !== null ? `  (${proz(a.abstand_sma50)})` : '')],
-      ['SMA 200', zahl(a.sma200) + (a.abstand_sma200 !== null ? `  (${proz(a.abstand_sma200)})` : '')],
-      ['Volatilität p.a.', a.volatilitaet_jahr !== null && a.volatilitaet_jahr !== undefined ? zahl(a.volatilitaet_jahr, 1) + ' %' : '–'],
-      ['Größter Rückgang', a.max_rueckgang !== undefined ? '−' + zahl(a.max_rueckgang, 1) + ' %' : '–'],
-    ];
-    return zeilen.map(([n, w]) => w === ''
-      ? `<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding:12px 0 4px">${esc(n.replace(/—/g, '').trim())}</div>`
-      : `<div class="tm-zeile"><span>${esc(n)}</span><span style="font-family:'Space Mono',monospace">${w}</span></div>`).join('');
+    return n.map(m => `<div style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <a href="${esc(m.url)}" target="_blank" rel="noopener" style="color:var(--t-text);text-decoration:none;font-family:'Syne',sans-serif;font-size:12px;line-height:1.4;display:block">${esc(m.schlagzeile)}</a>
+      <div class="dim" style="font-size:9.5px;margin-top:2px">${esc(m.datum)} · ${esc(m.quelle || '')}</div></div>`).join('');
   }
   if (PANEL === 'analysten') {
     const an = d.analysten || {};
     if (!an.konsens && !an.kursziel) return `<div class="tm-leer">Nicht verfügbar auf dieser Anbieterstufe.</div>`;
-    return `
-      <div class="tm-hinweis">${esc(an.hinweis)}</div>
-      ${an.kursziel ? `<div class="tm-zeile"><span>Kursziel (Mittel / Spanne)</span>
-        <span style="font-family:'Space Mono',monospace">${zahl(an.kursziel.mittel)} · ${zahl(an.kursziel.tief)}–${zahl(an.kursziel.hoch)}</span></div>` : ''}
-      ${an.konsens ? `<table class="tm-tab" style="margin-top:10px">
-        <tr><th>Periode</th><th class="z">Kaufen+</th><th class="z">Kaufen</th><th class="z">Halten</th><th class="z">Verk.</th><th class="z">Verk.+</th></tr>
-        ${an.konsens.map(k => `<tr><td>${esc(k.periode)}</td>
-          <td class="z auf">${k.kaufen_stark ?? 0}</td><td class="z auf">${k.kaufen ?? 0}</td>
-          <td class="z neutral">${k.halten ?? 0}</td><td class="z ab">${k.verkaufen ?? 0}</td>
-          <td class="z ab">${k.verkaufen_stark ?? 0}</td></tr>`).join('')}
+    return `<div class="tm-hint">${esc(an.hinweis)}</div>
+      ${an.kursziel ? `<div class="tm-zeile"><span>Kursziel Mittel / Spanne</span>
+        <span>${z2(an.kursziel.mittel)} · ${z2(an.kursziel.tief)}–${z2(an.kursziel.hoch)}</span></div>` : ''}
+      ${an.konsens ? `<table class="tm-t" style="margin-top:8px">
+        <tr><th>Periode</th><th>Kaufen+</th><th>Kaufen</th><th>Halten</th><th>Verk.</th><th>Verk.+</th></tr>
+        ${an.konsens.map(k => `<tr><td>${esc(k.periode)}</td><td class="auf">${k.kaufen_stark ?? 0}</td>
+          <td class="auf">${k.kaufen ?? 0}</td><td class="neutr">${k.halten ?? 0}</td>
+          <td class="ab">${k.verkaufen ?? 0}</td><td class="ab">${k.verkaufen_stark ?? 0}</td></tr>`).join('')}
       </table>` : ''}`;
   }
   if (PANEL === 'zahlen') {
     const q = d.quartalszahlen;
-    if (!q || !q.length) return `<div class="tm-leer">Keine Quartalszahlen verfügbar.</div>`;
-    return `<table class="tm-tab">
-      <tr><th>Periode</th><th class="z">Erwartet</th><th class="z">Tatsächlich</th><th class="z">Abweichung</th></tr>
-      ${q.map(e => `<tr><td>${esc(e.periode)}</td><td class="z">${zahl(e.erwartet)}</td>
-        <td class="z">${zahl(e.tatsaechlich)}</td>
-        <td class="z ${klasse(e.abweichung_prozent)}">${proz(e.abweichung_prozent)}</td></tr>`).join('')}
-    </table>`;
+    if (!q?.length) return `<div class="tm-leer">Keine Quartalszahlen verfügbar.</div>`;
+    return `<table class="tm-t"><tr><th>Periode</th><th>Erwartet</th><th>Tatsächlich</th><th>Abweichung</th></tr>
+      ${q.map(e => `<tr><td>${esc(e.periode)}</td><td>${z2(e.erwartet)}</td><td>${z2(e.tatsaechlich)}</td>
+        <td class="${kl(e.abweichung_prozent)}">${pz(e.abweichung_prozent)} %</td></tr>`).join('')}</table>`;
+  }
+  if (PANEL === 'kennzahlen') {
+    const k = d.kennzahlen || {};
+    return [['KGV', z2(k.kgv)], ['Kurs/Buchwert', z2(k.kurs_buchwert)], ['Kurs/Umsatz', z2(k.kurs_umsatz)],
+            ['Dividendenrendite', k.dividendenrendite !== null ? z2(k.dividendenrendite) + ' %' : '–'],
+            ['Eigenkapitalrendite', k.eigenkapitalrendite !== null ? z2(k.eigenkapitalrendite) + ' %' : '–'],
+            ['Nettomarge', k.marge !== null ? z2(k.marge) + ' %' : '–'],
+            ['Verschuldung/EK', z2(k.verschuldung)], ['Beta', z2(k.beta)],
+            ['52W Ertrag', k.ertrag_52w !== null ? pz(k.ertrag_52w) + ' %' : '–']]
+      .map(([n, w]) => `<div class="tm-zeile"><span>${esc(n)}</span><span>${w}</span></div>`).join('');
   }
   if (PANEL === 'agentur') {
     const b = d.agentur?.berichte || [], f = d.agentur?.befunde || [];
-    if (!b.length && !f.length) {
-      return `<div class="tm-leer">Die Analysten haben zu ${esc(d.symbol)} noch nichts geschrieben.<br>
-        „Analyse anfordern" oben legt eine Aufgabe an — der Verteiler startet sie innerhalb der nächsten Stunde.</div>`;
-    }
-    return `
-      ${f.length ? `<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding-bottom:6px">Befunde</div>
-        ${f.map(x => `<div class="tm-meldung"><div style="font-size:12px;font-family:'Syne',sans-serif">${esc(x.titel)}</div>
-          <div class="q">${esc(x.autor || '')} · ${esc(fmtDate(x.erstellt_am))}${x.beleg ? ' · ' + esc(x.beleg) : ''}</div></div>`).join('')}` : ''}
-      ${b.length ? `<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding:12px 0 6px">Berichte</div>
-        ${b.map(x => `<div class="tm-meldung">
-          <div style="font-size:12px;font-family:'Syne',sans-serif;cursor:pointer" onclick="berichtZeigen(${x.id})">${esc(x.titel || 'Ohne Titel')}</div>
-          <div class="q">${esc(x.autor || '')} · ${esc(fmtDate(x.erstellt_am))}</div>
-          <div class="md" id="ber-${x.id}" style="display:none;font-size:12px;margin-top:8px">${mdToHtml(x.text)}</div>
-        </div>`).join('')}` : ''}`;
+    if (!b.length && !f.length) return `<div class="tm-leer">Noch nichts zu ${esc(d.symbol)} geschrieben.<br>
+      „Analyse anfordern“ legt eine Aufgabe an — der Verteiler startet sie innerhalb der nächsten Stunde.</div>`;
+    return `${f.map(x => `<div style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+        <div style="font-family:'Syne',sans-serif;font-size:12px">${esc(x.titel)}</div>
+        <div class="dim" style="font-size:9.5px">${esc(x.autor || '')} · ${esc(fmtDate(x.erstellt_am))}</div></div>`).join('')}
+      ${b.map(x => `<div style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+        <div style="font-family:'Syne',sans-serif;font-size:12px;cursor:pointer" onclick="const e=document.getElementById('b${x.id}');e.style.display=e.style.display==='none'?'block':'none'">${esc(x.titel || 'Ohne Titel')}</div>
+        <div class="dim" style="font-size:9.5px">${esc(x.autor || '')} · ${esc(fmtDate(x.erstellt_am))}</div>
+        <div class="md" id="b${x.id}" style="display:none;margin-top:6px">${mdToHtml(x.text)}</div></div>`).join('')}`;
   }
   return '';
 }
 
-function berichtZeigen(id) {
-  const el = document.getElementById('ber-' + id);
-  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+// ════════════════════════════════════════════════════════════════
+// VGL — Vergleich
+// ════════════════════════════════════════════════════════════════
+function zurVergleich(sym) {
+  if (!VGL_WAHL.includes(sym)) VGL_WAHL.push(sym);
+  geheZu('VGL');
 }
 
-// ── Rechte Spalte ────────────────────────────────────────────────
-function zeichneRechts() {
-  const el = document.getElementById('tm-rechts');
-  const d = DATEN; if (!d) { el.innerHTML = ''; return; }
-  const st = d.stammdaten || {}, p = d.position;
-  const kl = kursLage(d);
-  // Live-Kennzahlen bevorzugen, sonst die gespeicherten Stammdaten. Beides
-  // ist echt – nur unterschiedlich frisch.
-  const k = {
-    ...(d.kennzahlen || {}),
-    hoch_52w: d.kennzahlen?.hoch_52w ?? st.hoch_52w ?? null,
-    tief_52w: d.kennzahlen?.tief_52w ?? st.tief_52w ?? null,
-    kgv: d.kennzahlen?.kgv ?? st.kgv ?? null,
-  };
+async function schirmVergleich() {
+  const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
+  const alle = (MONITOR?.zeilen || []).map(z => z.symbol);
+  if (!VGL_WAHL.length) VGL_WAHL = alle.slice(0, 3);
 
-  const spanne = (k.tief_52w && k.hoch_52w && kl && k.hoch_52w > k.tief_52w)
-    ? Math.max(0, Math.min(100, ((kl.aktuell - k.tief_52w) / (k.hoch_52w - k.tief_52w)) * 100)) : null;
+  // Verläufe der gewählten Werte holen – aus dem Speicher, nicht extern.
+  const daten = {};
+  for (const s of VGL_WAHL) {
+    const p = (UEBER?.positionen || []).concat(UEBER?.beobachtet || []).find(x => x.symbol === s);
+    if (p?.verlauf?.length) daten[s] = p.verlauf;
+  }
+  const vorhanden = Object.keys(daten).filter(s => daten[s].length > 2);
 
-  el.innerHTML = `
-    ${p ? `<div class="tm-gruppe">Deine Position</div>
-      <div style="padding:10px 14px">
-        <div class="tm-zeile"><span>Stück</span><span>${zahl(p.stueck, 0)}</span></div>
-        <div class="tm-zeile"><span>Kaufkurs</span><span>${zahl(p.kaufkurs)} ${esc(p.waehrung || '')}</span></div>
-        <div class="tm-zeile"><span>Wert</span><span>${kl ? zahl(kl.aktuell * p.stueck) + ' ' + esc(st.waehrung || '') : '–'}</span></div>
-        ${st.waehrung && p.waehrung && st.waehrung !== p.waehrung
-          ? `<div class="tm-hinweis tm-warn" style="margin:8px 0 0">Kurs in ${esc(st.waehrung)}, Kauf in ${esc(p.waehrung)} — nicht vergleichbar. Ein Ergebnis daraus wäre eine Fantasiezahl.</div>`
-          : (p.kaufkurs && kl ? `<div class="tm-zeile"><span>Ergebnis</span>
-              <span class="${klasse(kl.aktuell - p.kaufkurs)}">${proz(((kl.aktuell - p.kaufkurs) / p.kaufkurs) * 100)}</span></div>` : '')}
-        ${p.notiz ? `<div style="font-size:10.5px;color:var(--text3);margin-top:8px;line-height:1.5">${esc(p.notiz)}</div>` : ''}
-      </div>` : ''}
+  let chart = '<div class="tm-leer">Mindestens zwei Werte mit Verlauf wählen.</div>';
+  if (vorhanden.length >= 1) {
+    // Auf gemeinsame Tage beschränken, sonst vergleicht man Zeiträume.
+    const mengen = vorhanden.map(s => new Set(daten[s].map(p => p.datum)));
+    const tage = [...mengen[0]].filter(d => mengen.every(m => m.has(d))).sort();
+    if (tage.length < 5) {
+      chart = `<div class="tm-leer">Nur ${tage.length} gemeinsame Handelstage — zu wenig für einen Vergleich.</div>`;
+    } else {
+      const t = ZEITRAUM ? tage.slice(-ZEITRAUM) : tage;
+      const farben = ['#f0b429', '#58a6ff', '#3fd68c', '#c084fc', '#ff6b6b', '#22d3ee'];
+      const reihen = vorhanden.map((s, i) => {
+        const m = new Map(daten[s].map(p => [p.datum, p.kurs]));
+        const basis = m.get(t[0]);
+        return { symbol: s, farbe: farben[i % farben.length],
+                 werte: t.map(d => (m.get(d) / basis) * 100) };
+      });
+      const alleW = reihen.flatMap(r => r.werte);
+      const min = Math.min(...alleW), max = Math.max(...alleW), sp = (max - min) || 1;
+      const B = 1200, H = 340, R = { o: 12, u: 24, r: 60 };
+      const px = i => (i / (t.length - 1)) * (B - R.r);
+      const py = v => R.o + (1 - (v - min) / sp) * (H - R.o - R.u);
+      const gitter = [0, 25, 50, 75, 100].map(q => {
+        const v = min + (sp * q) / 100, y = py(v).toFixed(1);
+        return `<line x1="0" y1="${y}" x2="${B - R.r}" y2="${y}" stroke="rgba(255,255,255,.045)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+                <text x="${B - R.r + 6}" y="${y}" dy="3.5" fill="#526074" font-size="10" font-family="Space Mono">${v.toFixed(0)}</text>`;
+      }).join('');
+      chart = `<div class="tm-block" style="padding:10px 12px">
+        <svg viewBox="0 0 ${B} ${H}" preserveAspectRatio="none" style="width:100%;height:340px;display:block">
+          ${gitter}
+          <line x1="0" y1="${py(100)}" x2="${B - R.r}" y2="${py(100)}" stroke="#526074" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>
+          ${reihen.map(r => `<polyline points="${r.werte.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ')}"
+            fill="none" stroke="${r.farbe}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join('')}
+        </svg>
+        <div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--t-text3);padding-right:60px">
+          <span>${esc(t[0])}</span><span>alle Reihen auf 100 normiert am Startpunkt</span><span>${esc(t[t.length - 1])}</span></div>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:10.5px">
+          ${reihen.map(r => {
+            const e = r.werte[r.werte.length - 1] - 100;
+            return `<span><span style="display:inline-block;width:9px;height:2px;background:${r.farbe};margin-right:5px;vertical-align:middle"></span>
+              <span class="sym">${esc(r.symbol)}</span> <span class="${kl(e)}">${pz(e)} %</span></span>`;
+          }).join('')}
+        </div></div>`;
+    }
+  }
 
-    <div class="tm-gruppe">52-Wochen-Spanne</div>
-    <div style="padding:12px 14px">
-      ${spanne !== null ? `
-        <div style="height:5px;border-radius:3px;background:var(--bg3);position:relative;margin-bottom:7px">
-          <div style="position:absolute;left:${spanne.toFixed(1)}%;top:-3px;width:2px;height:11px;background:var(--accent2)"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3)">
-          <span>${zahl(k.tief_52w)}</span><span>${zahl(k.hoch_52w)}</span>
-        </div>
-        <div style="font-size:10.5px;color:var(--text2);margin-top:6px">
-          ${(() => {
-            const abw = ((kl.aktuell - k.hoch_52w) / k.hoch_52w) * 100;
-            // Über dem Hoch ist "+x % zum Hoch" missverständlich – dann ist
-            // entweder ein neues Hoch erreicht oder die Angabe veraltet.
-            if (abw > 0.5) return `<span class="auf">über dem 52W-Hoch (+${abw.toFixed(1)} %)</span> — Angabe womöglich veraltet`;
-            return `${spanne.toFixed(0)} % der Spanne · ${abw.toFixed(1)} % zum Hoch`;
-          })()}
-        </div>` : '<div style="font-size:11px;color:var(--text3)">Nicht verfügbar.</div>'}
+  haupt.innerHTML = `
+    <div class="tm-titel">Vergleich — normiert auf 100 <span class="zahl">${vorhanden.length} Werte</span></div>
+    <div style="padding:8px 12px;display:flex;gap:5px;flex-wrap:wrap">
+      ${[[22, '1M'], [66, '3M'], [132, '6M'], [252, '1J'], [0, 'MAX']].map(([n, l]) =>
+        `<button class="knopf ${ZEITRAUM === n ? 'an' : ''}" onclick="ZEITRAUM=${n};schirmVergleich()">${l}</button>`).join('')}
+    </div>
+    ${chart}
+    <div class="tm-hint">Normierung bedeutet: jede Reihe startet bei 100. Der Abstand zeigt die
+      <b>relative</b> Entwicklung im gewählten Zeitraum, nicht den Kurs. Verglichen wird nur über Tage,
+      an denen alle gewählten Werte einen Kurs haben.</div>`;
+
+  seite.innerHTML = `
+    <div class="tm-titel">Werte wählen <span class="zahl">${VGL_WAHL.length}</span></div>
+    ${alle.map(s => `<div class="tm-zeile" style="cursor:pointer" onclick="vglUmschalten('${esc(s)}')">
+      <span class="${VGL_WAHL.includes(s) ? 'sym' : 'dim'}">${VGL_WAHL.includes(s) ? '■' : '□'} ${esc(s)}</span>
+      <span class="dim">${(MONITOR.zeilen.find(z => z.symbol === s)?.punkte) || 0}T</span></div>`).join('')}
+    <div style="padding:10px 12px"><button class="knopf" onclick="VGL_WAHL=[];schirmVergleich()">Auswahl leeren</button></div>`;
+}
+
+function vglUmschalten(s) {
+  VGL_WAHL = VGL_WAHL.includes(s) ? VGL_WAHL.filter(x => x !== s) : [...VGL_WAHL, s];
+  schirmVergleich();
+}
+
+// ════════════════════════════════════════════════════════════════
+// RIS — Risiko
+// ════════════════════════════════════════════════════════════════
+async function schirmRisiko() {
+  const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
+  haupt.innerHTML = '<div class="tm-leer">Rechne…</div>';
+  if (!KORR) KORR = await api('/api/agentur/boerse/korrelation?tage=250');
+
+  const pos = (UEBER?.positionen || []).filter(p => p.wert !== null);
+  const gesamt = pos.reduce((a, p) => a + p.wert, 0) || 1;
+  const sortiert = [...pos].sort((a, b) => b.wert - a.wert);
+  const top3 = sortiert.slice(0, 3).reduce((a, p) => a + p.wert, 0) / gesamt * 100;
+
+  // Die Diagonale ist die Korrelation eines Werts mit sich selbst – immer 1
+  // und ohne Aussage. Sie einzufärben würde Klumpen vortäuschen, wo keine sind.
+  const farbeKorr = (v, diagonal) => diagonal ? 'rgba(255,255,255,.04)'
+    : v === null ? 'var(--t-panel)'
+    : v > 0.7 ? 'rgba(255,107,107,.55)' : v > 0.4 ? 'rgba(240,180,41,.4)'
+    : v > 0 ? 'rgba(255,255,255,.08)' : 'rgba(63,214,140,.28)';
+
+  const m = KORR?.matrix || [], sy = KORR?.symbole || [];
+
+  haupt.innerHTML = `
+    <div class="tm-kacheln tm-block">
+      <div class="tm-kachel"><div class="tm-k-name">Klumpen Top 3</div>
+        <div class="tm-k-wert ${top3 > 60 ? 'ab' : top3 > 40 ? '' : 'auf'}">${top3.toFixed(0)} %</div>
+        <div class="tm-k-neben">des bewerteten Depots</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Größte Einzelposition</div>
+        <div class="tm-k-wert">${sortiert[0] ? (sortiert[0].wert / gesamt * 100).toFixed(0) + ' %' : '–'}</div>
+        <div class="tm-k-neben">${esc(sortiert[0]?.symbol || '')}</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Höchste Vola</div>
+        ${(() => { const z = [...(MONITOR?.zeilen || [])].filter(x => x.vola !== null).sort((a, b) => b.vola - a.vola)[0];
+          return `<div class="tm-k-wert">${z ? z2(z.vola, 0) + ' %' : '–'}</div><div class="tm-k-neben">${esc(z?.symbol || '')}</div>`; })()}</div>
+      <div class="tm-kachel"><div class="tm-k-name">Gemeinsame Tage</div>
+        <div class="tm-k-wert">${KORR?.gemeinsame_tage ?? '–'}</div>
+        <div class="tm-k-neben">Grundlage der Korrelation</div></div>
     </div>
 
-    <div class="tm-gruppe">Stammdaten</div>
-    <div style="padding:10px 14px">
-      ${[['Marktwert', st.marktwert ? zahl(st.marktwert / 1000, 1) + ' Mrd' : '–'],
-         ['Branche', st.branche || '–'], ['Börse', st.boerse || '–'],
-         ['Währung', st.waehrung || '–'],
-         ['Nächste Zahlen', st.naechste_zahlen || '–']].map(([n, w]) =>
-        `<div class="tm-zeile"><span>${esc(n)}</span><span>${esc(String(w))}</span></div>`).join('')}
-      ${st.webseite ? `<a href="${esc(st.webseite)}" target="_blank" rel="noopener"
-        style="font-size:10.5px;color:var(--accent2);display:block;margin-top:8px">${esc(st.webseite)}</a>` : ''}
+    <div class="tm-block">
+      <div class="tm-titel">Korrelation der Tagesrenditen</div>
+      ${sy.length >= 2 && m.length ? `<div style="padding:10px 12px;overflow-x:auto">
+        <table class="tm-t" style="font-size:10px">
+          <tr><th></th>${sy.map(s => `<th style="text-align:center">${esc(s)}</th>`).join('')}</tr>
+          ${sy.map((a, i) => `<tr><td class="sym">${esc(a)}</td>
+            ${sy.map((b, j) => `<td style="text-align:center;background:${farbeKorr(m[i][j], i === j)};
+              color:${i === j ? 'var(--t-text3)' : Math.abs(m[i][j] ?? 0) > 0.5 ? '#fff' : 'var(--t-text2)'}">
+              ${i === j ? '·' : m[i][j] === null ? '–' : m[i][j].toFixed(2)}</td>`).join('')}</tr>`).join('')}
+        </table></div>` : `<div class="tm-leer">${esc(KORR?.hinweis || 'Zu wenige Werte mit Verlauf.')}</div>`}
     </div>
 
-    ${d.vergleichbare?.length ? `<div class="tm-gruppe">Vergleichbare Werte</div>
-      <div style="padding:8px 14px;display:flex;flex-wrap:wrap;gap:5px">
-        ${d.vergleichbare.map(s => `<button class="tm-knopf" onclick="waehle('${esc(s)}')">${esc(s)}</button>`).join('')}
-      </div>` : ''}
-
-    ${d.nicht_verfuegbar ? `<div class="tm-hinweis tm-warn">
-      <b>Nicht verfügbar:</b><br>${d.nicht_verfuegbar.map(esc).join('<br>')}
+    ${KORR?.engste?.length ? `<div class="tm-block">
+      <div class="tm-titel">Engster Gleichlauf</div>
+      ${KORR.engste.map(p => `<div class="tm-zeile"><span>${esc(p.a)} / ${esc(p.b)}</span>
+        <span class="${p.wert > 0.7 ? 'ab' : ''}">${p.wert.toFixed(2)}</span></div>`).join('')}
     </div>` : ''}
 
-    <div class="tm-hinweis">
-      Fakten, keine Beratung. Analystenangaben sind fremde Einschätzungen des Datenanbieters —
-      keine Empfehlung dieser Anwendung. Entschieden wird von dir.
+    <div class="tm-hint">Korrelation misst, wie stark zwei Werte an denselben Tagen in dieselbe Richtung liefen.
+      Nahe 1 heißt Gleichlauf — solche Positionen streuen das Risiko kaum, auch wenn sie in verschiedenen
+      Branchen stehen. Nahe 0 heißt unabhängig, negativ heißt gegenläufig. Grundlage sind
+      ${KORR?.gemeinsame_tage ?? 0} Tage, an denen alle Werte einen Kurs hatten.</div>`;
+
+  seite.innerHTML = `
+    <div class="tm-titel">Volatilität</div>
+    ${[...(MONITOR?.zeilen || [])].filter(z => z.vola !== null).sort((a, b) => b.vola - a.vola)
+      .map(z => `<div class="tm-zeile" style="cursor:pointer" onclick="geheZu('WRT','${esc(z.symbol)}')">
+        <span class="sym">${esc(z.symbol)}</span><span>${z2(z.vola, 1)} %</span></div>`).join('')}
+    <div class="tm-titel">Abstand zum Reihenhoch</div>
+    ${[...(MONITOR?.zeilen || [])].filter(z => z.unter_hoch !== null).sort((a, b) => a.unter_hoch - b.unter_hoch)
+      .map(z => `<div class="tm-zeile" style="cursor:pointer" onclick="geheZu('WRT','${esc(z.symbol)}')">
+        <span class="sym">${esc(z.symbol)}</span><span class="${kl(z.unter_hoch)}">${pz(z.unter_hoch)} %</span></div>`).join('')}`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// KAL — Kalender
+// ════════════════════════════════════════════════════════════════
+async function schirmKalender() {
+  const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
+  if (!KALENDER) KALENDER = await api('/api/agentur/boerse/kalender');
+  const t = KALENDER?.termine || [];
+
+  haupt.innerHTML = `
+    <div class="tm-titel">Anstehende Termine <span class="zahl">${t.length}</span></div>
+    ${t.length ? `<table class="tm-t">
+      <tr><th>Datum</th><th>in Tagen</th><th>Symbol</th><th>Name</th><th>Bestand</th></tr>
+      ${t.map(x => `<tr onclick="geheZu('WRT','${esc(x.symbol)}')">
+        <td style="text-align:left">${esc(x.naechste_zahlen)}</td>
+        <td class="${x.in_tagen <= 7 ? 'ab' : x.in_tagen <= 30 ? 'm-akz' : ''}">${x.in_tagen}</td>
+        <td><span class="sym">${esc(x.symbol)}</span></td>
+        <td style="text-align:left" class="nm">${esc(x.name || '')}</td>
+        <td>${x.gehalten ? `<span class="marke2 m-akz">${z2(x.stueck, 0)} Stück</span>` : '<span class="dim">beobachtet</span>'}</td>
+      </tr>`).join('')}</table>` : `<div class="tm-leer">${esc(KALENDER?.hinweis || 'Keine Termine.')}</div>`}
+    <div class="tm-hint">Termine stammen aus den gespeicherten Stammdaten und werden mit „Kurse holen“
+      aufgefrischt. Vor Quartalszahlen schwanken Kurse erfahrungsgemäß stärker — das ist eine
+      Beobachtung über Märkte allgemein, keine Aussage über diesen Wert.</div>`;
+
+  const naechste = t.filter(x => x.in_tagen <= 30);
+  seite.innerHTML = `
+    <div class="tm-titel">Nächste 30 Tage <span class="zahl">${naechste.length}</span></div>
+    ${naechste.length ? naechste.map(x => `<div class="tm-zeile" style="cursor:pointer" onclick="geheZu('WRT','${esc(x.symbol)}')">
+      <span class="sym">${esc(x.symbol)}</span><span class="${x.in_tagen <= 7 ? 'ab' : ''}">in ${x.in_tagen} T</span></div>`).join('')
+      : '<div class="tm-leer">Nichts in den nächsten 30 Tagen.</div>'}`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// NEW — Meldungen
+// ════════════════════════════════════════════════════════════════
+async function schirmMeldungen() {
+  const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
+  if (!STROM) {
+    haupt.innerHTML = '<div class="tm-leer">Hole Meldungen…</div>';
+    STROM = await api('/api/agentur/boerse/nachrichtenstrom?werte=8&tage=10');
+  }
+  const m = STROM?.meldungen || [];
+  const nachTag = {};
+  for (const x of m) (nachTag[x.datum] ||= []).push(x);
+
+  haupt.innerHTML = `
+    <div class="tm-titel">Meldungen über alle Positionen <span class="zahl">${m.length}</span></div>
+    ${Object.entries(nachTag).map(([tag, liste]) => `
+      <div style="padding:8px 12px 4px;font-size:9.5px;letter-spacing:.12em;color:var(--t-akzent);
+                  border-bottom:1px solid var(--t-linie);background:var(--t-panel)">${esc(tag)}</div>
+      ${liste.map(x => `<div style="padding:7px 12px;border-bottom:1px solid rgba(255,255,255,.035)">
+        <div style="display:flex;gap:8px;align-items:baseline">
+          <span class="sym" style="cursor:pointer;flex-shrink:0" onclick="geheZu('WRT','${esc(x.symbol)}')">${esc(x.symbol)}</span>
+          <a href="${esc(x.url)}" target="_blank" rel="noopener"
+             style="color:var(--t-text);text-decoration:none;font-family:'Syne',sans-serif;font-size:12px;line-height:1.4">${esc(x.schlagzeile)}</a>
+        </div>
+        <div class="dim" style="font-size:9.5px;margin-top:2px;padding-left:calc(1ch * ${x.symbol.length} + 8px)">${esc(x.quelle || '')}</div>
+      </div>`).join('')}`).join('') || '<div class="tm-leer">Keine Meldungen.</div>'}
+    ${STROM?.fehlt ? `<div class="tm-hint tm-warn">Nicht abgerufen: ${STROM.fehlt.map(esc).join(' · ')}</div>` : ''}
+    <div class="tm-hint">Abgefragt wurden die ${STROM?.abgefragt || 0} größten von ${STROM?.von || 0} Positionen —
+      jeder Wert kostet einen Abruf beim Anbieter, deshalb bewusst begrenzt.</div>`;
+
+  seite.innerHTML = `
+    <div class="tm-titel">Meldungen je Wert</div>
+    ${Object.entries(m.reduce((a, x) => { a[x.symbol] = (a[x.symbol] || 0) + 1; return a; }, {}))
+      .sort((a, b) => b[1] - a[1])
+      .map(([s, n]) => `<div class="tm-zeile" style="cursor:pointer" onclick="geheZu('WRT','${esc(s)}')">
+        <span class="sym">${esc(s)}</span><span>${n}</span></div>`).join('') || '<div class="tm-leer">–</div>'}
+    <div style="padding:10px 12px"><button class="knopf" onclick="STROM=null;schirmMeldungen()">Neu laden</button></div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// KI — Agentur
+// ════════════════════════════════════════════════════════════════
+async function schirmAgentur() {
+  const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
+  if (!AGENTUR) {
+    haupt.innerHTML = '<div class="tm-leer">Lade…</div>';
+    const [ber, bef, auf, laeufe] = await Promise.all([
+      api('/api/agentur/berichte?abteilung=boerse&limit=25'),
+      api('/api/agentur/befunde?abteilung=boerse&status=offen'),
+      api('/api/agentur/aufgaben?abteilung=boerse'),
+      api('/api/agentur/laeufe?abteilung=boerse&limit=15'),
+    ]);
+    AGENTUR = { berichte: ber?.berichte || [], befunde: bef?.befunde || [],
+                aufgaben: auf?.aufgaben || [], laeufe: laeufe?.laeufe || [] };
+  }
+  const a = AGENTUR;
+
+  haupt.innerHTML = `
+    <div class="tm-block">
+      <div class="tm-titel">Befunde <span class="zahl">${a.befunde.length}</span></div>
+      ${a.befunde.length ? a.befunde.map(b => `<div style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.035)">
+        <div style="display:flex;gap:8px;align-items:baseline">
+          <span class="marke2 ${b.schwere === 'hoch' ? 'm-ab' : b.schwere === 'niedrig' ? 'm-neu' : 'm-akz'}">${esc(b.schwere)}</span>
+          <span style="font-family:'Syne',sans-serif;font-size:12.5px">${esc(b.titel)}</span></div>
+        ${b.beleg ? `<div class="dim" style="font-size:10px;margin-top:3px">${esc(b.beleg)}</div>` : ''}
+        <div class="dim" style="font-size:9.5px;margin-top:3px">${esc(b.autor || '')} · ${esc(fmtDate(b.erstellt_am))}</div>
+      </div>`).join('') : '<div class="tm-leer">Keine offenen Befunde.</div>'}
+    </div>
+
+    <div class="tm-block">
+      <div class="tm-titel">Berichte <span class="zahl">${a.berichte.length}</span></div>
+      ${a.berichte.length ? a.berichte.map(b => `<div style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.035)">
+        <div style="font-family:'Syne',sans-serif;font-size:12.5px;cursor:pointer"
+             onclick="const e=document.getElementById('ki${b.id}');e.style.display=e.style.display==='none'?'block':'none'">
+          ${esc(b.titel || 'Ohne Titel')}</div>
+        <div class="dim" style="font-size:9.5px">${esc(b.autor || '')} · ${esc(fmtDate(b.erstellt_am))}
+          ${b.lauf_id ? '· Lauf #' + b.lauf_id : ''}</div>
+        <div class="md" id="ki${b.id}" style="display:none;margin-top:8px">${mdToHtml(b.text)}</div>
+      </div>`).join('') : `<div class="tm-leer">Noch keine Berichte. Robert, Ines und Malte schreiben sie,
+        sobald ihre Aufgaben fällig werden.</div>`}
     </div>`;
+
+  seite.innerHTML = `
+    <div class="tm-titel">Analyse anfordern</div>
+    <div style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+      ${AKTIV ? `<button class="knopf" onclick="analyseAnfordern()">Faktenbericht ${esc(AKTIV)}</button>` : ''}
+      <button class="knopf" onclick="auftragAn('malte','Depot durchsehen','Gehaltene Werte gegen die Schwellen prüfen.')">Depot durchsehen (Malte)</button>
+      <button class="knopf" onclick="auftragAn('ines','Nachrichtenlage','Meldungen zu den verfolgten Werten sammeln.')">Nachrichtenlage (Ines)</button>
+      <div id="ki-status" style="font-size:10px;color:var(--t-text3);line-height:1.5"></div>
+    </div>
+
+    <div class="tm-titel">Offene Aufgaben <span class="zahl">${a.aufgaben.length}</span></div>
+    ${a.aufgaben.length ? a.aufgaben.map(x => `<div class="tm-zeile">
+      <span>${esc((x.titel || '').slice(0, 22))}</span><span class="dim">${esc(x.zustaendig || '–')}</span></div>`).join('')
+      : '<div class="tm-leer">Keine.</div>'}
+
+    <div class="tm-titel">Letzte Läufe</div>
+    ${a.laeufe.length ? a.laeufe.slice(0, 8).map(l => `<div class="tm-zeile">
+      <span>${esc(l.mitarbeiter_name || l.mitarbeiter_id)}</span>
+      <span class="${l.status === 'erfolgreich' ? 'auf' : l.status === 'fehlgeschlagen' ? 'ab' : 'dim'}">${esc(l.status)}</span>
+    </div>`).join('') : '<div class="tm-leer">Noch keine Läufe.</div>'}
+
+    <div class="tm-hint">Die Analysten liefern <b>Fakten</b>: Zahlen mit Stichtag, Meldungen mit Quelle,
+      Ereignisse an gehaltenen Werten. Keine Kauf-, Verkaufs- oder Halteempfehlung — das steht so in
+      ihren Anweisungen.</div>`;
 }
 
-// ── Suche und Tastatur ───────────────────────────────────────────
-let SUCH_WARTE = null;
-function vorschlagen() {
-  const q = document.getElementById('tm-such').value.trim();
-  const box = document.getElementById('tm-vorschlaege');
-  clearTimeout(SUCH_WARTE);
-  if (q.length < 2) { box.style.display = 'none'; VORSCHLAEGE = []; return; }
-  SUCH_WARTE = setTimeout(async () => {
-    const d = await api('/api/agentur/boerse/suche?q=' + encodeURIComponent(q));
-    VORSCHLAEGE = d?.treffer || [];
-    VORSCHLAG_INDEX = -1;
-    if (!VORSCHLAEGE.length) {
-      box.innerHTML = `<div class="tm-vorschlag"><span>${d?.error ? esc(d.error) : 'Nichts gefunden — Enter ruft die Eingabe direkt auf.'}</span></div>`;
-    } else {
-      box.innerHTML = VORSCHLAEGE.map((t, i) => `<div class="tm-vorschlag" data-i="${i}"
-        onmousedown="waehleVorschlag(${i})"><b>${esc(t.symbol)}</b><span>${esc(t.name || '')}</span></div>`).join('');
-    }
-    box.style.display = 'block';
-  }, 240);
+async function auftragAn(wer, titel, beschreibung) {
+  const el = document.getElementById('ki-status');
+  const r = await api('/api/agentur/aufgaben', { method: 'POST', body: {
+    abteilung_id: 'boerse', titel, beschreibung, zustaendig: wer, status: 'offen',
+    faellig_am: new Date().toISOString(), erstellt_von: 'mensch',
+  }});
+  if (el) el.textContent = r?.id ? `Beauftragt (#${r.id}) — der Verteiler startet den Lauf innerhalb der nächsten Stunde.`
+                                 : 'Auftrag fehlgeschlagen.';
 }
 
-function waehleVorschlag(i) {
-  const t = VORSCHLAEGE[i]; if (!t) return;
-  document.getElementById('tm-such').value = '';
-  document.getElementById('tm-vorschlaege').style.display = 'none';
-  waehle(t.symbol);
+async function analyseAnfordern() {
+  if (!AKTIV) return;
+  await auftragAn('robert', `Faktenbericht ${AKTIV}`,
+    `Kurse, Kennzahlen, Termine und Verlauf zu ${AKTIV} zusammentragen. Keine Empfehlung.`);
 }
 
-function tastatur(e) {
-  const box = document.getElementById('tm-vorschlaege');
+// ════════════════════════════════════════════════════════════════
+// Kommandozeile und Tastatur
+// ════════════════════════════════════════════════════════════════
+let VOR = [], VOR_I = -1, VOR_WARTE = null;
+
+function cmdTippen() {
+  const q = document.getElementById('cmd').value.trim();
+  const box = document.getElementById('cmd-vor');
+  clearTimeout(VOR_WARTE);
+
+  // Erst die eigenen Werte und Schirmkürzel – das ist sofort da.
+  const eigen = (MONITOR?.zeilen || [])
+    .filter(z => z.symbol.toUpperCase().includes(q.toUpperCase()) || (z.name || '').toUpperCase().includes(q.toUpperCase()))
+    .map(z => ({ symbol: z.symbol, name: z.name, art: 'eigen' }));
+  const schirme = SCHIRME.filter(s => s[0].startsWith(q.toUpperCase()) || s[1].toUpperCase().startsWith(q.toUpperCase()))
+    .map(s => ({ symbol: s[0], name: 'Schirm: ' + s[1], art: 'schirm' }));
+
+  VOR = [...schirme, ...eigen];
+  if (q.length >= 2) {
+    VOR_WARTE = setTimeout(async () => {
+      const d = await api('/api/agentur/boerse/suche?q=' + encodeURIComponent(q));
+      const fremd = (d?.treffer || []).filter(t => !eigen.some(e => e.symbol === t.symbol))
+        .map(t => ({ symbol: t.symbol, name: t.name, art: 'fremd' }));
+      VOR = [...schirme, ...eigen, ...fremd];
+      malVorschlaege();
+    }, 220);
+  }
+  malVorschlaege();
+}
+
+function malVorschlaege() {
+  const box = document.getElementById('cmd-vor');
+  if (!VOR.length) { box.style.display = 'none'; return; }
+  box.innerHTML = VOR.slice(0, 14).map((t, i) => `<div class="tm-vor-z ${i === VOR_I ? 'an' : ''}"
+    onmousedown="waehleVor(${i})"><b>${esc(t.symbol)}</b><i>${esc(t.name || '')}${t.art === 'fremd' ? ' · nicht verfolgt' : ''}</i></div>`).join('');
+  box.style.display = 'block';
+}
+
+function waehleVor(i) {
+  const t = VOR[i]; if (!t) return;
+  document.getElementById('cmd').value = '';
+  document.getElementById('cmd-vor').style.display = 'none';
+  VOR = []; VOR_I = -1;
+  if (t.art === 'schirm') geheZu(t.symbol);
+  else { DETAIL = null; geheZu('WRT', t.symbol); }
+}
+
+function cmdTaste(e) {
+  const box = document.getElementById('cmd-vor');
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    if (!VORSCHLAEGE.length) return;
+    if (!VOR.length) return;
     e.preventDefault();
-    VORSCHLAG_INDEX += e.key === 'ArrowDown' ? 1 : -1;
-    if (VORSCHLAG_INDEX < 0) VORSCHLAG_INDEX = VORSCHLAEGE.length - 1;
-    if (VORSCHLAG_INDEX >= VORSCHLAEGE.length) VORSCHLAG_INDEX = 0;
-    box.querySelectorAll('.tm-vorschlag').forEach((el, i) => el.classList.toggle('aktiv', i === VORSCHLAG_INDEX));
+    VOR_I += e.key === 'ArrowDown' ? 1 : -1;
+    if (VOR_I < 0) VOR_I = VOR.length - 1;
+    if (VOR_I >= VOR.length) VOR_I = 0;
+    malVorschlaege();
     return;
   }
   if (e.key === 'Enter') {
     e.preventDefault();
-    if (VORSCHLAG_INDEX >= 0) return waehleVorschlag(VORSCHLAG_INDEX);
-    const v = document.getElementById('tm-such').value.trim().toUpperCase();
-    if (v) { document.getElementById('tm-such').value = ''; box.style.display = 'none'; waehle(v); }
+    if (VOR_I >= 0) return waehleVor(VOR_I);
+    const v = document.getElementById('cmd').value.trim().toUpperCase();
+    if (!v) return;
+    document.getElementById('cmd').value = '';
+    box.style.display = 'none'; VOR = []; VOR_I = -1;
+    if (SCHIRME.some(s => s[0] === v)) geheZu(v);
+    else { DETAIL = null; geheZu('WRT', v); }
     return;
   }
-  if (e.key === 'Escape') { box.style.display = 'none'; document.getElementById('tm-such').blur(); }
+  if (e.key === 'Escape') { box.style.display = 'none'; document.getElementById('cmd').blur(); }
 }
 
 document.addEventListener('keydown', e => {
   const imFeld = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
-  if (e.key === '/' && !imFeld) { e.preventDefault(); document.getElementById('tm-such').focus(); return; }
+  if ((e.key === '/' || e.key === 'F1') && !imFeld) { e.preventDefault(); document.getElementById('cmd').focus(); return; }
   if (imFeld) return;
-  if (['1', '2', '3', '4', '5'].includes(e.key)) {
-    PANEL = ['nachrichten', 'kennzahlen', 'analysten', 'zahlen', 'agentur'][Number(e.key) - 1];
-    const p = document.getElementById('tm-panel');
-    if (p) { p.innerHTML = panelInhalt(); zeichnePanelLeiste(); refreshIcons(); }
-    return;
-  }
-  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    const alle = [...(LISTE?.positionen || []), ...(LISTE?.beobachtet || [])].map(p => p.symbol);
-    if (!alle.length) return;
+  // Zahlen springen die Schirme an
+  const i = Number(e.key) - 1;
+  if (i >= 0 && i < SCHIRME.length) { geheZu(SCHIRME[i][0]); return; }
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && MONITOR?.zeilen?.length) {
     e.preventDefault();
-    const i = alle.indexOf(AKTIV);
-    const neu = e.key === 'ArrowDown' ? (i + 1) % alle.length : (i - 1 + alle.length) % alle.length;
-    waehle(alle[neu]);
+    const alle = MONITOR.zeilen.map(z => z.symbol);
+    const k = alle.indexOf(AKTIV);
+    AKTIV = alle[e.key === 'ArrowDown' ? (k + 1) % alle.length : (k - 1 + alle.length) % alle.length];
+    DETAIL = null;
+    if (SCHIRM === 'WRT') schirmWert(); else zeichne();
   }
 });
 
-// ── Aktionen ─────────────────────────────────────────────────────
-async function alleKurse() {
-  const b = document.getElementById('tm-refresh');
-  b.textContent = 'Hole…'; b.disabled = true;
-  await api('/api/agentur/boerse/auffrischen', { method: 'POST', body: {} });
-  await ladeListe();
-  if (AKTIV) await waehle(AKTIV);
-  b.textContent = 'Kurse holen'; b.disabled = false;
-}
-
-// Die Analysten arbeiten über das Board. Ein Auftrag hier heißt: Aufgabe
-// anlegen, fällig sofort – der Verteiler startet sie im nächsten Durchgang.
-async function analyseAnfordern() {
-  if (!AKTIV) return;
-  const r = await api('/api/agentur/aufgaben', { method: 'POST', body: {
-    abteilung_id: 'boerse',
-    titel: `Faktenbericht ${AKTIV}`,
-    beschreibung: `Kurse, Kennzahlen, Termine und Verlauf zu ${AKTIV} zusammentragen. Keine Empfehlung.`,
-    zustaendig: 'robert', status: 'offen',
-    faellig_am: new Date().toISOString(), erstellt_von: 'mensch',
-  }});
-  const el = document.getElementById('tm-stand');
-  if (el) el.textContent = r?.id ? ` · Analyse für ${AKTIV} beauftragt (#${r.id})` : ' · Auftrag fehlgeschlagen';
-}
-
-// ── Start ────────────────────────────────────────────────────────
-function boot() {
+// ── Start ───────────────────────────────────────────────────────
+async function boot() {
   initLayout(null);
-  ladeListe();
-  setInterval(() => { if (!document.hidden && AKTIV) ladeListe(); }, 120000);
+  await ladeGrunddaten();
+  await zeichne();
+  setInterval(async () => {
+    if (document.hidden) return;
+    document.getElementById('st-led').style.background = 'var(--t-akzent)';
+    await ladeGrunddaten();
+    document.getElementById('st-led').style.background = 'var(--t-auf)';
+    if (SCHIRM === 'DEP' || SCHIRM === 'MON') zeichne();
+  }, 120000);
 }
 injectLoginScreen();
 checkAuth(boot);

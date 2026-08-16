@@ -477,6 +477,79 @@ function periodenErtrag(reihe, tage) {
   return Math.round(((letzterKurs - start.kurs) / start.kurs) * 10000) / 100;
 }
 
+// ── Technische Indikatoren ───────────────────────────────────────
+// Alles aus dem eigenen Kursspeicher gerechnet. Kein externer Abruf, keine
+// Bibliothek – und was mangels Datenpunkten nicht berechenbar ist, bleibt
+// null statt geschätzt zu werden.
+function ema(werte, fenster) {
+  if (werte.length < fenster) return null;
+  const k = 2 / (fenster + 1);
+  let e = werte.slice(0, fenster).reduce((s, w) => s + w, 0) / fenster;
+  for (let i = fenster; i < werte.length; i++) e = werte[i] * k + e * (1 - k);
+  return e;
+}
+
+function emaReihe(werte, fenster) {
+  if (werte.length < fenster) return [];
+  const k = 2 / (fenster + 1);
+  let e = werte.slice(0, fenster).reduce((s, w) => s + w, 0) / fenster;
+  const aus = new Array(fenster - 1).fill(null);
+  aus.push(e);
+  for (let i = fenster; i < werte.length; i++) { e = werte[i] * k + e * (1 - k); aus.push(e); }
+  return aus;
+}
+
+// Relative Stärke nach Wilder, 14 Tage.
+function rsi(werte, fenster = 14) {
+  if (werte.length < fenster + 1) return null;
+  let gewinn = 0, verlust = 0;
+  for (let i = 1; i <= fenster; i++) {
+    const d = werte[i] - werte[i - 1];
+    if (d >= 0) gewinn += d; else verlust -= d;
+  }
+  let dg = gewinn / fenster, dv = verlust / fenster;
+  for (let i = fenster + 1; i < werte.length; i++) {
+    const d = werte[i] - werte[i - 1];
+    dg = (dg * (fenster - 1) + (d > 0 ? d : 0)) / fenster;
+    dv = (dv * (fenster - 1) + (d < 0 ? -d : 0)) / fenster;
+  }
+  if (dv === 0) return 100;
+  const rs = dg / dv;
+  return Math.round((100 - 100 / (1 + rs)) * 10) / 10;
+}
+
+function macd(werte) {
+  if (werte.length < 35) return null;
+  const e12 = emaReihe(werte, 12), e26 = emaReihe(werte, 26);
+  const linie = werte.map((_, i) => (e12[i] != null && e26[i] != null) ? e12[i] - e26[i] : null);
+  const gefiltert = linie.filter(x => x !== null);
+  const signal = ema(gefiltert, 9);
+  const aktuell = linie[linie.length - 1];
+  if (aktuell === null || signal === null) return null;
+  return {
+    linie: Math.round(aktuell * 10000) / 10000,
+    signal: Math.round(signal * 10000) / 10000,
+    histogramm: Math.round((aktuell - signal) * 10000) / 10000,
+  };
+}
+
+function bollinger(werte, fenster = 20, faktor = 2) {
+  if (werte.length < fenster) return null;
+  const teil = werte.slice(-fenster);
+  const mitte = teil.reduce((s, w) => s + w, 0) / fenster;
+  const abw = Math.sqrt(teil.reduce((s, w) => s + (w - mitte) ** 2, 0) / fenster);
+  const letzt = werte[werte.length - 1];
+  const oben = mitte + faktor * abw, unten = mitte - faktor * abw;
+  return {
+    mitte: Math.round(mitte * 100) / 100,
+    oben: Math.round(oben * 100) / 100,
+    unten: Math.round(unten * 100) / 100,
+    // Wo im Band steht der Kurs? 0 = unteres Band, 100 = oberes.
+    lage: oben > unten ? Math.round(((letzt - unten) / (oben - unten)) * 1000) / 10 : null,
+    breite: mitte ? Math.round(((oben - unten) / mitte) * 1000) / 10 : null,
+  };
+}
+
 function analytik(reihe) {
   const werte = reihe.map(p => p.kurs).filter(Number.isFinite);
   if (werte.length < 2) {
@@ -517,6 +590,22 @@ function analytik(reihe) {
     abstand_sma200: abstand(sma.s200),
     volatilitaet_jahr: volaJahr !== null ? Math.round(volaJahr * 10) / 10 : null,
     max_rueckgang: Math.round(maxRueck * 10000) / 100,
+    // Abstand zum höchsten bisher gesehenen Kurs der Reihe
+    unter_hoch: Math.round(((letzterKurs - Math.max(...werte)) / Math.max(...werte)) * 10000) / 100,
+    rsi: rsi(werte),
+    macd: macd(werte),
+    bollinger: bollinger(werte),
+    // Trendlage aus dem Verhältnis der Durchschnitte – eine Feststellung,
+    // keine Empfehlung: "Kurs über/unter SMA" ist ablesbar, nicht gedeutet.
+    lage_sma: (() => {
+      const s50 = gleitend(werte, 50), s200 = gleitend(werte, 200);
+      if (!s50 || !s200) return null;
+      return {
+        ueber_sma50: letzterKurs > s50,
+        ueber_sma200: letzterKurs > s200,
+        sma50_ueber_sma200: s50 > s200,
+      };
+    })(),
     ertrag: {
       w1: periodenErtrag(reihe, 7),
       m1: periodenErtrag(reihe, 30),
@@ -653,6 +742,206 @@ export async function boerseTerminal(env, db, url, json, err) {
       },
 
       nicht_verfuegbar: fehlt.length ? fehlt.map(f => ohneSchluessel(f, env)) : null,
+  });
+}
+
+// ── GET /api/agentur/boerse/monitor ──────────────────────────────
+// Eine Zeile je verfolgtem Wert, mit allem, was sich aus dem eigenen
+// Speicher rechnen lässt. Kein externer Abruf – deshalb beliebig oft
+// aufrufbar und sofort da.
+export async function boerseMonitor(env, db, url, json, err) {
+  const [depot, watch, werte, kurse] = await Promise.all([
+    db.prepare('SELECT * FROM ag_depot WHERE aktiv=1').all().catch(() => ({ results: [] })),
+    db.prepare('SELECT * FROM ag_watchlist').all().catch(() => ({ results: [] })),
+    db.prepare('SELECT * FROM ag_werte').all().catch(() => ({ results: [] })),
+    db.prepare('SELECT symbol, datum, kurs, veraenderung_prozent FROM ag_kurse WHERE datum >= ? ORDER BY symbol, datum')
+      .bind(tagVor(400)).all().catch(() => ({ results: [] })),
+  ]);
+
+  const wertNach = new Map((werte.results || []).map(w => [w.symbol, w]));
+  const reihen = new Map();
+  for (const k of (kurse.results || [])) {
+    if (!reihen.has(k.symbol)) reihen.set(k.symbol, []);
+    reihen.get(k.symbol).push({ datum: k.datum, kurs: k.kurs, veraenderung_prozent: k.veraenderung_prozent });
+  }
+
+  let fx = null;
+  try { fx = await wechselkurse('EUR'); } catch (e) { fx = null; }
+
+  const depotNach = new Map((depot.results || []).map(p => [p.symbol, p]));
+  const alle = [...new Set([
+    ...(depot.results || []).map(p => p.symbol),
+    ...(watch.results || []).map(w => w.symbol),
+  ])];
+
+  const zeilen = alle.map(sym => {
+    const st = wertNach.get(sym) || null;
+    const p = depotNach.get(sym) || null;
+    const r = reihen.get(sym) || [];
+    const a = analytik(r);
+    const letzt = r.length ? r[r.length - 1] : null;
+    const faktor = p && Number(p.kurs_faktor) > 0 ? Number(p.kurs_faktor) : 1;
+
+    const kurs = letzt?.kurs ?? null;
+    const kursW = st?.waehrung || null;
+    let wertEur = null, ergebnisProzent = null;
+    if (p && kurs !== null && kursW) {
+      const roh = kurs * p.stueck * faktor;
+      wertEur = kursW === (p.waehrung || 'EUR') ? roh : umrechnen(roh, kursW, p.waehrung || 'EUR', fx);
+      const einsatz = p.kaufkurs != null ? p.kaufkurs * p.stueck : null;
+      if (wertEur !== null && einsatz) ergebnisProzent = Math.round(((wertEur - einsatz) / einsatz) * 10000) / 100;
+    }
+
+    return {
+      symbol: sym,
+      name: p?.name || st?.name || sym,
+      branche: st?.branche || null,
+      gehalten: !!p,
+      waehrung: kursW,
+      kurs, kurs_datum: letzt?.datum ?? null,
+      tag: letzt?.veraenderung_prozent ?? null,
+      w1: a.ertrag?.w1 ?? null, m1: a.ertrag?.m1 ?? null,
+      m3: a.ertrag?.m3 ?? null, m6: a.ertrag?.m6 ?? null, j1: a.ertrag?.j1 ?? null,
+      rsi: a.rsi ?? null,
+      vola: a.volatilitaet_jahr ?? null,
+      unter_hoch: a.unter_hoch ?? null,
+      lage_sma: a.lage_sma ?? null,
+      bollinger_lage: a.bollinger?.lage ?? null,
+      kgv: st?.kgv ?? null,
+      naechste_zahlen: st?.naechste_zahlen ?? null,
+      punkte: a.punkte ?? 0,
+      wert_eur: wertEur !== null ? Math.round(wertEur * 100) / 100 : null,
+      ergebnis_prozent: ergebnisProzent,
+      stueck: p?.stueck ?? null,
+      // Sparkline-Daten, stark ausgedünnt: die Tabelle braucht Form, keine Details.
+      spur: r.length > 2 ? r.filter((_, i) => i % Math.max(1, Math.floor(r.length / 40)) === 0).map(x => x.kurs) : [],
+    };
+  });
+
+  return json({ stand: new Date().toISOString(), fx_stand: fx?._datum || null, zeilen });
+}
+
+// ── GET /api/agentur/boerse/korrelation ──────────────────────────
+// Wie stark laufen die Werte im Gleichschritt? Aus den Tagesrenditen des
+// eigenen Speichers. Zeigt Klumpen, die in der Aufteilung nach Branche
+// unsichtbar bleiben.
+export async function boerseKorrelation(env, db, url, json, err) {
+  const tage = Math.min(parseInt(url.searchParams.get('tage'), 10) || 180, 400);
+  const kurse = await db.prepare(
+    'SELECT symbol, datum, kurs FROM ag_kurse WHERE datum >= ? ORDER BY symbol, datum'
+  ).bind(tagVor(tage)).all().catch(() => ({ results: [] }));
+
+  const nachSymbol = new Map();
+  for (const k of (kurse.results || [])) {
+    if (!nachSymbol.has(k.symbol)) nachSymbol.set(k.symbol, new Map());
+    nachSymbol.get(k.symbol).set(k.datum, k.kurs);
+  }
+  const symbole = [...nachSymbol.keys()].sort();
+  if (symbole.length < 2) return json({ symbole, matrix: [], hinweis: 'Zu wenige Werte mit Verlauf.' });
+
+  // Nur Tage verwenden, an denen alle Werte einen Kurs haben – sonst
+  // vergleicht man Bewegungen, die zu verschiedenen Zeiten stattfanden.
+  const gemeinsame = [...nachSymbol.get(symbole[0]).keys()]
+    .filter(d => symbole.every(s => nachSymbol.get(s).has(d))).sort();
+  if (gemeinsame.length < 30) {
+    return json({ symbole, matrix: [], gemeinsame_tage: gemeinsame.length,
+      hinweis: 'Weniger als 30 gemeinsame Handelstage – eine Korrelation daraus wäre nicht belastbar.' });
+  }
+
+  const renditen = new Map();
+  for (const s of symbole) {
+    const k = nachSymbol.get(s);
+    const r = [];
+    for (let i = 1; i < gemeinsame.length; i++) {
+      const v = k.get(gemeinsame[i - 1]), n = k.get(gemeinsame[i]);
+      r.push(v ? (n - v) / v : 0);
+    }
+    renditen.set(s, r);
+  }
+
+  const korr = (a, b) => {
+    const n = a.length;
+    const ma = a.reduce((s, x) => s + x, 0) / n, mb = b.reduce((s, x) => s + x, 0) / n;
+    let za = 0, na = 0, nb = 0;
+    for (let i = 0; i < n; i++) { const da = a[i] - ma, db2 = b[i] - mb; za += da * db2; na += da * da; nb += db2 * db2; }
+    return (na && nb) ? Math.round((za / Math.sqrt(na * nb)) * 100) / 100 : null;
+  };
+
+  const matrix = symbole.map(a => symbole.map(b => a === b ? 1 : korr(renditen.get(a), renditen.get(b))));
+
+  // Auffällige Paare herausheben – das ist die eigentliche Information.
+  const paare = [];
+  for (let i = 0; i < symbole.length; i++) {
+    for (let j = i + 1; j < symbole.length; j++) {
+      if (matrix[i][j] !== null) paare.push({ a: symbole[i], b: symbole[j], wert: matrix[i][j] });
+    }
+  }
+  paare.sort((x, y) => y.wert - x.wert);
+
+  return json({
+    symbole, matrix, gemeinsame_tage: gemeinsame.length,
+    zeitraum: [gemeinsame[0], gemeinsame[gemeinsame.length - 1]],
+    engste: paare.slice(0, 6),
+    loseste: paare.slice(-6).reverse(),
+  });
+}
+
+// ── GET /api/agentur/boerse/kalender ─────────────────────────────
+// Anstehende Termine aller verfolgten Werte, aus den gespeicherten
+// Stammdaten. Ohne Abruf.
+export async function boerseKalender(env, db, url, json, err) {
+  const werte = await db.prepare(
+    `SELECT w.symbol, w.name, w.naechste_zahlen, d.stueck
+       FROM ag_werte w LEFT JOIN ag_depot d ON d.symbol = w.symbol AND d.aktiv = 1
+      WHERE w.naechste_zahlen IS NOT NULL AND w.naechste_zahlen >= ?
+      ORDER BY w.naechste_zahlen ASC`
+  ).bind(heute()).all().catch(() => ({ results: [] }));
+
+  const termine = (werte.results || []).map(t => {
+    const tage = Math.round((Date.parse(t.naechste_zahlen) - Date.now()) / 86400000);
+    return { ...t, gehalten: t.stueck !== null, in_tagen: tage };
+  });
+  return json({
+    stand: heute(),
+    termine,
+    hinweis: termine.length ? null : 'Keine Termine hinterlegt. Sie kommen mit „Kurse holen“ aus den Stammdaten.',
+  });
+}
+
+// ── GET /api/agentur/boerse/nachrichtenstrom ─────────────────────
+// Meldungen über alle gehaltenen Werte hinweg. Kostet je Wert einen
+// Abruf, deshalb begrenzt und mit klarer Ansage, wo abgeschnitten wurde.
+export async function boerseNachrichtenstrom(env, db, url, json, err) {
+  const grenze = Math.min(parseInt(url.searchParams.get('werte'), 10) || 6, 12);
+  const tage = Math.min(parseInt(url.searchParams.get('tage'), 10) || 7, 30);
+  const depot = await db.prepare('SELECT symbol, name FROM ag_depot WHERE aktiv=1 ORDER BY stueck*COALESCE(kaufkurs,0) DESC')
+    .all().catch(() => ({ results: [] }));
+  const liste = (depot.results || []).slice(0, grenze);
+
+  const alle = [], fehlt = [];
+  for (const p of liste) {
+    try {
+      const n = await holen(env, '/company-news', {
+        symbol: symbolTeilen(p.symbol).sym, from: tagVor(tage), to: heute(),
+      });
+      for (const x of (n || []).slice(0, 8)) {
+        alle.push({
+          symbol: p.symbol, name: p.name,
+          datum: new Date((x.datetime || 0) * 1000).toISOString().slice(0, 10),
+          schlagzeile: x.headline, quelle: x.source, url: x.url,
+        });
+      }
+    } catch (e) {
+      fehlt.push(`${p.symbol}: ${ohneSchluessel(String(e.message), env)}`);
+      if (/credit|rate limit|quota|429|403/i.test(String(e.message))) break;
+    }
+  }
+  alle.sort((a, b) => b.datum.localeCompare(a.datum));
+  return json({
+    zeitraum: [tagVor(tage), heute()],
+    abgefragt: liste.length, von: (depot.results || []).length,
+    meldungen: alle.slice(0, 60),
+    fehlt: fehlt.length ? fehlt : null,
   });
 }
 
