@@ -61,7 +61,7 @@ const zahl = v => (Number.isFinite(Number(v)) ? Number(v) : null);
 // wird die zweite Quelle gefragt, statt den Wert kurslos zu lassen.
 async function kursHolen(env, db, symbol) {
   let q = null;
-  try { q = await holen(env, '/quote', { symbol }); } catch (e) { q = null; }
+  try { q = await holen(env, '/quote', { symbol: symbolTeilen(symbol).sym }); } catch (e) { q = null; }
 
   if (!q || !zahl(q.c)) {
     try {
@@ -109,14 +109,14 @@ async function kursHolen(env, db, symbol) {
 // Stammdaten und Kennzahlen auffrischen. Selten nötig, deshalb getrennt.
 async function wertHolen(env, db, symbol) {
   const [profil, kennzahlen] = await Promise.all([
-    holen(env, '/stock/profile2', { symbol }).catch(() => ({})),
-    holen(env, '/stock/metric', { symbol, metric: 'all' }).catch(() => ({})),
+    holen(env, '/stock/profile2', { symbol: symbolTeilen(symbol).sym }).catch(() => ({})),
+    holen(env, '/stock/metric', { symbol: symbolTeilen(symbol).sym, metric: 'all' }).catch(() => ({})),
   ]);
   const m = kennzahlen?.metric || {};
 
   let naechsteZahlen = null;
   try {
-    const kal = await holen(env, '/calendar/earnings', { from: heute(), to: tagVor(-120), symbol });
+    const kal = await holen(env, '/calendar/earnings', { from: heute(), to: tagVor(-120), symbol: symbolTeilen(symbol).sym });
     naechsteZahlen = kal?.earningsCalendar?.[0]?.date || null;
   } catch (e) { /* Termine sind nicht überall verfügbar */ }
 
@@ -183,7 +183,8 @@ async function historieSchreiben(db, symbol, punkte, quelle) {
 async function vonFinnhubKerzen(env, symbol, tage) {
   const bis = Math.floor(Date.now() / 1000);
   const von = bis - tage * 86400;
-  const d = await holen(env, '/stock/candle', { symbol, resolution: 'D', from: von, to: bis });
+  const d = await holen(env, '/stock/candle',
+    { symbol: symbolTeilen(symbol).sym, resolution: 'D', from: von, to: bis });
   if (!d || d.s !== 'ok' || !Array.isArray(d.c)) throw new Error('keine Kerzen');
   return d.c.map((kurs, i) => ({
     datum: new Date(d.t[i] * 1000).toISOString().slice(0, 10),
@@ -191,13 +192,24 @@ async function vonFinnhubKerzen(env, symbol, tage) {
   }));
 }
 
+// Viele Kürzel gibt es an mehreren Börsen mit verschiedenen Währungen –
+// "BAS" ist in Xetra etwas anderes als anderswo. Deshalb darf ein Symbol
+// die Börse mitführen: "BAS:XETR". Anbieter, die das nicht kennen,
+// bekommen nur den vorderen Teil.
+function symbolTeilen(symbol) {
+  const [sym, boerse] = String(symbol).split(':');
+  return { sym: sym.trim(), boerse: (boerse || '').trim() || null };
+}
+
 // Twelve Data: 800 Abrufe am Tag statt 25, und deutlich bessere Abdeckung
 // europäischer Börsen. Für dieses Werkzeug die passendste Quelle.
 async function vonTwelveData(env, symbol, tage) {
   const key = (env.TWELVEDATA_KEY || '').trim();
   if (!key) throw new Error('TWELVEDATA_KEY ist nicht gesetzt');
+  const { sym, boerse } = symbolTeilen(symbol);
   const u = new URL('https://api.twelvedata.com/time_series');
-  u.searchParams.set('symbol', symbol);
+  u.searchParams.set('symbol', sym);
+  if (boerse) u.searchParams.set('mic_code', boerse);
   u.searchParams.set('interval', '1day');
   u.searchParams.set('outputsize', String(Math.min(Math.max(tage, 30), 5000)));
   u.searchParams.set('apikey', key);
@@ -219,8 +231,10 @@ async function vonTwelveData(env, symbol, tage) {
 async function kursVonTwelveData(env, symbol) {
   const key = (env.TWELVEDATA_KEY || '').trim();
   if (!key) throw new Error('TWELVEDATA_KEY ist nicht gesetzt');
+  const { sym, boerse } = symbolTeilen(symbol);
   const u = new URL('https://api.twelvedata.com/quote');
-  u.searchParams.set('symbol', symbol);
+  u.searchParams.set('symbol', sym);
+  if (boerse) u.searchParams.set('mic_code', boerse);
   u.searchParams.set('apikey', key);
   const r = await fetch(u.toString());
   const d = await r.json().catch(() => ({}));
@@ -464,12 +478,12 @@ export async function boerseTerminal(env, db, url, json, err) {
       if (q && zahl(q.c)) return q;
       return kursVonTwelveData(env, symbol);   // Zweitquelle für nicht abgedeckte Börsen
     }],
-    ['kennzahlen', () => holen(env, '/stock/metric', { symbol, metric: 'all' })],
-    ['nachrichten', () => holen(env, '/company-news', { symbol, from: tagVor(14), to: heute() })],
-    ['konsens', () => holen(env, '/stock/recommendation', { symbol })],
-    ['kursziel', () => holen(env, '/stock/price-target', { symbol })],
-    ['vergleichbare', () => holen(env, '/stock/peers', { symbol })],
-    ['quartalszahlen', () => holen(env, '/stock/earnings', { symbol })],
+    ['kennzahlen', () => holen(env, '/stock/metric', { symbol: symbolTeilen(symbol).sym, metric: 'all' })],
+    ['nachrichten', () => holen(env, '/company-news', { symbol: symbolTeilen(symbol).sym, from: tagVor(14), to: heute() })],
+    ['konsens', () => holen(env, '/stock/recommendation', { symbol: symbolTeilen(symbol).sym })],
+    ['kursziel', () => holen(env, '/stock/price-target', { symbol: symbolTeilen(symbol).sym })],
+    ['vergleichbare', () => holen(env, '/stock/peers', { symbol: symbolTeilen(symbol).sym })],
+    ['quartalszahlen', () => holen(env, '/stock/earnings', { symbol: symbolTeilen(symbol).sym })],
   ]);
 
   const q = ergebnis.quote;
@@ -749,7 +763,7 @@ export async function boerseNachrichten(env, db, url, json, err) {
   const tage = Math.min(parseInt(url.searchParams.get('tage'), 10) || 7, 30);
   try {
     if (symbol) {
-      const n = await holen(env, '/company-news', { symbol, from: tagVor(tage), to: heute() });
+      const n = await holen(env, '/company-news', { symbol: symbolTeilen(symbol).sym, from: tagVor(tage), to: heute() });
       return json({
         symbol, zeitraum: [tagVor(tage), heute()],
         meldungen: (n || []).slice(0, 40).map(x => ({
