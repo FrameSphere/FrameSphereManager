@@ -207,6 +207,197 @@ const kl = n => n === null || n === undefined || !Number.isFinite(Number(n))
 const gr = (n, w) => n === null || n === undefined ? '–'
   : `${Number(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${w ? ' ' + w : ''}`;
 
+// ════════════════════════════════════════════════════════════════
+// Diagramm-Bausteine
+// ════════════════════════════════════════════════════════════════
+// Beschriftungen stehen bewusst NICHT im SVG: die Zeichenfläche wird mit
+// preserveAspectRatio="none" horizontal gestreckt, damit die Kurve die
+// volle Breite nutzt – Schrift darin würde im selben Maß gestaucht. Achsen
+// sind deshalb HTML, exakt über der Fläche positioniert.
+const CHARTS = {};   // id -> { tage, reihen, mass }
+
+function chartBauen({ id, reihen, hoehe = 320, yLabel = '', normiert = false, flaechen = true }) {
+  const gueltig = reihen.filter(r => r.punkte && r.punkte.length > 1);
+  if (!gueltig.length) {
+    return `<div class="tm-leer" style="border:1px dashed var(--t-linie2);border-radius:3px;margin:12px">
+      Kein Verlauf vorhanden.</div>`;
+  }
+
+  // Zeitachse ist die ERSTE Reihe. Überlagerungen wie gleitende
+  // Durchschnitte beginnen später und dürfen den Kursverlauf nicht
+  // beschneiden – sie bekommen dort schlicht keine Werte.
+  // Bei mehreren gleichrangigen Reihen (Vergleich) wird auf die
+  // gemeinsamen Tage beschnitten, sonst verglichen man Zeiträume.
+  let tage;
+  if (normiert && gueltig.length > 1) {
+    const mengen = gueltig.map(r => new Set(r.punkte.map(p => p.datum)));
+    tage = [...mengen[0]].filter(d => mengen.every(m => m.has(d))).sort();
+  } else {
+    tage = gueltig[0].punkte.map(p => p.datum).sort();
+  }
+  if (tage.length < 2) {
+    return `<div class="tm-leer" style="border:1px dashed var(--t-linie2);border-radius:3px;margin:12px">
+      Nur ${tage.length} gemeinsamer Handelstag — zu wenig für eine Linie.</div>`;
+  }
+
+  const serien = gueltig.map(r => {
+    const m = new Map(r.punkte.map(p => [p.datum, p]));
+    const werte = tage.map(d => m.get(d) || null);
+    const ersterWert = werte.find(Boolean);
+    const basis = ersterWert?.kurs || 1;
+    return { ...r, werte, zahlen: werte.map(p => p ? (normiert ? (p.kurs / basis) * 100 : p.kurs) : null) };
+  });
+
+  const alleZahlen = serien.flatMap(s => s.zahlen).filter(Number.isFinite);
+  let min = Math.min(...alleZahlen), max = Math.max(...alleZahlen);
+  const luft = (max - min) * 0.06 || Math.abs(max) * 0.02 || 1;
+  min -= luft; max += luft;
+  const sp = (max - min) || 1;
+
+  // Nur die Zeichenfläche im SVG. Rechts bleibt Platz für die Achse in HTML.
+  const B = 1000, H = 100;                    // Einheitsraster, wird gestreckt
+  const RECHTS = 58;                          // Pixel für die Werteachse
+  const px = i => (i / (tage.length - 1)) * B;
+  const py = v => (1 - (v - min) / sp) * H;
+
+  const gitterZahl = 5;
+  const gitter = Array.from({ length: gitterZahl + 1 }, (_, i) => {
+    const y = (i / gitterZahl) * H;
+    return `<line x1="0" y1="${y}" x2="${B}" y2="${y}" stroke="rgba(255,255,255,.05)"
+             stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+  }).join('');
+
+  // Lücken (Reihe beginnt später) werden nicht überbrückt, sondern
+  // getrennt gezeichnet – eine durchgezogene Linie über fehlende Tage
+  // würde Werte behaupten, die es nicht gibt.
+  const pfade = serien.map(s => {
+    const stuecke = [];
+    let lauf = [];
+    s.zahlen.forEach((v, i) => {
+      if (Number.isFinite(v)) lauf.push(`${px(i).toFixed(2)},${py(v).toFixed(2)}`);
+      else if (lauf.length) { stuecke.push(lauf); lauf = []; }
+    });
+    if (lauf.length) stuecke.push(lauf);
+
+    const flaeche = (flaechen && serien.length === 1 && stuecke.length === 1)
+      ? `<polygon points="0,${H} ${stuecke[0].join(' ')} ${B},${H}" fill="url(#${id}-f)"/>` : '';
+    return flaeche + stuecke.filter(t => t.length > 1).map(t =>
+      `<polyline points="${t.join(' ')}" fill="none" stroke="${s.farbe}"
+        stroke-width="${s.dick || 1.6}" ${s.strich ? `stroke-dasharray="${s.strich}"` : ''}
+        stroke-linejoin="round" vector-effect="non-scaling-stroke" opacity="${s.deckung || 1}"/>`).join('');
+  }).join('');
+
+  const erste = serien[0];
+  const steigt = erste.zahlen[erste.zahlen.length - 1] >= erste.zahlen[0];
+  const grund = erste.farbe || (steigt ? '#3fd68c' : '#ff6b6b');
+
+  // Werteachse rechts, als HTML – gleichmäßig verteilt wie die Gitterlinien.
+  const yAchse = Array.from({ length: gitterZahl + 1 }, (_, i) => {
+    const v = max - (sp * i) / gitterZahl;
+    return `<div style="position:absolute;right:0;top:${(i / gitterZahl * 100).toFixed(2)}%;
+      transform:translateY(-50%);font-size:9.5px;color:var(--t-text3);line-height:1;
+      width:${RECHTS - 6}px;text-align:right">${normiert ? v.toFixed(0) : z2(v)}</div>`;
+  }).join('');
+
+  // Datumsachse: fünf Stützstellen statt nur Anfang und Ende.
+  const stuetzen = Math.min(5, tage.length);
+  const xAchse = Array.from({ length: stuetzen }, (_, i) => {
+    const k = Math.round((i / (stuetzen - 1)) * (tage.length - 1));
+    const links = (k / (tage.length - 1)) * 100;
+    const ausricht = i === 0 ? 'left:0;text-align:left'
+      : i === stuetzen - 1 ? 'right:0;text-align:right'
+      : `left:${links.toFixed(2)}%;transform:translateX(-50%)`;
+    return `<div style="position:absolute;${ausricht};font-size:9.5px;color:var(--t-text3);white-space:nowrap">
+      ${esc(tage[k])}</div>`;
+  }).join('');
+
+  CHARTS[id] = { tage, serien: serien.map(s => ({ name: s.name, farbe: s.farbe, werte: s.werte, zahlen: s.zahlen })), normiert };
+
+  return `
+    <div class="tm-block" style="padding:10px 12px 4px">
+      <div style="position:relative;height:${hoehe}px;padding-right:${RECHTS}px"
+           onmousemove="chartFahren(event,'${id}')" onmouseleave="chartVerlassen('${id}')">
+        <svg viewBox="0 0 ${B} ${H}" preserveAspectRatio="none"
+             style="width:100%;height:100%;display:block;cursor:crosshair" id="${id}-svg">
+          <defs><linearGradient id="${id}-f" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="${grund}" stop-opacity=".22"/>
+            <stop offset="100%" stop-color="${grund}" stop-opacity="0"/></linearGradient></defs>
+          ${gitter}${pfade}
+        </svg>
+        <div id="${id}-kreuz" style="position:absolute;top:0;bottom:0;width:1px;background:var(--t-text2);
+             display:none;pointer-events:none"></div>
+        <div id="${id}-punkte" style="position:absolute;inset:0;pointer-events:none"></div>
+        ${yAchse}
+        <div id="${id}-tip" style="position:absolute;display:none;pointer-events:none;z-index:9;
+             background:#050709;border:1px solid var(--t-linie2);border-radius:3px;padding:5px 8px;
+             font-size:10.5px;line-height:1.5;white-space:nowrap;box-shadow:0 8px 20px -8px #000"></div>
+      </div>
+      <div style="position:relative;height:15px;margin-top:3px;padding-right:${RECHTS}px">${xAchse}</div>
+      ${yLabel ? `<div style="font-size:9px;color:var(--t-text3);letter-spacing:.1em;text-transform:uppercase;
+        margin-top:2px">${esc(yLabel)}</div>` : ''}
+    </div>`;
+}
+
+// Fadenkreuz mit Ablesung. Zeigt für jede Reihe den Wert an genau diesem
+// Tag – bei mehreren Reihen untereinander, damit sie vergleichbar bleiben.
+function chartFahren(ev, id) {
+  const c = CHARTS[id]; if (!c) return;
+  const flaeche = ev.currentTarget;
+  const b = flaeche.getBoundingClientRect();
+  const svg = document.getElementById(id + '-svg');
+  const sb = svg.getBoundingClientRect();
+  if (!sb.width) return;   // Fläche noch nicht ausgemessen – nichts anzeigen
+  const anteil = Math.max(0, Math.min(1, (ev.clientX - sb.left) / sb.width));
+  const i = Math.max(0, Math.min(c.tage.length - 1, Math.round(anteil * (c.tage.length - 1))));
+  const x = (i / (c.tage.length - 1)) * sb.width;
+
+  const kreuz = document.getElementById(id + '-kreuz');
+  if (kreuz) { kreuz.style.left = x + 'px'; kreuz.style.display = 'block'; }
+
+  // Punkte auf den Linien markieren
+  const pkt = document.getElementById(id + '-punkte');
+  if (pkt) {
+    pkt.innerHTML = c.serien.map(s => {
+      const v = s.zahlen[i]; if (!Number.isFinite(v)) return '';
+      const alle = c.serien.flatMap(x2 => x2.zahlen).filter(Number.isFinite);
+      let mn = Math.min(...alle), mx = Math.max(...alle);
+      const luft = (mx - mn) * 0.06 || 1; mn -= luft; mx += luft;
+      const y = (1 - (v - mn) / ((mx - mn) || 1)) * sb.height;
+      return `<div style="position:absolute;left:${x}px;top:${y}px;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;
+        border-radius:50%;background:${s.farbe};box-shadow:0 0 0 2px #07090d"></div>`;
+    }).join('');
+  }
+
+  const tip = document.getElementById(id + '-tip');
+  if (tip) {
+    const p0 = c.serien[0].werte[i];
+    tip.innerHTML = `<div style="color:var(--t-akzent2);font-weight:700;margin-bottom:2px">${esc(c.tage[i])}</div>`
+      + c.serien.map(s => {
+          const p = s.werte[i], v = s.zahlen[i];
+          if (!Number.isFinite(v)) return '';   // Reihe beginnt später
+          const basis = s.zahlen.find(Number.isFinite);
+          const seitStart = basis ? ((v - basis) / basis) * 100 : 0;
+          return `<div><span style="display:inline-block;width:8px;height:2px;background:${s.farbe};
+            vertical-align:middle;margin-right:5px"></span>${esc(s.name || '')}
+            <b style="color:var(--t-text)">${c.normiert ? v.toFixed(1) : z2(v)}</b>
+            <span class="${kl(seitStart)}">${pz(seitStart)} %</span>
+            ${(!c.normiert && p?.hoch) ? `<span class="dim"> H ${z2(p.hoch)} T ${z2(p.tief)}</span>` : ''}</div>`;
+        }).join('');
+    tip.style.display = 'block';
+    const tb = tip.getBoundingClientRect();
+    const links = x + 12 + tb.width > b.width ? x - tb.width - 12 : x + 12;
+    tip.style.left = Math.max(0, links) + 'px';
+    tip.style.top = '6px';
+  }
+}
+
+function chartVerlassen(id) {
+  for (const s of ['-kreuz', '-tip']) {
+    const e = document.getElementById(id + s); if (e) e.style.display = 'none';
+  }
+  const p = document.getElementById(id + '-punkte'); if (p) p.innerHTML = '';
+}
+
 // ── Laden ───────────────────────────────────────────────────────
 async function ladeGrunddaten() {
   const [m, u] = await Promise.all([
@@ -582,86 +773,42 @@ function zeichneWert() {
 
 function chartGross() {
   const v = DETAIL?.verlauf || [];
-  if (v.length < 2) return `<div class="tm-leer" style="margin:12px;border:1px dashed var(--t-linie2);border-radius:3px">
-    Kein Verlauf gespeichert. „Historie laden“ im Börsen-Bereich holt die vergangenen Monate.</div>`;
   const r = ZEITRAUM ? v.slice(-ZEITRAUM) : v;
-  CHART = r;
   const w = r.map(p => p.kurs);
-  const min = Math.min(...w), max = Math.max(...w), sp = (max - min) || 1;
-  const B = 1200, H = 320, R = { o: 12, u: 24, r: 64 };
-  const px = i => (i / (r.length - 1)) * (B - R.r);
-  const py = x => R.o + (1 - (x - min) / sp) * (H - R.o - R.u);
-  const linie = r.map((p, i) => `${px(i).toFixed(1)},${py(p.kurs).toFixed(1)}`).join(' ');
-  const flaeche = `0,${H - R.u} ${linie} ${px(r.length - 1).toFixed(1)},${H - R.u}`;
 
-  const sma = (f, farbe) => {
-    if (r.length < f) return '';
-    const pts = [];
+  // Gleitende Durchschnitte als eigene Reihen – dieselbe Tagesachse.
+  const smaReihe = (f, farbe, name) => {
+    if (r.length < f) return null;
+    const pkt = [];
     for (let i = f - 1; i < r.length; i++) {
-      const m = w.slice(i - f + 1, i + 1).reduce((s, x) => s + x, 0) / f;
-      pts.push(`${px(i).toFixed(1)},${py(m).toFixed(1)}`);
+      pkt.push({ datum: r[i].datum, kurs: w.slice(i - f + 1, i + 1).reduce((a, x) => a + x, 0) / f });
     }
-    return `<polyline points="${pts.join(' ')}" fill="none" stroke="${farbe}" stroke-width="1"
-             stroke-dasharray="4 3" vector-effect="non-scaling-stroke" opacity=".8"/>`;
+    return { name, farbe, punkte: pkt, dick: 1, strich: '4 3', deckung: .85 };
   };
 
-  let band = '';
+  const reihen = [{ name: DETAIL?.symbol || 'Kurs', farbe: w[w.length - 1] >= w[0] ? '#3fd68c' : '#ff6b6b', punkte: r }];
+  if (LINIEN.sma20)  { const x = smaReihe(20, '#58a6ff', 'SMA 20');  if (x) reihen.push(x); }
+  if (LINIEN.sma50)  { const x = smaReihe(50, '#c084fc', 'SMA 50');  if (x) reihen.push(x); }
+  if (LINIEN.sma200) { const x = smaReihe(200, '#f0b429', 'SMA 200'); if (x) reihen.push(x); }
   if (LINIEN.bollinger && r.length >= 20) {
-    const o = [], u = [];
+    const ob = [], un = [];
     for (let i = 19; i < r.length; i++) {
       const t = w.slice(i - 19, i + 1);
-      const m = t.reduce((s, x) => s + x, 0) / 20;
-      const s = Math.sqrt(t.reduce((a, x) => a + (x - m) ** 2, 0) / 20);
-      o.push(`${px(i).toFixed(1)},${py(m + 2 * s).toFixed(1)}`);
-      u.push(`${px(i).toFixed(1)},${py(m - 2 * s).toFixed(1)}`);
+      const m = t.reduce((a, x) => a + x, 0) / 20;
+      const sd = Math.sqrt(t.reduce((a, x) => a + (x - m) ** 2, 0) / 20);
+      ob.push({ datum: r[i].datum, kurs: m + 2 * sd });
+      un.push({ datum: r[i].datum, kurs: m - 2 * sd });
     }
-    band = `<polygon points="${o.join(' ')} ${u.reverse().join(' ')}" fill="rgba(88,166,255,.09)"/>`;
+    reihen.push({ name: 'Band oben', farbe: '#58a6ff', punkte: ob, dick: .8, deckung: .45 });
+    reihen.push({ name: 'Band unten', farbe: '#58a6ff', punkte: un, dick: .8, deckung: .45 });
   }
 
-  const stufen = 5;
-  const gitter = Array.from({ length: stufen + 1 }, (_, i) => {
-    const val = min + (sp * i) / stufen, y = py(val).toFixed(1);
-    return `<line x1="0" y1="${y}" x2="${B - R.r}" y2="${y}" stroke="rgba(255,255,255,.045)" stroke-width="1" vector-effect="non-scaling-stroke"/>
-            <text x="${B - R.r + 7}" y="${y}" dy="3.5" fill="#526074" font-size="10" font-family="Space Mono">${z2(val)}</text>`;
-  }).join('');
-
-  const auf = w[w.length - 1] >= w[0];
-  const f = auf ? 'var(--t-auf)' : 'var(--t-ab)';
-  const wandel = w[0] ? ((w[w.length - 1] - w[0]) / w[0]) * 100 : 0;
-
-  return `<div class="tm-block" style="padding:10px 12px" onmousemove="chartLesen(event)" onmouseleave="chartRaus()">
-    <svg viewBox="0 0 ${B} ${H}" preserveAspectRatio="none" id="csvg" style="width:100%;height:320px;cursor:crosshair;display:block">
-      <defs><linearGradient id="cf" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${auf ? '#3fd68c' : '#ff6b6b'}" stop-opacity=".22"/>
-        <stop offset="100%" stop-color="${auf ? '#3fd68c' : '#ff6b6b'}" stop-opacity="0"/></linearGradient></defs>
-      ${gitter}${band}
-      <polygon points="${flaeche}" fill="url(#cf)"/>
-      <polyline points="${linie}" fill="none" stroke="${f}" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
-      ${LINIEN.sma20 ? sma(20, '#58a6ff') : ''}${LINIEN.sma50 ? sma(50, '#c084fc') : ''}${LINIEN.sma200 ? sma(200, '#f0b429') : ''}
-      <line id="ckreuz" x1="0" y1="${R.o}" x2="0" y2="${H - R.u}" stroke="#8b9bb0" stroke-width="1" vector-effect="non-scaling-stroke" style="display:none"/>
-    </svg>
-    <div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--t-text3);padding-right:64px;margin-top:2px">
-      <span>${esc(r[0].datum)}</span>
-      <span id="clesen">${r.length} Tage · ${wandel >= 0 ? '+' : ''}${wandel.toFixed(1)} % im Zeitraum</span>
-      <span>${esc(r[r.length - 1].datum)}</span>
-    </div>
-  </div>`;
+  const wandel = w.length > 1 && w[0] ? ((w[w.length - 1] - w[0]) / w[0]) * 100 : 0;
+  return chartBauen({
+    id: 'wrt', reihen, hoehe: 320, flaechen: reihen.length === 1,
+    yLabel: `${r.length} Handelstage im Zeitraum · ${wandel >= 0 ? '+' : ''}${wandel.toFixed(1)} % · Werte in ${DETAIL?.stammdaten?.waehrung || ''}`,
+  });
 }
-
-function chartLesen(ev) {
-  if (!CHART.length) return;
-  const svg = document.getElementById('csvg'); if (!svg) return;
-  const b = svg.getBoundingClientRect();
-  const i = Math.min(CHART.length - 1, Math.max(0,
-    Math.round(((ev.clientX - b.left) / b.width) * (1200 / 1136) * (CHART.length - 1))));
-  const p = CHART[i]; if (!p) return;
-  const kr = document.getElementById('ckreuz');
-  if (kr) { const x = (i / (CHART.length - 1)) * 1136; kr.setAttribute('x1', x); kr.setAttribute('x2', x); kr.style.display = ''; }
-  const l = document.getElementById('clesen');
-  if (l) l.innerHTML = `<b style="color:var(--t-akzent2)">${esc(p.datum)}</b> · ${z2(p.kurs)}` +
-    (p.hoch ? ` · H ${z2(p.hoch)} T ${z2(p.tief)}` : '');
-}
-function chartRaus() { const k = document.getElementById('ckreuz'); if (k) k.style.display = 'none'; }
 
 function panelLeiste() {
   const r = [['nachrichten', 'Meldungen', (DETAIL?.nachrichten || []).length],
@@ -751,50 +898,24 @@ async function schirmVergleich() {
   }
   const vorhanden = Object.keys(daten).filter(s => daten[s].length > 2);
 
-  let chart = '<div class="tm-leer">Mindestens zwei Werte mit Verlauf wählen.</div>';
-  if (vorhanden.length >= 1) {
-    // Auf gemeinsame Tage beschränken, sonst vergleicht man Zeiträume.
-    const mengen = vorhanden.map(s => new Set(daten[s].map(p => p.datum)));
-    const tage = [...mengen[0]].filter(d => mengen.every(m => m.has(d))).sort();
-    if (tage.length < 5) {
-      chart = `<div class="tm-leer">Nur ${tage.length} gemeinsame Handelstage — zu wenig für einen Vergleich.</div>`;
-    } else {
-      const t = ZEITRAUM ? tage.slice(-ZEITRAUM) : tage;
-      const farben = ['#f0b429', '#58a6ff', '#3fd68c', '#c084fc', '#ff6b6b', '#22d3ee'];
-      const reihen = vorhanden.map((s, i) => {
-        const m = new Map(daten[s].map(p => [p.datum, p.kurs]));
-        const basis = m.get(t[0]);
-        return { symbol: s, farbe: farben[i % farben.length],
-                 werte: t.map(d => (m.get(d) / basis) * 100) };
-      });
-      const alleW = reihen.flatMap(r => r.werte);
-      const min = Math.min(...alleW), max = Math.max(...alleW), sp = (max - min) || 1;
-      const B = 1200, H = 340, R = { o: 12, u: 24, r: 60 };
-      const px = i => (i / (t.length - 1)) * (B - R.r);
-      const py = v => R.o + (1 - (v - min) / sp) * (H - R.o - R.u);
-      const gitter = [0, 25, 50, 75, 100].map(q => {
-        const v = min + (sp * q) / 100, y = py(v).toFixed(1);
-        return `<line x1="0" y1="${y}" x2="${B - R.r}" y2="${y}" stroke="rgba(255,255,255,.045)" stroke-width="1" vector-effect="non-scaling-stroke"/>
-                <text x="${B - R.r + 6}" y="${y}" dy="3.5" fill="#526074" font-size="10" font-family="Space Mono">${v.toFixed(0)}</text>`;
-      }).join('');
-      chart = `<div class="tm-block" style="padding:10px 12px">
-        <svg viewBox="0 0 ${B} ${H}" preserveAspectRatio="none" style="width:100%;height:340px;display:block">
-          ${gitter}
-          <line x1="0" y1="${py(100)}" x2="${B - R.r}" y2="${py(100)}" stroke="#526074" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>
-          ${reihen.map(r => `<polyline points="${r.werte.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ')}"
-            fill="none" stroke="${r.farbe}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join('')}
-        </svg>
-        <div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--t-text3);padding-right:60px">
-          <span>${esc(t[0])}</span><span>alle Reihen auf 100 normiert am Startpunkt</span><span>${esc(t[t.length - 1])}</span></div>
-        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:10.5px">
-          ${reihen.map(r => {
-            const e = r.werte[r.werte.length - 1] - 100;
-            return `<span><span style="display:inline-block;width:9px;height:2px;background:${r.farbe};margin-right:5px;vertical-align:middle"></span>
-              <span class="sym">${esc(r.symbol)}</span> <span class="${kl(e)}">${pz(e)} %</span></span>`;
-          }).join('')}
-        </div></div>`;
-    }
-  }
+  const farben = ['#f0b429', '#58a6ff', '#3fd68c', '#c084fc', '#ff6b6b', '#22d3ee'];
+  const reihen = vorhanden.map((s, i) => ({
+    name: s, farbe: farben[i % farben.length],
+    punkte: ZEITRAUM ? daten[s].slice(-ZEITRAUM) : daten[s],
+  }));
+  const chart = reihen.length
+    ? chartBauen({ id: 'vgl', reihen, hoehe: 340, normiert: true, flaechen: false,
+        yLabel: 'alle Reihen am Startpunkt auf 100 gesetzt — der Abstand zeigt die relative Entwicklung' })
+    : '<div class="tm-leer">Mindestens einen Wert mit Verlauf wählen.</div>';
+
+  const legende = reihen.length ? `<div style="display:flex;flex-wrap:wrap;gap:14px;padding:0 12px 10px;font-size:10.5px">
+    ${reihen.map(r => {
+      const w = r.punkte.map(p => p.kurs);
+      const e = w.length > 1 && w[0] ? ((w[w.length - 1] - w[0]) / w[0]) * 100 : 0;
+      return `<span><span style="display:inline-block;width:9px;height:2px;background:${r.farbe};
+        margin-right:5px;vertical-align:middle"></span><span class="sym">${esc(r.name)}</span>
+        <span class="${kl(e)}">${pz(e)} %</span></span>`;
+    }).join('')}</div>` : '';
 
   haupt.innerHTML = `
     <div class="tm-titel">Vergleich — normiert auf 100 <span class="zahl">${vorhanden.length} Werte</span></div>
@@ -802,7 +923,7 @@ async function schirmVergleich() {
       ${[[22, '1M'], [66, '3M'], [132, '6M'], [252, '1J'], [0, 'MAX']].map(([n, l]) =>
         `<button class="knopf ${ZEITRAUM === n ? 'an' : ''}" onclick="ZEITRAUM=${n};schirmVergleich()">${l}</button>`).join('')}
     </div>
-    ${chart}
+    ${chart}${legende}
     <div class="tm-hint">Normierung bedeutet: jede Reihe startet bei 100. Der Abstand zeigt die
       <b>relative</b> Entwicklung im gewählten Zeitraum, nicht den Kurs. Verglichen wird nur über Tage,
       an denen alle gewählten Werte einen Kurs haben.</div>`;
