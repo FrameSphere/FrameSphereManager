@@ -495,4 +495,26 @@ INSERT OR IGNORE INTO ag_mitarbeiter
 -- ADRs bilden die Heimataktie selten 1:1 ab. Ohne Faktor ergäbe
 -- "ADR-Kurs × Stückzahl der Heimataktien" einen falschen Depotwert.
 -- 1 = Kurs gilt unverändert je Stück.
-ALTER TABLE ag_depot ADD COLUMN kurs_faktor REAL DEFAULT 1;
+
+-- Schwellen: was Karol gemeldet bekommen will. Malte prüft sie bei jedem
+-- Lauf, das Terminal zeigt ausgelöste sofort. Ohne solche Vorgaben müsste
+-- die Rolle raten, was wichtig ist – und würde entweder zu viel oder zu
+-- wenig melden.
+CREATE TABLE IF NOT EXISTS ag_schwellen (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol       TEXT,                     -- NULL = gilt für alle Werte
+  art          TEXT NOT NULL,            -- kurs_unter | kurs_ueber | tag_bewegung
+                                         -- | rsi_ueber | rsi_unter | ergebnis_unter
+                                         -- | ergebnis_ueber | zahlen_in_tagen
+  wert         REAL NOT NULL,
+  notiz        TEXT,
+  aktiv        INTEGER DEFAULT 1,
+  zuletzt_aus  TEXT,                     -- wann zuletzt ausgelöst
+  erstellt_am  DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_ag_schwellen ON ag_schwellen(aktiv, symbol);
+
+-- Hinweis: nachträgliche Spalten (gsc_property, kosten_usd, kampagne_id,
+-- angefragt_von*, kurs_faktor) legt der Worker beim Start selbst an.
+-- Als ALTER TABLE hier würden sie den zweiten Lauf dieser Datei abbrechen,
+-- weil SQLite kein IF NOT EXISTS für Spalten kennt.

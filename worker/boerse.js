@@ -821,6 +821,201 @@ export async function boerseMonitor(env, db, url, json, err) {
   return json({ stand: new Date().toISOString(), fx_stand: fx?._datum || null, zeilen });
 }
 
+// ── Schwellen ────────────────────────────────────────────────────
+// Was Karol gemeldet bekommen will. Die Prüfung läuft vollständig auf
+// gespeicherten Daten – kein Abruf, deshalb beliebig oft möglich, auch
+// von Malte in jedem Lauf.
+const SCHWELLEN_ARTEN = {
+  kurs_unter:      'Kurs unter',
+  kurs_ueber:      'Kurs über',
+  tag_bewegung:    'Tagesbewegung stärker als ±',
+  rsi_ueber:       'RSI über',
+  rsi_unter:       'RSI unter',
+  ergebnis_unter:  'Ergebnis unter',
+  ergebnis_ueber:  'Ergebnis über',
+  zahlen_in_tagen: 'Quartalszahlen in weniger als',
+};
+
+export async function schwellenLesen(env, db, url, json, err) {
+  const r = await db.prepare('SELECT * FROM ag_schwellen ORDER BY aktiv DESC, symbol, art')
+    .all().catch(() => ({ results: [] }));
+  return json({ arten: SCHWELLEN_ARTEN, schwellen: r.results || [] });
+}
+
+export async function schwellenSchreiben(env, db, body, method, id, json, err) {
+  if (method === 'POST') {
+    if (!body.art || !SCHWELLEN_ARTEN[body.art]) return err('Unbekannte Art');
+    if (body.wert === undefined || !Number.isFinite(Number(body.wert))) return err('wert fehlt');
+    const res = await db.prepare(
+      'INSERT INTO ag_schwellen (symbol, art, wert, notiz) VALUES (?,?,?,?)'
+    ).bind(
+      body.symbol ? String(body.symbol).toUpperCase().slice(0, 24) : null,
+      body.art, Number(body.wert),
+      body.notiz ? String(body.notiz).slice(0, 300) : null,
+    ).run();
+    return json({ success: true, id: res.meta?.last_row_id });
+  }
+  if (method === 'DELETE' && id) {
+    await db.prepare('DELETE FROM ag_schwellen WHERE id=?').bind(Number(id)).run();
+    return json({ success: true });
+  }
+  if (method === 'PATCH' && id) {
+    if (body.aktiv === undefined) return err('Nichts zu ändern');
+    await db.prepare('UPDATE ag_schwellen SET aktiv=? WHERE id=?')
+      .bind(body.aktiv ? 1 : 0, Number(id)).run();
+    return json({ success: true });
+  }
+  return err('Nicht unterstützt', 405);
+}
+
+// Prüfung gegen den gespeicherten Stand. Liefert Auslöser mit Beleg, damit
+// jede Meldung nachvollziehbar bleibt.
+// Reine Prüfung ohne Antwortkanal – von der Route UND vom Lage-Überblick
+// genutzt. Ein gefälschtes json/err durchzureichen wäre eine Falle für den
+// Nächsten, der hier etwas ändert.
+async function schwellenAuswerten(env, db) {
+  const [regeln, depot, werte, kurse] = await Promise.all([
+    db.prepare('SELECT * FROM ag_schwellen WHERE aktiv=1').all().catch(() => ({ results: [] })),
+    db.prepare('SELECT * FROM ag_depot WHERE aktiv=1').all().catch(() => ({ results: [] })),
+    db.prepare('SELECT * FROM ag_werte').all().catch(() => ({ results: [] })),
+    db.prepare('SELECT symbol, datum, kurs, veraenderung_prozent FROM ag_kurse WHERE datum >= ? ORDER BY symbol, datum')
+      .bind(tagVor(400)).all().catch(() => ({ results: [] })),
+  ]);
+
+  const wertNach = new Map((werte.results || []).map(w => [w.symbol, w]));
+  const depotNach = new Map((depot.results || []).map(p => [p.symbol, p]));
+  const reihen = new Map();
+  for (const k of (kurse.results || [])) {
+    if (!reihen.has(k.symbol)) reihen.set(k.symbol, []);
+    reihen.get(k.symbol).push(k);
+  }
+  let fx = null;
+  try { fx = await wechselkurse('EUR'); } catch (e) { fx = null; }
+
+  const lage = sym => {
+    const r = reihen.get(sym) || [];
+    if (!r.length) return null;
+    const letzt = r[r.length - 1];
+    const a = analytik(r.map(x => ({ datum: x.datum, kurs: x.kurs })));
+    const p = depotNach.get(sym), st = wertNach.get(sym);
+    let ergebnis = null;
+    if (p && st?.waehrung) {
+      const faktor = Number(p.kurs_faktor) > 0 ? Number(p.kurs_faktor) : 1;
+      const roh = letzt.kurs * p.stueck * faktor;
+      const wert = st.waehrung === (p.waehrung || 'EUR') ? roh : umrechnen(roh, st.waehrung, p.waehrung || 'EUR', fx);
+      const einsatz = p.kaufkurs != null ? p.kaufkurs * p.stueck : null;
+      if (wert !== null && einsatz) ergebnis = ((wert - einsatz) / einsatz) * 100;
+    }
+    return { kurs: letzt.kurs, datum: letzt.datum, tag: letzt.veraenderung_prozent,
+             rsi: a.rsi, ergebnis, zahlen: st?.naechste_zahlen || null, waehrung: st?.waehrung || null };
+  };
+
+  const alle = [...new Set([...depotNach.keys(), ...reihen.keys()])];
+  const ausgeloest = [];
+  for (const regel of (regeln.results || [])) {
+    const ziele = regel.symbol ? [regel.symbol] : alle;
+    for (const sym of ziele) {
+      const l = lage(sym); if (!l) continue;
+      let trifft = false, ist = null, einheit = '';
+      switch (regel.art) {
+        case 'kurs_unter':   ist = l.kurs; trifft = l.kurs !== null && l.kurs < regel.wert; einheit = l.waehrung || ''; break;
+        case 'kurs_ueber':   ist = l.kurs; trifft = l.kurs !== null && l.kurs > regel.wert; einheit = l.waehrung || ''; break;
+        case 'tag_bewegung': ist = l.tag;  trifft = l.tag !== null && Math.abs(l.tag) >= Math.abs(regel.wert); einheit = '%'; break;
+        case 'rsi_ueber':    ist = l.rsi;  trifft = l.rsi !== null && l.rsi > regel.wert; break;
+        case 'rsi_unter':    ist = l.rsi;  trifft = l.rsi !== null && l.rsi < regel.wert; break;
+        case 'ergebnis_unter': ist = l.ergebnis; trifft = l.ergebnis !== null && l.ergebnis < regel.wert; einheit = '%'; break;
+        case 'ergebnis_ueber': ist = l.ergebnis; trifft = l.ergebnis !== null && l.ergebnis > regel.wert; einheit = '%'; break;
+        case 'zahlen_in_tagen': {
+          if (!l.zahlen) break;
+          const t = Math.round((Date.parse(l.zahlen) - Date.now()) / 86400000);
+          ist = t; trifft = t >= 0 && t <= regel.wert; einheit = 'Tage';
+          break;
+        }
+      }
+      if (trifft) {
+        ausgeloest.push({
+          schwelle_id: regel.id, symbol: sym, art: regel.art,
+          bezeichnung: SCHWELLEN_ARTEN[regel.art],
+          grenze: regel.wert, ist: ist === null ? null : Math.round(ist * 100) / 100,
+          einheit, stand: l.datum, notiz: regel.notiz,
+          beleg: `${SCHWELLEN_ARTEN[regel.art]} ${regel.wert}${einheit ? ' ' + einheit : ''} — ist ${Math.round(ist * 100) / 100}${einheit ? ' ' + einheit : ''} (Stand ${l.datum})`,
+        });
+      }
+    }
+  }
+
+  return {
+    geprueft: (regeln.results || []).length,
+    werte_geprueft: alle.length,
+    ausgeloest,
+    hinweis: (regeln.results || []).length ? null
+      : 'Keine Schwellen hinterlegt. Ohne sie meldet der Depot-Beobachter nur seine festen Standardfälle.',
+  };
+}
+
+export async function schwellenPruefen(env, db, url, json, err) {
+  return json(await schwellenAuswerten(env, db));
+}
+
+// ── GET /api/agentur/boerse/lage ─────────────────────────────────
+// Was ist passiert? Ein Überblick aus gespeicherten Daten: ausgelöste
+// Schwellen, auffällige Bewegungen, anstehende Termine, neue Befunde und
+// Berichte. Ohne externen Abruf, damit er jederzeit abrufbar ist.
+export async function boerseLage(env, db, url, json, err) {
+  const tage = Math.min(parseInt(url.searchParams.get('tage'), 10) || 7, 90);
+  const seit = new Date(Date.now() - tage * 86400000).toISOString();
+
+  const [schwellen, kalender, befunde, berichte, laeufe] = await Promise.all([
+    schwellenAuswerten(env, db).catch(() => null),
+    db.prepare(`SELECT symbol, name, naechste_zahlen FROM ag_werte
+                 WHERE naechste_zahlen IS NOT NULL AND naechste_zahlen >= ? AND naechste_zahlen <= ?
+                 ORDER BY naechste_zahlen`)
+      .bind(heute(), new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)).all().catch(() => ({ results: [] })),
+    db.prepare(`SELECT b.*, m.name AS autor FROM ag_befunde b LEFT JOIN ag_mitarbeiter m ON m.id=b.mitarbeiter_id
+                 WHERE b.abteilung_id='boerse' AND b.erstellt_am >= ? ORDER BY b.id DESC LIMIT 20`)
+      .bind(seit).all().catch(() => ({ results: [] })),
+    db.prepare(`SELECT e.id, e.titel, e.art, e.erstellt_am, m.name AS autor FROM ag_eintraege e
+                 LEFT JOIN ag_mitarbeiter m ON m.id=e.mitarbeiter_id
+                 WHERE e.abteilung_id='boerse' AND e.art='bericht' AND e.erstellt_am >= ?
+                 ORDER BY e.id DESC LIMIT 10`).bind(seit).all().catch(() => ({ results: [] })),
+    db.prepare(`SELECT status, COUNT(*) n FROM ag_laeufe WHERE abteilung_id='boerse' AND gestartet_am >= ? GROUP BY status`)
+      .bind(seit).all().catch(() => ({ results: [] })),
+  ]);
+
+  // Auffällige Bewegungen aus dem Speicher
+  const kurse = await db.prepare(
+    'SELECT symbol, datum, kurs, veraenderung_prozent FROM ag_kurse WHERE datum >= ? ORDER BY symbol, datum'
+  ).bind(tagVor(tage + 5)).all().catch(() => ({ results: [] }));
+  const nach = new Map();
+  for (const k of (kurse.results || [])) {
+    if (!nach.has(k.symbol)) nach.set(k.symbol, []);
+    nach.get(k.symbol).push(k);
+  }
+  const bewegungen = [];
+  for (const [sym, r] of nach) {
+    if (r.length < 2) continue;
+    const erst = r[0].kurs, letzt = r[r.length - 1].kurs;
+    if (!erst) continue;
+    bewegungen.push({
+      symbol: sym, von: r[0].datum, bis: r[r.length - 1].datum,
+      veraenderung: Math.round(((letzt - erst) / erst) * 10000) / 100,
+      tage: r.length,
+    });
+  }
+  bewegungen.sort((a, b) => Math.abs(b.veraenderung) - Math.abs(a.veraenderung));
+
+  return json({
+    zeitraum_tage: tage, seit,
+    schwellen: schwellen?.ausgeloest || [],
+    schwellen_geprueft: schwellen?.geprueft ?? 0,
+    bewegungen: bewegungen.slice(0, 10),
+    termine: kalender.results || [],
+    befunde: befunde.results || [],
+    berichte: berichte.results || [],
+    laeufe: (laeufe.results || []).reduce((a, x) => { a[x.status] = x.n; return a; }, {}),
+  });
+}
+
 // ── GET /api/agentur/boerse/korrelation ──────────────────────────
 // Wie stark laufen die Werte im Gleichschritt? Aus den Tagesrenditen des
 // eigenen Speichers. Zeigt Klumpen, die in der Aufteilung nach Branche

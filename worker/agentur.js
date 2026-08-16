@@ -17,6 +17,7 @@ import {
   boerseUebersicht, boerseAuffrischen, boerseNachrichten,
   boerseHistorie, boerseSuche, boerseTerminal, boersePortfolio,
   boerseMonitor, boerseKorrelation, boerseKalender, boerseNachrichtenstrom,
+  boerseLage, schwellenLesen, schwellenSchreiben, schwellenPruefen,
   depotSchreiben, watchlistSchreiben,
 } from './boerse.js';
 
@@ -149,6 +150,12 @@ async function ensureAgenturTables(db) {
     )`),
     db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_fragen_status ON ag_fragen(status, dringlichkeit)'),
     db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_fragen_abt ON ag_fragen(abteilung_id, status)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ag_schwellen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT, art TEXT NOT NULL, wert REAL NOT NULL,
+      notiz TEXT, aktiv INTEGER DEFAULT 1, zuletzt_aus TEXT,
+      erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_schwellen ON ag_schwellen(aktiv, symbol)'),
   ]);
   // Nachträgliche Spalten (schlagen fehl, wenn sie schon da sind – das ist ok)
   // Absender einer Aufgabe: ohne den weiß die Entwicklung nicht, wem sie
@@ -1349,6 +1356,11 @@ export async function handleAgentur(request, env, helpers) {
     if (method === 'GET'  && id3 === 'korrelation')  return boerseKorrelation(env, db, url, json, err);
     if (method === 'GET'  && id3 === 'kalender')     return boerseKalender(env, db, url, json, err);
     if (method === 'GET'  && id3 === 'nachrichtenstrom') return boerseNachrichtenstrom(env, db, url, json, err);
+    if (method === 'GET'  && id3 === 'lage')         return boerseLage(env, db, url, json, err);
+    if (id3 === 'schwellen' && teil4 === 'pruefen' && method === 'GET')
+                                                     return schwellenPruefen(env, db, url, json, err);
+    if (id3 === 'schwellen' && method === 'GET')     return schwellenLesen(env, db, url, json, err);
+    if (id3 === 'schwellen')                         return schwellenSchreiben(env, db, body, method, teil4, json, err);
     if (id3 === 'depot')     return depotSchreiben(request, env, db, body, method, teil4, json, err);
     if (id3 === 'watchlist') return watchlistSchreiben(env, db, body, method, teil4, json, err);
   }

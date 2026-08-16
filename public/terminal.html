@@ -172,6 +172,7 @@
 // ════════════════════════════════════════════════════════════════
 
 const SCHIRME = [
+  ['LAG', 'Lage',       'schirmLage'],
   ['DEP', 'Depot',      'schirmDepot'],
   ['MON', 'Monitor',    'schirmMonitor'],
   ['WRT', 'Einzelwert', 'schirmWert'],
@@ -182,7 +183,7 @@ const SCHIRME = [
   ['KI',  'Agentur',    'schirmAgentur'],
 ];
 
-let SCHIRM   = 'DEP';
+let SCHIRM   = 'LAG';
 let MONITOR  = null;   // Zeilen je Wert, aus eigenem Speicher
 let UEBER    = null;   // Depotübersicht
 let AKTIV    = null;   // gewähltes Symbol
@@ -191,6 +192,9 @@ let KORR     = null;
 let KALENDER = null;
 let STROM    = null;
 let AGENTUR  = null;
+let LAGE     = null;
+let SCHWELLEN = null;
+let LAGE_TAGE = 7;
 let SORT     = { feld: 'wert_eur', ab: true };
 let VGL_WAHL = [];
 let ZEITRAUM = 0;
@@ -423,6 +427,137 @@ async function geheZu(k, symbol) {
   SCHIRM = k;
   if (symbol) AKTIV = symbol;
   await zeichne();
+}
+
+// ════════════════════════════════════════════════════════════════
+// LAG — Lage: was ist passiert
+// ════════════════════════════════════════════════════════════════
+// Der Einstieg. Beantwortet in einem Blick, was sich seit dem letzten
+// Hinsehen getan hat – ausgelöste Schwellen zuerst, weil die Karol selbst
+// gesetzt hat und deshalb per Definition wichtig sind.
+async function schirmLage() {
+  const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
+  if (!LAGE) { haupt.innerHTML = '<div class="tm-leer">Lade…</div>';
+    LAGE = await api(`/api/agentur/boerse/lage?tage=${LAGE_TAGE}`); }
+  if (!SCHWELLEN) SCHWELLEN = await api('/api/agentur/boerse/schwellen');
+  const l = LAGE || {};
+
+  const bloecke = [];
+
+  bloecke.push(`<div class="tm-block">
+    <div class="tm-titel">Deine Schwellen — ausgelöst
+      <span class="zahl">${(l.schwellen || []).length} von ${l.schwellen_geprueft || 0} Regeln</span></div>
+    ${(l.schwellen || []).length ? l.schwellen.map(x => `
+      <div style="padding:9px 12px;border-bottom:1px solid rgba(255,255,255,.035);display:flex;gap:10px;align-items:baseline">
+        <span class="sym" style="cursor:pointer;min-width:62px" onclick="geheZu('WRT','${esc(x.symbol)}')">${esc(x.symbol)}</span>
+        <div style="flex:1">
+          <div style="font-family:'Syne',sans-serif;font-size:12.5px">${esc(x.bezeichnung)} ${esc(String(x.grenze))}${x.einheit ? ' ' + esc(x.einheit) : ''}</div>
+          <div class="dim" style="font-size:10px;margin-top:2px">ist ${esc(String(x.ist))}${x.einheit ? ' ' + esc(x.einheit) : ''} · Stand ${esc(x.stand || '–')}${x.notiz ? ' · ' + esc(x.notiz) : ''}</div>
+        </div>
+      </div>`).join('')
+      : `<div class="tm-leer">${esc(l.schwellen_geprueft ? 'Keine deiner Schwellen ist ausgelöst.' : 'Noch keine Schwellen hinterlegt — rechts anlegen.')}</div>`}
+  </div>`);
+
+  bloecke.push(`<div class="tm-block">
+    <div class="tm-titel">Bewegung über ${LAGE_TAGE} Tage</div>
+    <table class="tm-t">
+      <tr><th>Symbol</th><th>Veränderung</th><th>von</th><th>bis</th><th>Tage</th></tr>
+      ${(l.bewegungen || []).map(b => `<tr onclick="geheZu('WRT','${esc(b.symbol)}')">
+        <td><span class="sym">${esc(b.symbol)}</span></td>
+        <td class="${kl(b.veraenderung)}">${pz(b.veraenderung)} %</td>
+        <td class="dim">${esc(b.von)}</td><td class="dim">${esc(b.bis)}</td><td class="dim">${b.tage}</td>
+      </tr>`).join('') || '<tr><td colspan="5" class="dim" style="padding:14px">Keine Kursdaten im Zeitraum.</td></tr>'}
+    </table>
+  </div>`);
+
+  if ((l.termine || []).length) bloecke.push(`<div class="tm-block">
+    <div class="tm-titel">Termine in den nächsten 30 Tagen <span class="zahl">${l.termine.length}</span></div>
+    ${l.termine.map(t => `<div class="tm-zeile" style="cursor:pointer" onclick="geheZu('WRT','${esc(t.symbol)}')">
+      <span><span class="sym">${esc(t.symbol)}</span> ${esc(t.name || '')}</span>
+      <span>${esc(t.naechste_zahlen)}</span></div>`).join('')}
+  </div>`);
+
+  if ((l.befunde || []).length) bloecke.push(`<div class="tm-block">
+    <div class="tm-titel">Neue Befunde der Analysten <span class="zahl">${l.befunde.length}</span></div>
+    ${l.befunde.map(b => `<div style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.035)">
+      <div style="display:flex;gap:8px;align-items:baseline">
+        <span class="marke2 ${b.schwere === 'hoch' ? 'm-ab' : b.schwere === 'niedrig' ? 'm-neu' : 'm-akz'}">${esc(b.schwere)}</span>
+        <span style="font-family:'Syne',sans-serif;font-size:12.5px">${esc(b.titel)}</span></div>
+      ${b.beleg ? `<div class="dim" style="font-size:10px;margin-top:3px">${esc(b.beleg)}</div>` : ''}
+      <div class="dim" style="font-size:9.5px;margin-top:2px">${esc(b.autor || '')} · ${esc(fmtDate(b.erstellt_am))}</div>
+    </div>`).join('')}
+  </div>`);
+
+  if ((l.berichte || []).length) bloecke.push(`<div class="tm-block">
+    <div class="tm-titel">Neue Berichte <span class="zahl">${l.berichte.length}</span></div>
+    ${l.berichte.map(b => `<div class="tm-zeile" style="cursor:pointer" onclick="geheZu('KI')">
+      <span>${esc(b.titel || 'Ohne Titel')}</span>
+      <span class="dim">${esc(b.autor || '')} · ${esc(fmtDate(b.erstellt_am))}</span></div>`).join('')}
+  </div>`);
+
+  haupt.innerHTML = `
+    <div style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--t-linie)">
+      <span style="font-size:9.5px;letter-spacing:.14em;color:var(--t-text3);text-transform:uppercase">Zeitraum</span>
+      ${[1, 7, 14, 30].map(t => `<button class="knopf ${LAGE_TAGE === t ? 'an' : ''}"
+        onclick="LAGE_TAGE=${t};LAGE=null;schirmLage()">${t} T</button>`).join('')}
+      <span style="margin-left:auto;font-size:9.5px;color:var(--t-text3)">
+        Läufe: ${Object.entries(l.laeufe || {}).map(([k, v]) => `${k} ${v}`).join(' · ') || 'keine'}</span>
+    </div>
+    ${bloecke.join('')}
+    <div class="tm-hint">Alles auf dieser Seite stammt aus dem eigenen Speicher — kein Abruf beim
+      Datenanbieter, deshalb jederzeit aufrufbar. Ausgelöste Schwellen stehen oben, weil du sie
+      selbst gesetzt hast.</div>`;
+
+  const arten = SCHWELLEN?.arten || {};
+  seite.innerHTML = `
+    <div class="tm-titel">Schwelle anlegen</div>
+    <div style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+      <select id="sw-art" style="background:#050709;border:1px solid var(--t-linie2);color:var(--t-text);
+              border-radius:3px;padding:4px 6px;font-family:inherit;font-size:10.5px">
+        ${Object.entries(arten).map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join('')}
+      </select>
+      <div style="display:flex;gap:5px">
+        <input id="sw-symbol" placeholder="Symbol (leer = alle)" style="flex:1;background:#050709;
+               border:1px solid var(--t-linie2);color:var(--t-text);border-radius:3px;padding:4px 6px;
+               font-family:inherit;font-size:10.5px">
+        <input id="sw-wert" type="number" step="any" placeholder="Wert" style="width:66px;background:#050709;
+               border:1px solid var(--t-linie2);color:var(--t-text);border-radius:3px;padding:4px 6px;
+               font-family:inherit;font-size:10.5px">
+      </div>
+      <input id="sw-notiz" placeholder="Notiz (optional)" style="background:#050709;border:1px solid var(--t-linie2);
+             color:var(--t-text);border-radius:3px;padding:4px 6px;font-family:inherit;font-size:10.5px">
+      <button class="knopf" onclick="schwelleAnlegen()">Anlegen</button>
+      <div id="sw-status" style="font-size:9.5px;color:var(--t-text3);line-height:1.5"></div>
+    </div>
+    <div class="tm-titel">Hinterlegt <span class="zahl">${(SCHWELLEN?.schwellen || []).length}</span></div>
+    ${(SCHWELLEN?.schwellen || []).map(x => `<div class="tm-zeile" style="align-items:flex-start">
+      <span style="flex:1">
+        <span class="${x.aktiv ? 'sym' : 'dim'}">${esc(x.symbol || 'alle')}</span>
+        <span class="dim" style="font-size:9.5px;display:block">${esc(arten[x.art] || x.art)} ${esc(String(x.wert))}</span>
+      </span>
+      <span style="cursor:pointer;color:var(--t-text3)" onclick="schwelleLoeschen(${x.id})" title="Löschen">✕</span>
+    </div>`).join('') || '<div class="tm-leer">Keine.</div>'}
+    <div class="tm-hint">Schwellen prüft auch Malte bei jedem Lauf und meldet Ausgelöstes als Befund —
+      damit erfährst du davon, ohne hier nachsehen zu müssen.</div>`;
+}
+
+async function schwelleAnlegen() {
+  const st = document.getElementById('sw-status');
+  const wert = document.getElementById('sw-wert').value;
+  if (wert === '') { st.textContent = 'Wert fehlt.'; return; }
+  const r = await api('/api/agentur/boerse/schwellen', { method: 'POST', body: {
+    art: document.getElementById('sw-art').value,
+    symbol: document.getElementById('sw-symbol').value.trim() || null,
+    wert: Number(wert),
+    notiz: document.getElementById('sw-notiz').value.trim() || null,
+  }});
+  if (r?.id) { SCHWELLEN = null; LAGE = null; schirmLage(); }
+  else st.textContent = 'Konnte nicht angelegt werden.';
+}
+
+async function schwelleLoeschen(id) {
+  await api('/api/agentur/boerse/schwellen/' + id, { method: 'DELETE' });
+  SCHWELLEN = null; LAGE = null; schirmLage();
 }
 
 // ════════════════════════════════════════════════════════════════
