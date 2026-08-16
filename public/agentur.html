@@ -1087,6 +1087,7 @@ function zeichneBoerse() {
       <button class="btn btn-ghost" onclick="ladeHistorie()">${icon('history', 13)} Historie laden</button>
       <button class="btn btn-ghost" onclick="neuePosition()">${icon('plus', 13)} Position</button>
       <button class="btn btn-ghost" onclick="neueBeobachtung()">${icon('eye', 13)} Beobachten</button>
+      <a class="btn btn-primary" href="terminal.html" style="text-decoration:none">${icon('candlestick-chart', 13)} Terminal öffnen</a>
       <div style="display:flex;gap:3px;margin-left:auto">
         ${[[22, '1M'], [66, '3M'], [132, '6M'], [0, 'Alles']].map(([n, l]) => `
           <button class="btn ${BOERSE_ZEITRAUM === n ? 'btn-primary' : 'btn-ghost'} btn-sm"

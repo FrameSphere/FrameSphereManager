@@ -257,6 +257,267 @@ export async function boerseSuche(env, url, json, err) {
   }
 }
 
+// ── Berechnete Kennzahlen ────────────────────────────────────────
+// Alles hier kommt aus dem eigenen Kursspeicher, ohne externen Abruf.
+// Reine Rechnung: was dasteht, ist nachvollziehbar, und was mangels
+// Datenpunkten nicht berechenbar ist, bleibt null statt geraten.
+function gleitend(werte, fenster) {
+  if (werte.length < fenster) return null;
+  const teil = werte.slice(-fenster);
+  return teil.reduce((s, w) => s + w, 0) / fenster;
+}
+
+function periodenErtrag(reihe, tage) {
+  if (reihe.length < 2) return null;
+  const letzterKurs = reihe[reihe.length - 1].kurs;
+  const grenze = new Date(Date.now() - tage * 86400000).toISOString().slice(0, 10);
+  // Ersten Punkt ab der Grenze nehmen; liegt die Reihe komplett danach,
+  // wäre die Angabe irreführend.
+  const start = reihe.find(p => p.datum >= grenze);
+  if (!start || start === reihe[reihe.length - 1]) return null;
+  if (reihe[0].datum > grenze) return null;   // Reihe reicht nicht weit genug
+  return Math.round(((letzterKurs - start.kurs) / start.kurs) * 10000) / 100;
+}
+
+function analytik(reihe) {
+  const werte = reihe.map(p => p.kurs).filter(Number.isFinite);
+  if (werte.length < 2) {
+    return { punkte: werte.length, ausreichend: false };
+  }
+  const letzterKurs = werte[werte.length - 1];
+
+  // Tagesrenditen für Volatilität
+  const renditen = [];
+  for (let i = 1; i < werte.length; i++) {
+    if (werte[i - 1]) renditen.push((werte[i] - werte[i - 1]) / werte[i - 1]);
+  }
+  const mittel = renditen.reduce((s, r) => s + r, 0) / (renditen.length || 1);
+  const varianz = renditen.reduce((s, r) => s + (r - mittel) ** 2, 0) / (renditen.length || 1);
+  const volaJahr = renditen.length >= 20 ? Math.sqrt(varianz) * Math.sqrt(252) * 100 : null;
+
+  // Größter Rückgang von einem Hoch aus
+  let hoch = werte[0], maxRueck = 0;
+  for (const w of werte) {
+    if (w > hoch) hoch = w;
+    const r = (hoch - w) / hoch;
+    if (r > maxRueck) maxRueck = r;
+  }
+
+  const sma = { s20: gleitend(werte, 20), s50: gleitend(werte, 50), s200: gleitend(werte, 200) };
+  const abstand = w => (w ? Math.round(((letzterKurs - w) / w) * 10000) / 100 : null);
+
+  return {
+    punkte: werte.length,
+    ausreichend: true,
+    hoch_reihe: Math.max(...werte),
+    tief_reihe: Math.min(...werte),
+    sma20: sma.s20 ? Math.round(sma.s20 * 100) / 100 : null,
+    sma50: sma.s50 ? Math.round(sma.s50 * 100) / 100 : null,
+    sma200: sma.s200 ? Math.round(sma.s200 * 100) / 100 : null,
+    abstand_sma20: abstand(sma.s20),
+    abstand_sma50: abstand(sma.s50),
+    abstand_sma200: abstand(sma.s200),
+    volatilitaet_jahr: volaJahr !== null ? Math.round(volaJahr * 10) / 10 : null,
+    max_rueckgang: Math.round(maxRueck * 10000) / 100,
+    ertrag: {
+      w1: periodenErtrag(reihe, 7),
+      m1: periodenErtrag(reihe, 30),
+      m3: periodenErtrag(reihe, 91),
+      m6: periodenErtrag(reihe, 182),
+      j1: periodenErtrag(reihe, 365),
+    },
+  };
+}
+
+// Mehrere Angaben nebeneinander holen. Jede darf einzeln ausfallen –
+// welche Endpunkte zu welcher Stufe gehören, ändert sich.
+async function nebeneinander(eintraege) {
+  const ergebnis = {}, fehlt = [];
+  await Promise.all(eintraege.map(async ([name, fn]) => {
+    try { ergebnis[name] = await fn(); }
+    catch (e) { ergebnis[name] = null; fehlt.push(`${name}: ${e.message}`); }
+  }));
+  return { ergebnis, fehlt };
+}
+
+// ── GET /api/agentur/boerse/terminal?symbol=X ────────────────────
+// Alles zu einem Wert in einem Aufruf. Die Oberfläche soll nicht
+// sechsmal nachfragen müssen.
+export async function boerseTerminal(env, db, url, json, err) {
+  const symbol = (url.searchParams.get('symbol') || '').toUpperCase().trim();
+  if (!symbol) return err('symbol fehlt');
+  const tage = Math.min(parseInt(url.searchParams.get('tage'), 10) || 400, 1200);
+
+  // Eigener Bestand zuerst – der geht immer, auch ohne Anbieter.
+  const [kurse, stamm, position, beobachtet] = await Promise.all([
+    db.prepare('SELECT datum, kurs, eroeffnung, hoch, tief, veraenderung_prozent FROM ag_kurse WHERE symbol=? AND datum >= ? ORDER BY datum ASC')
+      .bind(symbol, tagVor(tage)).all().catch(() => ({ results: [] })),
+    db.prepare('SELECT * FROM ag_werte WHERE symbol=?').bind(symbol).first().catch(() => null),
+    db.prepare('SELECT * FROM ag_depot WHERE symbol=? AND aktiv=1').bind(symbol).first().catch(() => null),
+    db.prepare('SELECT * FROM ag_watchlist WHERE symbol=?').bind(symbol).first().catch(() => null),
+  ]);
+  const reihe = kurse.results || [];
+
+  // Was die Agentur zu diesem Wert geschrieben hat.
+  const [berichte, befunde] = await Promise.all([
+    db.prepare(`SELECT e.id, e.titel, e.text, e.art, e.erstellt_am, m.name AS autor, m.farbe AS autor_farbe
+                  FROM ag_eintraege e LEFT JOIN ag_mitarbeiter m ON m.id = e.mitarbeiter_id
+                 WHERE e.abteilung_id='boerse' AND (e.titel LIKE ? OR e.text LIKE ?)
+                 ORDER BY e.id DESC LIMIT 10`)
+      .bind(`%${symbol}%`, `%${symbol}%`).all().catch(() => ({ results: [] })),
+    db.prepare(`SELECT b.*, m.name AS autor FROM ag_befunde b
+                  LEFT JOIN ag_mitarbeiter m ON m.id = b.mitarbeiter_id
+                 WHERE b.abteilung_id='boerse' AND (b.titel LIKE ? OR b.beleg LIKE ?)
+                 ORDER BY b.id DESC LIMIT 10`)
+      .bind(`%${symbol}%`, `%${symbol}%`).all().catch(() => ({ results: [] })),
+  ]);
+
+  // Live-Angaben. Fällt eine aus, fehlt sie – der Rest steht trotzdem.
+  const { ergebnis, fehlt } = await nebeneinander([
+    ['quote', () => holen(env, '/quote', { symbol })],
+    ['kennzahlen', () => holen(env, '/stock/metric', { symbol, metric: 'all' })],
+    ['nachrichten', () => holen(env, '/company-news', { symbol, from: tagVor(14), to: heute() })],
+    ['konsens', () => holen(env, '/stock/recommendation', { symbol })],
+    ['kursziel', () => holen(env, '/stock/price-target', { symbol })],
+    ['vergleichbare', () => holen(env, '/stock/peers', { symbol })],
+    ['quartalszahlen', () => holen(env, '/stock/earnings', { symbol })],
+  ]);
+
+  const q = ergebnis.quote;
+  const m = ergebnis.kennzahlen?.metric || {};
+
+  return json({
+      symbol,
+      stand: new Date().toISOString(),
+      stammdaten: stamm,
+      position, beobachtet: !!beobachtet,
+
+      kurs: q && zahl(q.c) ? {
+        aktuell: zahl(q.c), veraenderung: zahl(q.d), veraenderung_prozent: zahl(q.dp),
+        eroeffnung: zahl(q.o), hoch: zahl(q.h), tief: zahl(q.l), vortag: zahl(q.pc),
+      } : null,
+
+      verlauf: reihe,
+      analytik: analytik(reihe),
+
+      kennzahlen: {
+        kgv: zahl(m.peBasicExclExtraTTM ?? m.peTTM),
+        kurs_buchwert: zahl(m.pbQuarterly ?? m.pbAnnual),
+        kurs_umsatz: zahl(m.psTTM),
+        dividendenrendite: zahl(m.dividendYieldIndicatedAnnual),
+        eigenkapitalrendite: zahl(m.roeTTM),
+        marge: zahl(m.netProfitMarginTTM),
+        verschuldung: zahl(m.totalDebtToEquityQuarterly),
+        beta: zahl(m.beta),
+        hoch_52w: zahl(m['52WeekHigh']), tief_52w: zahl(m['52WeekLow']),
+        ertrag_52w: zahl(m['52WeekPriceReturnDaily']),
+      },
+
+      // Fremde Einschätzungen: Tatsachen ÜBER Meinungen, ausdrücklich als
+      // solche gekennzeichnet. Keine Bewertung von uns.
+      analysten: {
+        hinweis: 'Fremde Einschätzungen des Datenanbieters, keine Bewertung dieser Anwendung.',
+        konsens: Array.isArray(ergebnis.konsens) ? ergebnis.konsens.slice(0, 4).map(k => ({
+          periode: k.period, kaufen_stark: k.strongBuy, kaufen: k.buy,
+          halten: k.hold, verkaufen: k.sell, verkaufen_stark: k.strongSell,
+        })) : null,
+        kursziel: ergebnis.kursziel?.targetMean ? {
+          mittel: zahl(ergebnis.kursziel.targetMean),
+          hoch: zahl(ergebnis.kursziel.targetHigh),
+          tief: zahl(ergebnis.kursziel.targetLow),
+          stand: ergebnis.kursziel.lastUpdated || null,
+        } : null,
+      },
+
+      quartalszahlen: Array.isArray(ergebnis.quartalszahlen)
+        ? ergebnis.quartalszahlen.slice(0, 8).map(e => ({
+            periode: e.period, erwartet: zahl(e.estimate), tatsaechlich: zahl(e.actual),
+            abweichung_prozent: zahl(e.surprisePercent),
+          })) : null,
+
+      vergleichbare: Array.isArray(ergebnis.vergleichbare)
+        ? ergebnis.vergleichbare.filter(s => s !== symbol).slice(0, 8) : null,
+
+      nachrichten: Array.isArray(ergebnis.nachrichten)
+        ? ergebnis.nachrichten.slice(0, 25).map(n => ({
+            datum: new Date((n.datetime || 0) * 1000).toISOString().slice(0, 10),
+            schlagzeile: n.headline, quelle: n.source, url: n.url, zusammenfassung: n.summary,
+          })) : null,
+
+      agentur: {
+        berichte: berichte.results || [],
+        befunde: befunde.results || [],
+      },
+
+      nicht_verfuegbar: fehlt.length ? fehlt.map(f => ohneSchluessel(f, env)) : null,
+  });
+}
+
+// ── GET /api/agentur/boerse/portfolio ────────────────────────────
+// Depotweite Sicht: Aufteilung, Entwicklung, Klumpen.
+export async function boersePortfolio(env, db, url, json, err) {
+  const [depot, werte, kurse] = await Promise.all([
+    db.prepare('SELECT * FROM ag_depot WHERE aktiv=1').all().catch(() => ({ results: [] })),
+    db.prepare('SELECT * FROM ag_werte').all().catch(() => ({ results: [] })),
+    db.prepare('SELECT symbol, datum, kurs FROM ag_kurse WHERE datum >= ? ORDER BY symbol, datum')
+      .bind(tagVor(400)).all().catch(() => ({ results: [] })),
+  ]);
+
+  const wertNach = new Map((werte.results || []).map(w => [w.symbol, w]));
+  const reihen = new Map();
+  for (const k of (kurse.results || [])) {
+    if (!reihen.has(k.symbol)) reihen.set(k.symbol, []);
+    reihen.get(k.symbol).push(k);
+  }
+
+  const positionen = (depot.results || []).map(p => {
+    const st = wertNach.get(p.symbol);
+    const r = reihen.get(p.symbol) || [];
+    const kurs = r.length ? r[r.length - 1].kurs : null;
+    const konflikt = !!(st?.waehrung && p.waehrung && st.waehrung !== p.waehrung);
+    return {
+      symbol: p.symbol, name: p.name || st?.name || p.symbol,
+      branche: st?.branche || null, waehrung: st?.waehrung || p.waehrung,
+      stueck: p.stueck, kaufkurs: p.kaufkurs, kurs,
+      wert: kurs !== null ? Math.round(kurs * p.stueck * 100) / 100 : null,
+      waehrung_konflikt: konflikt,
+      analytik: analytik(r.map(x => ({ datum: x.datum, kurs: x.kurs }))),
+    };
+  });
+
+  // Aufteilung nur über Positionen derselben Währung – sonst addiert man
+  // Beträge, die nichts miteinander zu tun haben.
+  const nachWaehrung = {};
+  for (const p of positionen) {
+    if (p.wert === null) continue;
+    const w = p.waehrung || 'unbekannt';
+    (nachWaehrung[w] ||= { summe: 0, positionen: [] });
+    nachWaehrung[w].summe += p.wert;
+    nachWaehrung[w].positionen.push(p.symbol);
+  }
+  for (const w of Object.keys(nachWaehrung)) {
+    nachWaehrung[w].summe = Math.round(nachWaehrung[w].summe * 100) / 100;
+  }
+
+  const nachBranche = {};
+  for (const p of positionen) {
+    if (p.wert === null) continue;
+    const b = p.branche || 'ohne Angabe';
+    nachBranche[b] = Math.round(((nachBranche[b] || 0) + p.wert) * 100) / 100;
+  }
+
+  return json({
+    stand: new Date().toISOString(),
+    positionen,
+    nach_waehrung: nachWaehrung,
+    nach_branche: nachBranche,
+    ohne_kurs: positionen.filter(p => p.wert === null).map(p => p.symbol),
+    hinweis_waehrung: Object.keys(nachWaehrung).length > 1
+      ? 'Mehrere Währungen im Depot. Beträge werden getrennt ausgewiesen und nicht umgerechnet.'
+      : null,
+  });
+}
+
 // Welche Symbole verfolgt werden: Depot plus Beobachtungsliste.
 async function symbole(db) {
   const [d, w] = await Promise.all([

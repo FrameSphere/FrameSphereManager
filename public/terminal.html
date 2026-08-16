@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terminal – WebControl HQ</title>
+  <link rel="stylesheet" href="css/main.css">
+  <style>
+    /* ── Terminal: dicht, sachlich, tastaturfreundlich ───────────── */
+    #main { overflow: hidden; }
+    .tm { display:flex; flex-direction:column; height:100%; font-family:'Space Mono',monospace; }
+
+    /* Kommandozeile */
+    .tm-kopf {
+      display:flex; align-items:center; gap:12px; padding:9px 14px;
+      background:var(--bg2); border-bottom:1px solid var(--border); flex-shrink:0;
+    }
+    .tm-marke { font-size:11px; font-weight:700; letter-spacing:.16em; color:var(--accent2); white-space:nowrap; }
+    .tm-eingabe {
+      flex:1; max-width:420px; position:relative;
+    }
+    .tm-eingabe input {
+      width:100%; background:var(--bg); border:1px solid var(--border2); color:var(--text);
+      border-radius:6px; padding:6px 11px; font-family:inherit; font-size:12px; letter-spacing:.05em;
+    }
+    .tm-eingabe input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 2px rgba(59,130,246,.15); }
+    .tm-vorschlaege {
+      display:none; position:absolute; top:100%; left:0; right:0; z-index:60; margin-top:4px;
+      background:var(--surface2); border:1px solid var(--border2); border-radius:8px;
+      max-height:300px; overflow-y:auto; box-shadow:0 16px 34px -14px rgba(0,0,0,.95);
+    }
+    .tm-vorschlag { padding:7px 11px; cursor:pointer; border-bottom:1px solid var(--border); }
+    .tm-vorschlag:hover, .tm-vorschlag.aktiv { background:rgba(59,130,246,.16); }
+    .tm-vorschlag b { font-size:12px; }
+    .tm-vorschlag span { font-size:10.5px; color:var(--text2); display:block; }
+
+    .tm-uhr { margin-left:auto; font-size:10.5px; color:var(--text3); }
+    .tm-taste {
+      display:inline-block; padding:1px 5px; border:1px solid var(--border2); border-radius:4px;
+      font-size:9.5px; color:var(--text3); margin:0 2px;
+    }
+
+    /* Dreispaltiges Raster */
+    .tm-raster {
+      flex:1; display:grid; grid-template-columns:230px minmax(0,1fr) 290px;
+      gap:1px; background:var(--border); overflow:hidden; min-height:0;
+    }
+    .tm-spalte { background:var(--bg); overflow-y:auto; min-height:0; }
+
+    /* Tickerliste */
+    .tm-gruppe {
+      padding:6px 12px; font-size:9.5px; letter-spacing:.14em; text-transform:uppercase;
+      color:var(--text3); background:var(--bg2); position:sticky; top:0; z-index:2;
+      border-bottom:1px solid var(--border);
+    }
+    .tm-ticker {
+      display:grid; grid-template-columns:1fr auto; gap:2px 8px; align-items:center;
+      padding:7px 12px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,.04);
+    }
+    .tm-ticker:hover { background:rgba(255,255,255,.045); }
+    .tm-ticker.aktiv { background:rgba(59,130,246,.15); box-shadow:inset 2px 0 0 var(--accent); }
+    .tm-ticker-sym { font-size:12px; font-weight:700; letter-spacing:.03em; }
+    .tm-ticker-name { grid-column:1/2; font-size:9.5px; color:var(--text3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .tm-ticker-kurs { font-size:11.5px; text-align:right; }
+    .tm-ticker-vz { font-size:10px; text-align:right; }
+
+    /* Kopfzeile des Werts */
+    .tm-wert-kopf { padding:14px 18px 10px; border-bottom:1px solid var(--border); background:var(--bg2); }
+    .tm-wert-sym { font-size:22px; font-weight:800; letter-spacing:-.01em; font-family:'Syne',sans-serif; }
+    .tm-wert-name { font-size:11px; color:var(--text2); }
+    .tm-wert-kurs { font-size:30px; font-weight:800; letter-spacing:-.02em; line-height:1.1; }
+    .tm-wert-vz { font-size:13px; font-weight:700; }
+
+    /* Kachelreihe */
+    .tm-kacheln { display:grid; grid-template-columns:repeat(auto-fit,minmax(96px,1fr)); gap:1px; background:var(--border); }
+    .tm-kachel { background:var(--bg2); padding:7px 10px; }
+    .tm-kachel-name { font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text3); }
+    .tm-kachel-wert { font-size:13px; font-weight:700; margin-top:2px; }
+
+    /* Chart */
+    .tm-chart-leiste {
+      display:flex; align-items:center; gap:5px; padding:8px 14px;
+      border-bottom:1px solid var(--border); flex-wrap:wrap;
+    }
+    .tm-knopf {
+      padding:3px 9px; font-size:10px; font-family:inherit; letter-spacing:.05em;
+      background:none; border:1px solid var(--border2); border-radius:5px;
+      color:var(--text3); cursor:pointer;
+    }
+    .tm-knopf:hover { color:var(--text); border-color:var(--border2); }
+    .tm-knopf.an { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .tm-chart { padding:12px 14px 6px; position:relative; }
+
+    /* Panels unten */
+    .tm-reiter { display:flex; gap:1px; background:var(--border); border-top:1px solid var(--border); flex-shrink:0; }
+    .tm-reiter button {
+      flex:1; padding:7px 4px; font-size:10px; font-family:inherit; letter-spacing:.08em;
+      text-transform:uppercase; background:var(--bg2); border:none; color:var(--text3); cursor:pointer;
+    }
+    .tm-reiter button.an { background:var(--bg); color:var(--accent2); box-shadow:inset 0 -2px 0 var(--accent); }
+    .tm-panel { padding:12px 16px; font-family:'Syne',sans-serif; }
+
+    /* Tabellen */
+    .tm-tab { width:100%; border-collapse:collapse; font-size:11.5px; font-family:'Space Mono',monospace; }
+    .tm-tab th {
+      text-align:left; font-size:9px; letter-spacing:.1em; text-transform:uppercase;
+      color:var(--text3); font-weight:400; padding:5px 8px 5px 0; border-bottom:1px solid var(--border);
+    }
+    .tm-tab td { padding:5px 8px 5px 0; border-bottom:1px solid rgba(255,255,255,.04); }
+    .tm-tab td.z { text-align:right; }
+
+    .tm-zeile { display:flex; justify-content:space-between; gap:12px; padding:4px 0; font-size:11.5px; border-bottom:1px solid rgba(255,255,255,.04); }
+    .tm-zeile span:first-child { color:var(--text3); }
+
+    .tm-meldung { padding:8px 0; border-bottom:1px solid rgba(255,255,255,.05); }
+    .tm-meldung a { color:var(--text); text-decoration:none; font-size:12px; font-family:'Syne',sans-serif; line-height:1.4; display:block; }
+    .tm-meldung a:hover { color:var(--accent2); }
+    .tm-meldung .q { font-size:9.5px; color:var(--text3); font-family:'Space Mono',monospace; margin-top:3px; }
+
+    .auf { color:#4ade80; } .ab { color:#f87171; } .neutral { color:var(--text2); }
+
+    .tm-hinweis {
+      margin:10px 16px; padding:8px 11px; border-radius:7px; font-size:10.5px; line-height:1.5;
+      background:rgba(96,165,250,.07); border:1px solid rgba(96,165,250,.22); color:var(--text2);
+      font-family:'Syne',sans-serif;
+    }
+    .tm-warn { background:rgba(245,158,11,.07); border-color:rgba(245,158,11,.25); }
+
+    .tm-leer { padding:26px 16px; text-align:center; color:var(--text3); font-size:11.5px; }
+
+    @media (max-width: 1100px) {
+      .tm-raster { grid-template-columns:180px minmax(0,1fr); }
+      .tm-spalte:last-child { display:none; }
+    }
+    @media (max-width: 760px) {
+      .tm-raster { grid-template-columns:minmax(0,1fr); }
+      .tm-spalte:first-child { display:none; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="layout">
+  <div id="main">
+    <div class="tm">
+      <div class="tm-kopf">
+        <span class="tm-marke">TERMINAL</span>
+        <div class="tm-eingabe">
+          <input id="tm-such" placeholder="Symbol oder Name — z. B. NVDA" autocomplete="off"
+                 onkeydown="tastatur(event)" oninput="vorschlagen()">
+          <div class="tm-vorschlaege" id="tm-vorschlaege"></div>
+        </div>
+        <button class="tm-knopf" onclick="alleKurse()" id="tm-refresh">Kurse holen</button>
+        <button class="tm-knopf" onclick="analyseAnfordern()">Analyse anfordern</button>
+        <span class="tm-uhr">
+          <span class="tm-taste">/</span> Suche
+          <span class="tm-taste">↑↓</span> Wert
+          <span class="tm-taste">1-5</span> Panel
+          <span id="tm-stand"></span>
+        </span>
+      </div>
+
+      <div class="tm-raster">
+        <div class="tm-spalte" id="tm-liste"></div>
+        <div class="tm-spalte" id="tm-mitte"></div>
+        <div class="tm-spalte" id="tm-rechts"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/layout.js"></script>
+<script>
+// =============================================
+// Terminal – dichte Sicht auf einen Wert
+// =============================================
+// Fakten: Kurse, Kennzahlen, Termine, Meldungen, dazu was die Agentur
+// geschrieben hat. Keine Kauf-, Verkaufs- oder Halteempfehlung – fremde
+// Einschätzungen erscheinen ausdrücklich als fremd.
+// =============================================
+
+let LISTE = null;        // Depot + Beobachtung
+let AKTIV = null;        // aktuelles Symbol
+let DATEN = null;        // Antwort von /terminal
+let PANEL = 'nachrichten';
+let ZEITRAUM = 0;        // 0 = alles
+let LINIEN = { sma20: true, sma50: true, sma200: false };
+let VORSCHLAG_INDEX = -1;
+let VORSCHLAEGE = [];
+
+const zahl = (n, s = 2) => n === null || n === undefined || !Number.isFinite(Number(n))
+  ? '–' : Number(n).toLocaleString('de-DE', { minimumFractionDigits: s, maximumFractionDigits: s });
+const proz = n => n === null || n === undefined || !Number.isFinite(Number(n))
+  ? '–' : `${n > 0 ? '+' : ''}${Number(n).toFixed(2)} %`;
+const klasse = n => n === null || n === undefined || !Number.isFinite(Number(n))
+  ? 'neutral' : n > 0 ? 'auf' : n < 0 ? 'ab' : 'neutral';
+
+// ── Tickerliste links ────────────────────────────────────────────
+async function ladeListe() {
+  LISTE = await api('/api/agentur/boerse/uebersicht?tage=400');
+  zeichneListe();
+  if (!AKTIV) {
+    const erst = LISTE?.positionen?.[0]?.symbol || LISTE?.beobachtet?.[0]?.symbol;
+    if (erst) waehle(erst);
+    else document.getElementById('tm-mitte').innerHTML =
+      `<div class="tm-leer">Noch keine Werte hinterlegt.<br>Oben suchen und mit Enter aufrufen.</div>`;
+  }
+}
+
+function tickerZeile(p, gehalten) {
+  const v = p.veraenderung_prozent;
+  return `<div class="tm-ticker ${AKTIV === p.symbol ? 'aktiv' : ''}" onclick="waehle('${esc(p.symbol)}')">
+    <div class="tm-ticker-sym">${esc(p.symbol)}</div>
+    <div class="tm-ticker-kurs">${p.kurs !== null ? zahl(p.kurs) : '–'}</div>
+    <div class="tm-ticker-name">${esc((p.name || p.stammdaten?.name || '').slice(0, 26))}</div>
+    <div class="tm-ticker-vz ${klasse(v)}">${v !== null && v !== undefined ? proz(v) : ''}</div>
+  </div>`;
+}
+
+function zeichneListe() {
+  const el = document.getElementById('tm-liste');
+  if (!LISTE) { el.innerHTML = `<div class="tm-leer">Lade…</div>`; return; }
+  const pos = LISTE.positionen || [], beo = LISTE.beobachtet || [];
+  el.innerHTML = `
+    <div class="tm-gruppe">Depot · ${pos.length}</div>
+    ${pos.length ? pos.map(p => tickerZeile(p, true)).join('') : '<div class="tm-leer">leer</div>'}
+    <div class="tm-gruppe">Beobachtet · ${beo.length}</div>
+    ${beo.length ? beo.map(p => tickerZeile(p, false)).join('') : '<div class="tm-leer">leer</div>'}`;
+}
+
+// ── Wert laden ───────────────────────────────────────────────────
+async function waehle(symbol) {
+  AKTIV = symbol;
+  zeichneListe();
+  document.getElementById('tm-mitte').innerHTML = `<div class="tm-leer">Lade ${esc(symbol)}…</div>`;
+  DATEN = await api('/api/agentur/boerse/terminal?symbol=' + encodeURIComponent(symbol));
+  zeichneMitte();
+  zeichneRechts();
+  document.getElementById('tm-stand').textContent = ' · ' + new Date().toLocaleTimeString('de-DE');
+}
+
+// ── Chart ────────────────────────────────────────────────────────
+let CHART_DATEN = [];
+
+function chart() {
+  const verlauf = DATEN?.verlauf || [];
+  if (verlauf.length < 2) {
+    return `<div class="tm-leer" style="border:1px dashed var(--border2);border-radius:8px;margin:12px 14px">
+      Kein Verlauf gespeichert. „Historie laden" im Börsen-Tab holt die vergangenen Monate,
+      sonst wächst die Linie ab dem zweiten Tagesabruf.
+    </div>`;
+  }
+  const reihe = ZEITRAUM ? verlauf.slice(-ZEITRAUM) : verlauf;
+  CHART_DATEN = reihe;
+
+  const w = reihe.map(p => p.kurs);
+  const min = Math.min(...w), max = Math.max(...w);
+  const spanne = (max - min) || 1;
+  const B = 1000, H = 300, R = { o: 14, u: 26, r: 62 };
+  const px = i => (i / (reihe.length - 1)) * (B - R.r);
+  const py = v => R.o + (1 - (v - min) / spanne) * (H - R.o - R.u);
+
+  const linie = reihe.map((p, i) => `${px(i).toFixed(1)},${py(p.kurs).toFixed(1)}`).join(' ');
+  const flaeche = `0,${H - R.u} ${linie} ${px(reihe.length - 1).toFixed(1)},${H - R.u}`;
+
+  // Gleitende Durchschnitte über denselben Ausschnitt
+  const smaLinie = (fenster, farbe) => {
+    if (reihe.length < fenster) return '';
+    const punkte = [];
+    for (let i = fenster - 1; i < reihe.length; i++) {
+      const mittel = w.slice(i - fenster + 1, i + 1).reduce((s, x) => s + x, 0) / fenster;
+      punkte.push(`${px(i).toFixed(1)},${py(mittel).toFixed(1)}`);
+    }
+    return `<polyline points="${punkte.join(' ')}" fill="none" stroke="${farbe}" stroke-width="1.1"
+             stroke-dasharray="4 3" vector-effect="non-scaling-stroke" opacity=".85"/>`;
+  };
+
+  // Waagerechte Hilfslinien
+  const stufen = 4;
+  const gitter = Array.from({ length: stufen + 1 }, (_, i) => {
+    const v = min + (spanne * i) / stufen;
+    const y = py(v).toFixed(1);
+    return `<line x1="0" y1="${y}" x2="${B - R.r}" y2="${y}" stroke="rgba(255,255,255,.05)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+            <text x="${B - R.r + 6}" y="${y}" dy="3.5" fill="var(--text3)" font-size="10" font-family="Space Mono">${zahl(v)}</text>`;
+  }).join('');
+
+  const steigt = w[w.length - 1] >= w[0];
+  const farbe = steigt ? '#4ade80' : '#f87171';
+
+  return `
+    <div class="tm-chart" onmousemove="chartLesen(event)" onmouseleave="chartRaus()">
+      <svg viewBox="0 0 ${B} ${H}" preserveAspectRatio="none" id="tm-svg"
+           style="display:block;width:100%;height:300px;cursor:crosshair">
+        <defs><linearGradient id="tm-f" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${farbe}" stop-opacity=".24"/>
+          <stop offset="100%" stop-color="${farbe}" stop-opacity="0"/>
+        </linearGradient></defs>
+        ${gitter}
+        <polygon points="${flaeche}" fill="url(#tm-f)"/>
+        <polyline points="${linie}" fill="none" stroke="${farbe}" stroke-width="1.7"
+                  stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+        ${LINIEN.sma20 ? smaLinie(20, '#60a5fa') : ''}
+        ${LINIEN.sma50 ? smaLinie(50, '#c084fc') : ''}
+        ${LINIEN.sma200 ? smaLinie(200, '#fbbf24') : ''}
+        <line id="tm-kreuz" x1="0" y1="${R.o}" x2="0" y2="${H - R.u}" stroke="var(--text2)"
+              stroke-width="1" vector-effect="non-scaling-stroke" style="display:none"/>
+      </svg>
+      <div style="display:flex;justify-content:space-between;font-size:9.5px;color:var(--text3);padding-right:62px">
+        <span>${esc(reihe[0].datum)}</span>
+        <span id="tm-ablesen"></span>
+        <span>${esc(reihe[reihe.length - 1].datum)}</span>
+      </div>
+    </div>`;
+}
+
+function chartLesen(ev) {
+  if (!CHART_DATEN.length) return;
+  const svg = document.getElementById('tm-svg');
+  const k = svg.getBoundingClientRect();
+  const anteil = Math.max(0, Math.min(1, (ev.clientX - k.left) / k.width));
+  const i = Math.min(CHART_DATEN.length - 1, Math.round(anteil * (1000 / 938) * (CHART_DATEN.length - 1)));
+  const p = CHART_DATEN[i];
+  if (!p) return;
+  const kreuz = document.getElementById('tm-kreuz');
+  if (kreuz) {
+    const x = (i / (CHART_DATEN.length - 1)) * 938;
+    kreuz.setAttribute('x1', x); kreuz.setAttribute('x2', x); kreuz.style.display = '';
+  }
+  const l = document.getElementById('tm-ablesen');
+  if (l) l.innerHTML = `<b style="color:var(--text)">${esc(p.datum)}</b> · ${zahl(p.kurs)}` +
+    (p.hoch ? ` · H ${zahl(p.hoch)} T ${zahl(p.tief)}` : '');
+}
+function chartRaus() {
+  const k = document.getElementById('tm-kreuz'); if (k) k.style.display = 'none';
+  const l = document.getElementById('tm-ablesen'); if (l) l.textContent = '';
+}
+
+// ── Mittelspalte ─────────────────────────────────────────────────
+// Fehlt der Live-Kurs, ist der letzte gespeicherte Schlusskurs immer noch
+// eine Zahl – nur eine ältere. Sie wegzulassen macht das Terminal leer,
+// ohne dass es dadurch ehrlicher würde. Also anzeigen und datieren.
+function kursLage(d) {
+  if (d.kurs) return { ...d.kurs, live: true, datum: null };
+  const v = d.verlauf || [];
+  if (!v.length) return null;
+  const letzt = v[v.length - 1];
+  return {
+    aktuell: letzt.kurs, veraenderung: null,
+    veraenderung_prozent: letzt.veraenderung_prozent ?? null,
+    eroeffnung: letzt.eroeffnung ?? null, hoch: letzt.hoch ?? null,
+    tief: letzt.tief ?? null, vortag: v.length > 1 ? v[v.length - 2].kurs : null,
+    live: false, datum: letzt.datum,
+  };
+}
+
+function zeichneMitte() {
+  const el = document.getElementById('tm-mitte');
+  if (!DATEN || DATEN.error) { el.innerHTML = `<div class="tm-leer">${esc(DATEN?.error || 'Nicht geladen.')}</div>`; return; }
+  const d = DATEN, k = kursLage(d), a = d.analytik || {}, st = d.stammdaten || {};
+
+  const kacheln = [
+    ['Eröffnung', k ? zahl(k.eroeffnung) : '–', ''],
+    ['Hoch', k ? zahl(k.hoch) : '–', ''],
+    ['Tief', k ? zahl(k.tief) : '–', ''],
+    ['Vortag', k ? zahl(k.vortag) : '–', ''],
+    ['1 Woche', proz(a.ertrag?.w1), klasse(a.ertrag?.w1)],
+    ['1 Monat', proz(a.ertrag?.m1), klasse(a.ertrag?.m1)],
+    ['3 Monate', proz(a.ertrag?.m3), klasse(a.ertrag?.m3)],
+    ['1 Jahr', proz(a.ertrag?.j1), klasse(a.ertrag?.j1)],
+  ];
+
+  el.innerHTML = `
+    <div class="tm-wert-kopf">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap">
+        <div>
+          <div class="tm-wert-sym">${esc(d.symbol)}</div>
+          <div class="tm-wert-name">${esc(st.name || d.position?.name || '')}${st.branche ? ' · ' + esc(st.branche) : ''}${st.boerse ? ' · ' + esc(st.boerse) : ''}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="tm-wert-kurs ${klasse(k?.veraenderung_prozent)}">${k ? zahl(k.aktuell) : '–'}
+            <span style="font-size:12px;color:var(--text3);font-weight:400">${esc(st.waehrung || '')}</span></div>
+          <div class="tm-wert-vz ${klasse(k?.veraenderung_prozent)}">
+            ${!k ? 'kein Kurs'
+              : k.live
+                ? `${k.veraenderung > 0 ? '+' : ''}${zahl(k.veraenderung)} · ${proz(k.veraenderung_prozent)}`
+                : `${proz(k.veraenderung_prozent)} <span style="color:var(--text3);font-weight:400">· Schluss ${esc(k.datum)}</span>`}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tm-kacheln">
+      ${kacheln.map(([n, w, c]) => `<div class="tm-kachel">
+        <div class="tm-kachel-name">${esc(n)}</div>
+        <div class="tm-kachel-wert ${c}">${w}</div></div>`).join('')}
+    </div>
+
+    <div class="tm-chart-leiste">
+      ${[[22, '1M'], [66, '3M'], [132, '6M'], [252, '1J'], [0, 'MAX']].map(([n, l]) =>
+        `<button class="tm-knopf ${ZEITRAUM === n ? 'an' : ''}" onclick="ZEITRAUM=${n};zeichneMitte()">${l}</button>`).join('')}
+      <span style="width:12px"></span>
+      ${[['sma20', 'SMA 20', '#60a5fa'], ['sma50', 'SMA 50', '#c084fc'], ['sma200', 'SMA 200', '#fbbf24']].map(([k2, l, f]) =>
+        `<button class="tm-knopf ${LINIEN[k2] ? 'an' : ''}" onclick="LINIEN.${k2}=!LINIEN.${k2};zeichneMitte()"
+                 style="${LINIEN[k2] ? '' : `color:${f}`}">${l}</button>`).join('')}
+      <span style="margin-left:auto;font-size:10px;color:var(--text3)">
+        ${a.punkte || 0} Tage gespeichert${a.volatilitaet_jahr !== null && a.volatilitaet_jahr !== undefined ? ` · Vola ${zahl(a.volatilitaet_jahr, 1)} %` : ''}
+      </span>
+    </div>
+
+    ${chart()}
+    ${panelLeiste()}
+    <div class="tm-panel" id="tm-panel">${panelInhalt()}</div>`;
+}
+
+function panelLeiste() {
+  const reiter = [
+    ['nachrichten', 'Nachrichten', (DATEN?.nachrichten || []).length],
+    ['kennzahlen', 'Kennzahlen', 0],
+    ['analysten', 'Analysten', (DATEN?.analysten?.konsens || []).length],
+    ['zahlen', 'Quartalszahlen', (DATEN?.quartalszahlen || []).length],
+    ['agentur', 'Agentur', (DATEN?.agentur?.berichte || []).length + (DATEN?.agentur?.befunde || []).length],
+  ];
+  return `<div class="tm-reiter">${reiter.map(([k, l, n], i) =>
+    `<button class="${PANEL === k ? 'an' : ''}" onclick="PANEL='${k}';document.getElementById('tm-panel').innerHTML=panelInhalt();zeichnePanelLeiste()">
+      ${i + 1} ${l}${n ? ` (${n})` : ''}</button>`).join('')}</div>`;
+}
+function zeichnePanelLeiste() {
+  document.querySelectorAll('.tm-reiter button').forEach((b, i) => {
+    b.classList.toggle('an', ['nachrichten', 'kennzahlen', 'analysten', 'zahlen', 'agentur'][i] === PANEL);
+  });
+}
+
+function panelInhalt() {
+  const d = DATEN; if (!d) return '';
+  if (PANEL === 'nachrichten') {
+    const n = d.nachrichten;
+    if (!n) return `<div class="tm-leer">Meldungen nicht verfügbar${d.nicht_verfuegbar ? ' — ' + esc(d.nicht_verfuegbar.find(x => x.startsWith('nachrichten')) || '') : ''}</div>`;
+    if (!n.length) return `<div class="tm-leer">Keine Meldungen in den letzten 14 Tagen.</div>`;
+    return n.map(m => `<div class="tm-meldung">
+      <a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.schlagzeile)}</a>
+      <div class="q">${esc(m.datum)} · ${esc(m.quelle || '')}</div></div>`).join('');
+  }
+  if (PANEL === 'kennzahlen') {
+    const k = d.kennzahlen || {}, a = d.analytik || {};
+    const zeilen = [
+      ['KGV', zahl(k.kgv)], ['Kurs/Buchwert', zahl(k.kurs_buchwert)], ['Kurs/Umsatz', zahl(k.kurs_umsatz)],
+      ['Dividendenrendite', k.dividendenrendite !== null ? zahl(k.dividendenrendite) + ' %' : '–'],
+      ['Eigenkapitalrendite', k.eigenkapitalrendite !== null ? zahl(k.eigenkapitalrendite) + ' %' : '–'],
+      ['Nettomarge', k.marge !== null ? zahl(k.marge) + ' %' : '–'],
+      ['Verschuldung/EK', zahl(k.verschuldung)], ['Beta', zahl(k.beta)],
+      ['52W Hoch', zahl(k.hoch_52w)], ['52W Tief', zahl(k.tief_52w)],
+      ['— aus eigenem Verlauf —', ''],
+      ['SMA 20', zahl(a.sma20) + (a.abstand_sma20 !== null ? `  (${proz(a.abstand_sma20)})` : '')],
+      ['SMA 50', zahl(a.sma50) + (a.abstand_sma50 !== null ? `  (${proz(a.abstand_sma50)})` : '')],
+      ['SMA 200', zahl(a.sma200) + (a.abstand_sma200 !== null ? `  (${proz(a.abstand_sma200)})` : '')],
+      ['Volatilität p.a.', a.volatilitaet_jahr !== null && a.volatilitaet_jahr !== undefined ? zahl(a.volatilitaet_jahr, 1) + ' %' : '–'],
+      ['Größter Rückgang', a.max_rueckgang !== undefined ? '−' + zahl(a.max_rueckgang, 1) + ' %' : '–'],
+    ];
+    return zeilen.map(([n, w]) => w === ''
+      ? `<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding:12px 0 4px">${esc(n.replace(/—/g, '').trim())}</div>`
+      : `<div class="tm-zeile"><span>${esc(n)}</span><span style="font-family:'Space Mono',monospace">${w}</span></div>`).join('');
+  }
+  if (PANEL === 'analysten') {
+    const an = d.analysten || {};
+    if (!an.konsens && !an.kursziel) return `<div class="tm-leer">Nicht verfügbar auf dieser Anbieterstufe.</div>`;
+    return `
+      <div class="tm-hinweis">${esc(an.hinweis)}</div>
+      ${an.kursziel ? `<div class="tm-zeile"><span>Kursziel (Mittel / Spanne)</span>
+        <span style="font-family:'Space Mono',monospace">${zahl(an.kursziel.mittel)} · ${zahl(an.kursziel.tief)}–${zahl(an.kursziel.hoch)}</span></div>` : ''}
+      ${an.konsens ? `<table class="tm-tab" style="margin-top:10px">
+        <tr><th>Periode</th><th class="z">Kaufen+</th><th class="z">Kaufen</th><th class="z">Halten</th><th class="z">Verk.</th><th class="z">Verk.+</th></tr>
+        ${an.konsens.map(k => `<tr><td>${esc(k.periode)}</td>
+          <td class="z auf">${k.kaufen_stark ?? 0}</td><td class="z auf">${k.kaufen ?? 0}</td>
+          <td class="z neutral">${k.halten ?? 0}</td><td class="z ab">${k.verkaufen ?? 0}</td>
+          <td class="z ab">${k.verkaufen_stark ?? 0}</td></tr>`).join('')}
+      </table>` : ''}`;
+  }
+  if (PANEL === 'zahlen') {
+    const q = d.quartalszahlen;
+    if (!q || !q.length) return `<div class="tm-leer">Keine Quartalszahlen verfügbar.</div>`;
+    return `<table class="tm-tab">
+      <tr><th>Periode</th><th class="z">Erwartet</th><th class="z">Tatsächlich</th><th class="z">Abweichung</th></tr>
+      ${q.map(e => `<tr><td>${esc(e.periode)}</td><td class="z">${zahl(e.erwartet)}</td>
+        <td class="z">${zahl(e.tatsaechlich)}</td>
+        <td class="z ${klasse(e.abweichung_prozent)}">${proz(e.abweichung_prozent)}</td></tr>`).join('')}
+    </table>`;
+  }
+  if (PANEL === 'agentur') {
+    const b = d.agentur?.berichte || [], f = d.agentur?.befunde || [];
+    if (!b.length && !f.length) {
+      return `<div class="tm-leer">Die Analysten haben zu ${esc(d.symbol)} noch nichts geschrieben.<br>
+        „Analyse anfordern" oben legt eine Aufgabe an — der Verteiler startet sie innerhalb der nächsten Stunde.</div>`;
+    }
+    return `
+      ${f.length ? `<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding-bottom:6px">Befunde</div>
+        ${f.map(x => `<div class="tm-meldung"><div style="font-size:12px;font-family:'Syne',sans-serif">${esc(x.titel)}</div>
+          <div class="q">${esc(x.autor || '')} · ${esc(fmtDate(x.erstellt_am))}${x.beleg ? ' · ' + esc(x.beleg) : ''}</div></div>`).join('')}` : ''}
+      ${b.length ? `<div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);padding:12px 0 6px">Berichte</div>
+        ${b.map(x => `<div class="tm-meldung">
+          <div style="font-size:12px;font-family:'Syne',sans-serif;cursor:pointer" onclick="berichtZeigen(${x.id})">${esc(x.titel || 'Ohne Titel')}</div>
+          <div class="q">${esc(x.autor || '')} · ${esc(fmtDate(x.erstellt_am))}</div>
+          <div class="md" id="ber-${x.id}" style="display:none;font-size:12px;margin-top:8px">${mdToHtml(x.text)}</div>
+        </div>`).join('')}` : ''}`;
+  }
+  return '';
+}
+
+function berichtZeigen(id) {
+  const el = document.getElementById('ber-' + id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// ── Rechte Spalte ────────────────────────────────────────────────
+function zeichneRechts() {
+  const el = document.getElementById('tm-rechts');
+  const d = DATEN; if (!d) { el.innerHTML = ''; return; }
+  const st = d.stammdaten || {}, p = d.position;
+  const kl = kursLage(d);
+  // Live-Kennzahlen bevorzugen, sonst die gespeicherten Stammdaten. Beides
+  // ist echt – nur unterschiedlich frisch.
+  const k = {
+    ...(d.kennzahlen || {}),
+    hoch_52w: d.kennzahlen?.hoch_52w ?? st.hoch_52w ?? null,
+    tief_52w: d.kennzahlen?.tief_52w ?? st.tief_52w ?? null,
+    kgv: d.kennzahlen?.kgv ?? st.kgv ?? null,
+  };
+
+  const spanne = (k.tief_52w && k.hoch_52w && kl && k.hoch_52w > k.tief_52w)
+    ? Math.max(0, Math.min(100, ((kl.aktuell - k.tief_52w) / (k.hoch_52w - k.tief_52w)) * 100)) : null;
+
+  el.innerHTML = `
+    ${p ? `<div class="tm-gruppe">Deine Position</div>
+      <div style="padding:10px 14px">
+        <div class="tm-zeile"><span>Stück</span><span>${zahl(p.stueck, 0)}</span></div>
+        <div class="tm-zeile"><span>Kaufkurs</span><span>${zahl(p.kaufkurs)} ${esc(p.waehrung || '')}</span></div>
+        <div class="tm-zeile"><span>Wert</span><span>${kl ? zahl(kl.aktuell * p.stueck) + ' ' + esc(st.waehrung || '') : '–'}</span></div>
+        ${st.waehrung && p.waehrung && st.waehrung !== p.waehrung
+          ? `<div class="tm-hinweis tm-warn" style="margin:8px 0 0">Kurs in ${esc(st.waehrung)}, Kauf in ${esc(p.waehrung)} — nicht vergleichbar. Ein Ergebnis daraus wäre eine Fantasiezahl.</div>`
+          : (p.kaufkurs && kl ? `<div class="tm-zeile"><span>Ergebnis</span>
+              <span class="${klasse(kl.aktuell - p.kaufkurs)}">${proz(((kl.aktuell - p.kaufkurs) / p.kaufkurs) * 100)}</span></div>` : '')}
+        ${p.notiz ? `<div style="font-size:10.5px;color:var(--text3);margin-top:8px;line-height:1.5">${esc(p.notiz)}</div>` : ''}
+      </div>` : ''}
+
+    <div class="tm-gruppe">52-Wochen-Spanne</div>
+    <div style="padding:12px 14px">
+      ${spanne !== null ? `
+        <div style="height:5px;border-radius:3px;background:var(--bg3);position:relative;margin-bottom:7px">
+          <div style="position:absolute;left:${spanne.toFixed(1)}%;top:-3px;width:2px;height:11px;background:var(--accent2)"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3)">
+          <span>${zahl(k.tief_52w)}</span><span>${zahl(k.hoch_52w)}</span>
+        </div>
+        <div style="font-size:10.5px;color:var(--text2);margin-top:6px">
+          ${(() => {
+            const abw = ((kl.aktuell - k.hoch_52w) / k.hoch_52w) * 100;
+            // Über dem Hoch ist "+x % zum Hoch" missverständlich – dann ist
+            // entweder ein neues Hoch erreicht oder die Angabe veraltet.
+            if (abw > 0.5) return `<span class="auf">über dem 52W-Hoch (+${abw.toFixed(1)} %)</span> — Angabe womöglich veraltet`;
+            return `${spanne.toFixed(0)} % der Spanne · ${abw.toFixed(1)} % zum Hoch`;
+          })()}
+        </div>` : '<div style="font-size:11px;color:var(--text3)">Nicht verfügbar.</div>'}
+    </div>
+
+    <div class="tm-gruppe">Stammdaten</div>
+    <div style="padding:10px 14px">
+      ${[['Marktwert', st.marktwert ? zahl(st.marktwert / 1000, 1) + ' Mrd' : '–'],
+         ['Branche', st.branche || '–'], ['Börse', st.boerse || '–'],
+         ['Währung', st.waehrung || '–'],
+         ['Nächste Zahlen', st.naechste_zahlen || '–']].map(([n, w]) =>
+        `<div class="tm-zeile"><span>${esc(n)}</span><span>${esc(String(w))}</span></div>`).join('')}
+      ${st.webseite ? `<a href="${esc(st.webseite)}" target="_blank" rel="noopener"
+        style="font-size:10.5px;color:var(--accent2);display:block;margin-top:8px">${esc(st.webseite)}</a>` : ''}
+    </div>
+
+    ${d.vergleichbare?.length ? `<div class="tm-gruppe">Vergleichbare Werte</div>
+      <div style="padding:8px 14px;display:flex;flex-wrap:wrap;gap:5px">
+        ${d.vergleichbare.map(s => `<button class="tm-knopf" onclick="waehle('${esc(s)}')">${esc(s)}</button>`).join('')}
+      </div>` : ''}
+
+    ${d.nicht_verfuegbar ? `<div class="tm-hinweis tm-warn">
+      <b>Nicht verfügbar:</b><br>${d.nicht_verfuegbar.map(esc).join('<br>')}
+    </div>` : ''}
+
+    <div class="tm-hinweis">
+      Fakten, keine Beratung. Analystenangaben sind fremde Einschätzungen des Datenanbieters —
+      keine Empfehlung dieser Anwendung. Entschieden wird von dir.
+    </div>`;
+}
+
+// ── Suche und Tastatur ───────────────────────────────────────────
+let SUCH_WARTE = null;
+function vorschlagen() {
+  const q = document.getElementById('tm-such').value.trim();
+  const box = document.getElementById('tm-vorschlaege');
+  clearTimeout(SUCH_WARTE);
+  if (q.length < 2) { box.style.display = 'none'; VORSCHLAEGE = []; return; }
+  SUCH_WARTE = setTimeout(async () => {
+    const d = await api('/api/agentur/boerse/suche?q=' + encodeURIComponent(q));
+    VORSCHLAEGE = d?.treffer || [];
+    VORSCHLAG_INDEX = -1;
+    if (!VORSCHLAEGE.length) {
+      box.innerHTML = `<div class="tm-vorschlag"><span>${d?.error ? esc(d.error) : 'Nichts gefunden — Enter ruft die Eingabe direkt auf.'}</span></div>`;
+    } else {
+      box.innerHTML = VORSCHLAEGE.map((t, i) => `<div class="tm-vorschlag" data-i="${i}"
+        onmousedown="waehleVorschlag(${i})"><b>${esc(t.symbol)}</b><span>${esc(t.name || '')}</span></div>`).join('');
+    }
+    box.style.display = 'block';
+  }, 240);
+}
+
+function waehleVorschlag(i) {
+  const t = VORSCHLAEGE[i]; if (!t) return;
+  document.getElementById('tm-such').value = '';
+  document.getElementById('tm-vorschlaege').style.display = 'none';
+  waehle(t.symbol);
+}
+
+function tastatur(e) {
+  const box = document.getElementById('tm-vorschlaege');
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (!VORSCHLAEGE.length) return;
+    e.preventDefault();
+    VORSCHLAG_INDEX += e.key === 'ArrowDown' ? 1 : -1;
+    if (VORSCHLAG_INDEX < 0) VORSCHLAG_INDEX = VORSCHLAEGE.length - 1;
+    if (VORSCHLAG_INDEX >= VORSCHLAEGE.length) VORSCHLAG_INDEX = 0;
+    box.querySelectorAll('.tm-vorschlag').forEach((el, i) => el.classList.toggle('aktiv', i === VORSCHLAG_INDEX));
+    return;
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (VORSCHLAG_INDEX >= 0) return waehleVorschlag(VORSCHLAG_INDEX);
+    const v = document.getElementById('tm-such').value.trim().toUpperCase();
+    if (v) { document.getElementById('tm-such').value = ''; box.style.display = 'none'; waehle(v); }
+    return;
+  }
+  if (e.key === 'Escape') { box.style.display = 'none'; document.getElementById('tm-such').blur(); }
+}
+
+document.addEventListener('keydown', e => {
+  const imFeld = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+  if (e.key === '/' && !imFeld) { e.preventDefault(); document.getElementById('tm-such').focus(); return; }
+  if (imFeld) return;
+  if (['1', '2', '3', '4', '5'].includes(e.key)) {
+    PANEL = ['nachrichten', 'kennzahlen', 'analysten', 'zahlen', 'agentur'][Number(e.key) - 1];
+    const p = document.getElementById('tm-panel');
+    if (p) { p.innerHTML = panelInhalt(); zeichnePanelLeiste(); refreshIcons(); }
+    return;
+  }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const alle = [...(LISTE?.positionen || []), ...(LISTE?.beobachtet || [])].map(p => p.symbol);
+    if (!alle.length) return;
+    e.preventDefault();
+    const i = alle.indexOf(AKTIV);
+    const neu = e.key === 'ArrowDown' ? (i + 1) % alle.length : (i - 1 + alle.length) % alle.length;
+    waehle(alle[neu]);
+  }
+});
+
+// ── Aktionen ─────────────────────────────────────────────────────
+async function alleKurse() {
+  const b = document.getElementById('tm-refresh');
+  b.textContent = 'Hole…'; b.disabled = true;
+  await api('/api/agentur/boerse/auffrischen', { method: 'POST', body: {} });
+  await ladeListe();
+  if (AKTIV) await waehle(AKTIV);
+  b.textContent = 'Kurse holen'; b.disabled = false;
+}
+
+// Die Analysten arbeiten über das Board. Ein Auftrag hier heißt: Aufgabe
+// anlegen, fällig sofort – der Verteiler startet sie im nächsten Durchgang.
+async function analyseAnfordern() {
+  if (!AKTIV) return;
+  const r = await api('/api/agentur/aufgaben', { method: 'POST', body: {
+    abteilung_id: 'boerse',
+    titel: `Faktenbericht ${AKTIV}`,
+    beschreibung: `Kurse, Kennzahlen, Termine und Verlauf zu ${AKTIV} zusammentragen. Keine Empfehlung.`,
+    zustaendig: 'robert', status: 'offen',
+    faellig_am: new Date().toISOString(), erstellt_von: 'mensch',
+  }});
+  const el = document.getElementById('tm-stand');
+  if (el) el.textContent = r?.id ? ` · Analyse für ${AKTIV} beauftragt (#${r.id})` : ' · Auftrag fehlgeschlagen';
+}
+
+// ── Start ────────────────────────────────────────────────────────
+function boot() {
+  initLayout(null);
+  ladeListe();
+  setInterval(() => { if (!document.hidden && AKTIV) ladeListe(); }, 120000);
+}
+injectLoginScreen();
+checkAuth(boot);
+window.initAfterLogin = boot;
+</script>
+</body>
+</html>

@@ -15,7 +15,8 @@
 import { gscSync, gscQueries, gscReport, gscInspect } from './gsc.js';
 import {
   boerseUebersicht, boerseAuffrischen, boerseNachrichten,
-  boerseHistorie, boerseSuche, depotSchreiben, watchlistSchreiben,
+  boerseHistorie, boerseSuche, boerseTerminal, boersePortfolio,
+  depotSchreiben, watchlistSchreiben,
 } from './boerse.js';
 
 // Ein Lauf ohne Ende gilt nach zwei Stunden als abgestürzt.
@@ -1341,6 +1342,8 @@ export async function handleAgentur(request, env, helpers) {
     if (method === 'GET'  && id3 === 'nachrichten')  return boerseNachrichten(env, db, url, json, err);
     if (method === 'POST' && id3 === 'historie')     return boerseHistorie(env, db, body, json, err);
     if (method === 'GET'  && id3 === 'suche')        return boerseSuche(env, url, json, err);
+    if (method === 'GET'  && id3 === 'terminal')     return boerseTerminal(env, db, url, json, err);
+    if (method === 'GET'  && id3 === 'portfolio')    return boersePortfolio(env, db, url, json, err);
     if (id3 === 'depot')     return depotSchreiben(request, env, db, body, method, teil4, json, err);
     if (id3 === 'watchlist') return watchlistSchreiben(env, db, body, method, teil4, json, err);
   }

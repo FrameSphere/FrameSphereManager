@@ -127,7 +127,7 @@ function injectSidebar(activeSiteId = null) {
     <div style="flex:1;overflow-y:auto;min-height:0">
     <div class="sidebar-section">
       <div class="sidebar-label">Übersicht</div>
-      <a class="nav-item${!activeSiteId && !window.location.pathname.includes('todo') && !window.location.pathname.includes('agentur') && !window.location.pathname.includes('fixes') && !window.location.pathname.includes('infrastructure') && !window.location.pathname.includes('analytics') && !window.location.pathname.includes('db') && !window.location.pathname.includes('pinboard') && !window.location.pathname.includes('vault') && !window.location.pathname.includes('search-radar') && !window.location.pathname.includes('revenue') && !window.location.pathname.includes('apps') ? ' active' : ''}" href="${pathPrefix()}index.html">
+      <a class="nav-item${!activeSiteId && !window.location.pathname.includes('todo') && !window.location.pathname.includes('agentur') && !window.location.pathname.includes('terminal') && !window.location.pathname.includes('fixes') && !window.location.pathname.includes('infrastructure') && !window.location.pathname.includes('analytics') && !window.location.pathname.includes('db') && !window.location.pathname.includes('pinboard') && !window.location.pathname.includes('vault') && !window.location.pathname.includes('search-radar') && !window.location.pathname.includes('revenue') && !window.location.pathname.includes('apps') ? ' active' : ''}" href="${pathPrefix()}index.html">
         <span class="icon"><i data-lucide="layout-dashboard" style="width:14px;height:14px"></i></span>
         Dashboard
       </a>
@@ -135,7 +135,11 @@ function injectSidebar(activeSiteId = null) {
         <span class="icon"><i data-lucide="check-square-2" style="width:14px;height:14px"></i></span>
         To Do
       </a>
-      <a class="nav-item${window.location.pathname.includes('agentur') ? ' active' : ''}" href="${pathPrefix()}agentur.html">
+      <a class="nav-item${window.location.pathname.includes('terminal') ? ' active' : ''}" href="${pathPrefix()}terminal.html">
+        <span class="icon"><i data-lucide="candlestick-chart" style="width:14px;height:14px;color:#eab308"></i></span>
+        Terminal
+      </a>
+      <a class="nav-item${window.location.pathname.includes('agentur') && !window.location.pathname.includes('terminal') ? ' active' : ''}" href="${pathPrefix()}agentur.html">
         <span class="icon"><i data-lucide="building-2" style="width:14px;height:14px;color:#a855f7"></i></span>
         Agentur
         <span class="notif-badge" id="nav-agentur-badge" style="display:none;position:static;margin-left:auto;background:#a855f7"></span>
