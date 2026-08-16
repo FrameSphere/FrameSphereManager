@@ -52,6 +52,39 @@ function ohneSchluessel(text, env) {
   return s.replace(/\b[A-Z0-9]{12,}\b/g, '«Schlüssel»');
 }
 
+// ── Wechselkurse ─────────────────────────────────────────────────
+// Von der EZB über frankfurter.dev, ohne Schlüssel. Nötig, weil die
+// kostenlosen Kursquellen deutsche Börsen nicht abdecken: gehandelt wird
+// dann die US-Notierung in Dollar, während der Kaufpreis in Euro vorliegt.
+// Ohne Umrechnung wäre kein Vergleich möglich – mit ihr ist es derselbe
+// Rechenweg, den auch die Depotbank nimmt.
+const FX_ZWISCHENSPEICHER = { stand: 0, basis: null, kurse: null };
+
+async function wechselkurse(basis = 'EUR') {
+  const jetztMs = Date.now();
+  if (FX_ZWISCHENSPEICHER.kurse && FX_ZWISCHENSPEICHER.basis === basis
+      && jetztMs - FX_ZWISCHENSPEICHER.stand < 3600000) {
+    return FX_ZWISCHENSPEICHER.kurse;
+  }
+  const r = await fetch(`https://api.frankfurter.dev/v1/latest?base=${encodeURIComponent(basis)}`);
+  if (!r.ok) throw new Error(`Wechselkurse nicht erreichbar (${r.status})`);
+  const d = await r.json().catch(() => ({}));
+  if (!d.rates) throw new Error('Wechselkurse: unerwartete Antwort');
+  const kurse = { ...d.rates, [basis]: 1, _datum: d.date };
+  Object.assign(FX_ZWISCHENSPEICHER, { stand: jetztMs, basis, kurse });
+  return kurse;
+}
+
+// Betrag von einer Währung in eine andere. Gibt null zurück, wenn eine der
+// beiden unbekannt ist – lieber keine Zahl als eine erfundene.
+function umrechnen(betrag, von, nach, kurse) {
+  if (betrag === null || betrag === undefined) return null;
+  if (!von || !nach || von === nach) return betrag;
+  const kVon = kurse?.[von], kNach = kurse?.[nach];
+  if (!kVon || !kNach) return null;
+  return (betrag / kVon) * kNach;
+}
+
 const heute = () => new Date().toISOString().slice(0, 10);
 const tagVor = n => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 const zahl = v => (Number.isFinite(Number(v)) ? Number(v) : null);
@@ -300,6 +333,17 @@ export async function boerseHistorie(env, db, body, json, err) {
   }
   const frischGenug = tagVor(5);
 
+  // Sagt eine Quelle "Kontingent erschöpft" oder "nur im bezahlten Tarif",
+  // gilt das für alle weiteren Werte dieses Laufs. Sie danach noch dreizehn
+  // Mal zu fragen, verbrennt nur Abrufe – genau das ist zuvor passiert.
+  const erschoepft = new Set();
+  // Kontobezogen (Quelle aussetzen) von symbolbezogen (nur dieser Wert)
+  // unterscheiden: "dieses Symbol gibt es erst im bezahlten Tarif" heißt
+  // nicht, dass die Quelle für andere Werte nichts mehr liefert.
+  const istKontoweit = m =>
+    /credit|rate limit|quota|429|403|access|zugriff verweigert/i.test(m)
+    && !/this symbol is available/i.test(m);
+
   const ergebnis = [], hinweise = [], uebersprungen = [];
   for (const s of liste) {
     const v = vorhanden.get(s);
@@ -307,20 +351,36 @@ export async function boerseHistorie(env, db, body, json, err) {
       uebersprungen.push(`${s}: ${v.n} Tage bis ${v.neuestes} liegen vor`);
       continue;
     }
+    // Was kein handelbares Kürzel ist, wird gar nicht erst gefragt.
+    if (!/^[A-Z0-9.\-]{1,12}(:[A-Z0-9]{2,6})?$/.test(s) || /^[A-Z]\d/.test(s)) {
+      uebersprungen.push(`${s}: kein handelbares Kürzel, wird nicht abgefragt`);
+      continue;
+    }
+
     let punkte = null, quelle = null;
     const versuche = [];
     for (const [name, fn] of quellen) {
+      if (erschoepft.has(name)) continue;
       try { punkte = await fn(s); quelle = name; break; }
-      catch (e) { versuche.push(`${name}: ${e.message}`); }
-    }
-    // Alpha Vantage verlangt ausdrücklich höchstens einen Abruf je Sekunde.
-    // Ohne Pause holt sich das Werkzeug beim zweiten Wert selbst eine Absage.
-    if (quellen.some(([n]) => n === 'alphavantage')) {
-      await new Promise(r => setTimeout(r, 1200));
+      catch (e) {
+        versuche.push(`${name}: ${e.message}`);
+        if (istKontoweit(e.message)) erschoepft.add(name);
+      }
+      // Twelve Data lässt auf der freien Stufe acht Abrufe je Minute zu,
+      // Alpha Vantage einen je Sekunde. Ohne Pause sperrt man sich selbst aus.
+      await new Promise(r => setTimeout(r, name === 'twelvedata' ? 8000 : 1300));
     }
     if (!punkte) { hinweise.push(`${s} — ${versuche.join(' · ')}`); continue; }
     const n = await historieSchreiben(db, s, punkte, quelle);
     ergebnis.push({ symbol: s, punkte: n, quelle });
+
+    if (erschoepft.size >= quellen.length) {
+      hinweise.push('Alle Quellen für diesen Lauf erschöpft – Rest später erneut versuchen.');
+      break;
+    }
+  }
+  if (erschoepft.size && erschoepft.size >= quellen.length) {
+    // nichts weiter – der Hinweis steht schon
   }
 
   return json({
@@ -667,19 +727,29 @@ export async function boerseUebersicht(env, db, url, json, err) {
   const letzter = s => { const r = reihen.get(s); return r?.length ? r[r.length - 1] : null; };
 
   // Bestand bewerten. Reine Rechnung, keine Beurteilung.
+  // Wechselkurse einmal holen. Schlägt es fehl, wird eben nicht
+  // umgerechnet – dann bleibt der Vergleich gesperrt statt zu raten.
+  let fx = null;
+  try { fx = await wechselkurse('EUR'); } catch (e) { fx = null; }
+
   const positionen = (depot.results || []).map(p => {
     const st = wertNach.get(p.symbol) || null;
     const l = letzter(p.symbol);
     const kurs = l?.kurs ?? null;
-    const wert = kurs !== null ? kurs * p.stueck : null;
+    const kursWaehrung = st?.waehrung || null;
     const einsatz = p.kaufkurs !== null && p.kaufkurs !== undefined ? p.kaufkurs * p.stueck : null;
 
-    // Kurs und Kaufkurs dürfen nur verglichen werden, wenn sie dieselbe
-    // Währung haben. Ein Kurs in USD minus ein Kaufpreis in EUR ergibt eine
-    // Zahl, die nach Gewinn aussieht und keine ist.
-    const kursWaehrung = st?.waehrung || null;
-    const konflikt = !!(kursWaehrung && p.waehrung && kursWaehrung !== p.waehrung);
-    const vergleichbar = wert !== null && einsatz !== null && !konflikt;
+    // Notiert der Wert in einer anderen Währung als der Kaufpreis, wird der
+    // aktuelle Wert zum heutigen Kurs umgerechnet – so rechnet auch die
+    // Depotbank. Der Kaufpreis bleibt unangetastet: was damals gezahlt
+    // wurde, steht fest und wird nicht rückwirkend umgerechnet.
+    const anders = !!(kursWaehrung && p.waehrung && kursWaehrung !== p.waehrung);
+    const wertRoh = kurs !== null ? kurs * p.stueck : null;
+    const wert = anders ? umrechnen(wertRoh, kursWaehrung, p.waehrung, fx) : wertRoh;
+    const umgerechnet = anders && wert !== null;
+    const gesperrt = anders && wert === null;   // Umrechnung nicht möglich
+
+    const vergleichbar = wert !== null && einsatz !== null;
 
     return {
       ...p,
@@ -687,8 +757,11 @@ export async function boerseUebersicht(env, db, url, json, err) {
       kurs, kurs_datum: l?.datum ?? null,
       kurs_waehrung: kursWaehrung,
       veraenderung_prozent: l?.veraenderung_prozent ?? null,
+      wert_original: wertRoh,
       wert, einsatz,
-      waehrung_konflikt: konflikt,
+      umgerechnet,
+      fx_datum: umgerechnet ? fx?._datum || null : null,
+      waehrung_konflikt: gesperrt,
       ergebnis: vergleichbar ? Math.round((wert - einsatz) * 100) / 100 : null,
       ergebnis_prozent: (vergleichbar && einsatz) ? Math.round(((wert - einsatz) / einsatz) * 10000) / 100 : null,
       verlauf: reihen.get(p.symbol) || [],
@@ -712,7 +785,9 @@ export async function boerseUebersicht(env, db, url, json, err) {
   const bewertbar = positionen.filter(p => p.ergebnis !== null);
   const ohneKurs = positionen.filter(p => p.wert === null).map(p => p.symbol);
   const konflikte = positionen.filter(p => p.waehrung_konflikt)
-    .map(p => `${p.symbol}: Kurs in ${p.kurs_waehrung}, Kauf in ${p.waehrung}`);
+    .map(p => `${p.symbol}: Kurs in ${p.kurs_waehrung}, Kauf in ${p.waehrung} — Umrechnung nicht möglich`);
+  const umgerechnet = positionen.filter(p => p.umgerechnet)
+    .map(p => `${p.symbol}: ${p.kurs_waehrung}→${p.waehrung}`);
   const gesamtwert = bewertbar.reduce((s, p) => s + p.wert, 0);
   const gesamteinsatz = bewertbar.reduce((s, p) => s + p.einsatz, 0);
 
@@ -729,6 +804,7 @@ export async function boerseUebersicht(env, db, url, json, err) {
     } : { bewertet: 0, von: positionen.length, wert: null, einsatz: null, ergebnis: null, ergebnis_prozent: null },
     ohne_kurs: ohneKurs.length ? ohneKurs : null,
     waehrung_konflikte: konflikte.length ? konflikte : null,
+    umgerechnet: umgerechnet.length ? { werte: umgerechnet, stand: fx?._datum || null } : null,
     verlauf_tage: tage,
     fehler: fehler.length ? fehler : null,
     hinweis: (verlauf.results || []).length ? null

@@ -1065,7 +1065,8 @@ function zeichneBoerse() {
       <div class="zeile-meta">
         ${gehalten ? `<span style="font-size:11.5px;color:var(--text2)">${p.stueck} Stück zu ${geld(p.kaufkurs, p.waehrung)}</span>` : ''}
         ${gehalten && p.ergebnis !== null ? `<span class="marke" style="background:rgba(255,255,255,.06);color:${farbeVon(p.ergebnis)}">${vz(p.ergebnis)}${geld(p.ergebnis, p.waehrung)} · ${vz(p.ergebnis_prozent)}${p.ergebnis_prozent} %</span>` : ''}
-        ${gehalten && p.waehrung_konflikt ? `<span class="marke m-rot" title="Kurs und Kaufpreis stehen in verschiedenen Währungen — ein Vergleich wäre eine Fantasiezahl">Währung: Kurs ${esc(p.kurs_waehrung)}, Kauf ${esc(p.waehrung)}</span>` : ''}
+        ${gehalten && p.waehrung_konflikt ? `<span class="marke m-rot" title="Umrechnung nicht möglich">Währung: Kurs ${esc(p.kurs_waehrung)}, Kauf ${esc(p.waehrung)}</span>` : ''}
+        ${gehalten && p.umgerechnet ? `<span class="marke m-grau" title="Heutiger Wert zum EZB-Kurs umgerechnet; Kaufpreis unverändert">${esc(p.kurs_waehrung)}→${esc(p.waehrung)}</span>` : ''}
         ${st.naechste_zahlen ? marke(['m-gelb', 'Zahlen ' + st.naechste_zahlen]) : ''}
         ${st.hoch_52w ? `<span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">52W ${st.tief_52w?.toFixed?.(0) ?? '–'}–${st.hoch_52w?.toFixed?.(0) ?? '–'}</span>` : ''}
         ${st.kgv ? `<span style="font-size:10.5px;color:var(--text3);font-family:'Space Mono',monospace">KGV ${Number(st.kgv).toFixed(1)}</span>` : ''}
@@ -1100,6 +1101,10 @@ function zeichneBoerse() {
 
     ${summeBlock}
     ${b.ohne_kurs ? `<div class="hinweis" style="background:rgba(245,158,11,.07);border-color:rgba(245,158,11,.25)">${icon('alert-triangle', 15)}<span>Ohne Kurs und deshalb nicht bewertet: ${esc(b.ohne_kurs.join(', '))}</span></div>` : ''}
+    ${b.umgerechnet ? `<div class="hinweis">${icon('repeat', 15)}<span>
+      <b>Umgerechnet:</b> ${esc(b.umgerechnet.werte.join(', '))} — zum EZB-Kurs vom ${esc(b.umgerechnet.stand || 'heute')}.
+      Der Kaufpreis bleibt, wie er gezahlt wurde; nur der heutige Wert wird umgerechnet.
+    </span></div>` : ''}
     ${b.waehrung_konflikte ? `<div class="hinweis" style="background:rgba(239,68,68,.07);border-color:rgba(239,68,68,.3)">${icon('alert-octagon', 15)}<span>
       <b>Nicht vergleichbar:</b> ${esc(b.waehrung_konflikte.join(' · '))}.
       Kurs und Kaufpreis stehen in verschiedenen Währungen — ein Ergebnis daraus wäre eine Fantasiezahl.
