@@ -1222,9 +1222,13 @@ async function ladeHistorie() {
   await ladeBoerse();
   const s2 = document.getElementById('bs-status');
   if (s2) {
-    if (d?.geladen?.length) {
+    if (d?.geladen?.length || d?.uebersprungen?.length) {
       s2.style.color = '#4ade80';
-      s2.textContent = d.geladen.map(g => `${g.symbol}: ${g.punkte} Tage (${g.quelle})`).join(' · ');
+      s2.innerHTML = [
+        d.geladen?.length ? esc(d.geladen.map(g => `${g.symbol}: ${g.punkte} Tage (${g.quelle})`).join(' · ')) : null,
+        d.uebersprungen?.length ? `<span style="opacity:.65">Nicht erneut geholt — ${esc(d.uebersprungen.join(' · '))}</span>` : null,
+        d.hinweise?.length ? `<span style="color:#fbbf24">${esc(d.hinweise.join(' | '))}</span>` : null,
+      ].filter(Boolean).join('<br>');
     } else {
       // Der genaue Grund je Quelle ist brauchbarer als die allgemeine
       // Erklärung – deshalb steht er zuerst.

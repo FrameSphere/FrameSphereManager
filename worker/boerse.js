@@ -56,10 +56,31 @@ const heute = () => new Date().toISOString().slice(0, 10);
 const tagVor = n => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 const zahl = v => (Number.isFinite(Number(v)) ? Number(v) : null);
 
-// Kurs holen und im eigenen Verlauf ablegen.
+// Kurs holen und im eigenen Verlauf ablegen. Der Hauptanbieter deckt nur
+// US-Werte ab und liefert bei allem anderen stillschweigend Nullen – dann
+// wird die zweite Quelle gefragt, statt den Wert kurslos zu lassen.
 async function kursHolen(env, db, symbol) {
-  const q = await holen(env, '/quote', { symbol });
-  // Finnhub liefert bei unbekannten Symbolen Nullen statt eines Fehlers.
+  let q = null;
+  try { q = await holen(env, '/quote', { symbol }); } catch (e) { q = null; }
+
+  if (!q || !zahl(q.c)) {
+    try {
+      const z = await kursVonTwelveData(env, symbol);
+      q = z;
+      // Bei der Gelegenheit Stammdaten mitnehmen, die von dort kommen.
+      if (z.waehrung || z.name) {
+        await db.prepare(
+          `INSERT INTO ag_werte (symbol, name, waehrung, boerse, aktualisiert_am)
+           VALUES (?,?,?,?,?)
+           ON CONFLICT(symbol) DO UPDATE SET
+             name=COALESCE(ag_werte.name, excluded.name),
+             waehrung=COALESCE(excluded.waehrung, ag_werte.waehrung),
+             boerse=COALESCE(ag_werte.boerse, excluded.boerse),
+             aktualisiert_am=excluded.aktualisiert_am`
+        ).bind(symbol, z.name, z.waehrung, z.boerse, new Date().toISOString()).run().catch(() => {});
+      }
+    } catch (e) { /* auch die zweite Quelle kann den Wert nicht kennen */ }
+  }
   if (!q || !zahl(q.c)) return null;
 
   const satz = {
@@ -170,6 +191,51 @@ async function vonFinnhubKerzen(env, symbol, tage) {
   }));
 }
 
+// Twelve Data: 800 Abrufe am Tag statt 25, und deutlich bessere Abdeckung
+// europäischer Börsen. Für dieses Werkzeug die passendste Quelle.
+async function vonTwelveData(env, symbol, tage) {
+  const key = (env.TWELVEDATA_KEY || '').trim();
+  if (!key) throw new Error('TWELVEDATA_KEY ist nicht gesetzt');
+  const u = new URL('https://api.twelvedata.com/time_series');
+  u.searchParams.set('symbol', symbol);
+  u.searchParams.set('interval', '1day');
+  u.searchParams.set('outputsize', String(Math.min(Math.max(tage, 30), 5000)));
+  u.searchParams.set('apikey', key);
+  const r = await fetch(u.toString());
+  const d = await r.json().catch(() => ({}));
+  if (d.status === 'error' || d.code) {
+    throw new Error(ohneSchluessel(String(d.message || `Fehler ${d.code}`), env).slice(0, 200));
+  }
+  if (!Array.isArray(d.values)) throw new Error('keine Zeitreihe erhalten');
+  return d.values.map(v => ({
+    datum: String(v.datetime).slice(0, 10),
+    kurs: zahl(v.close), eroeffnung: zahl(v.open),
+    hoch: zahl(v.high), tief: zahl(v.low),
+  })).filter(p => p.kurs !== null);
+}
+
+// Kurs über Twelve Data – für Werte, die der Hauptanbieter nicht abdeckt
+// (etwa deutsche Börsenplätze).
+async function kursVonTwelveData(env, symbol) {
+  const key = (env.TWELVEDATA_KEY || '').trim();
+  if (!key) throw new Error('TWELVEDATA_KEY ist nicht gesetzt');
+  const u = new URL('https://api.twelvedata.com/quote');
+  u.searchParams.set('symbol', symbol);
+  u.searchParams.set('apikey', key);
+  const r = await fetch(u.toString());
+  const d = await r.json().catch(() => ({}));
+  if (d.status === 'error' || d.code) {
+    throw new Error(ohneSchluessel(String(d.message || `Fehler ${d.code}`), env).slice(0, 200));
+  }
+  if (!zahl(d.close)) throw new Error('kein Kurs in der Antwort');
+  return {
+    c: zahl(d.close), o: zahl(d.open), h: zahl(d.high), l: zahl(d.low),
+    pc: zahl(d.previous_close),
+    dp: zahl(d.percent_change),
+    waehrung: d.currency || null, name: d.name || null, boerse: d.exchange || null,
+  };
+}
+
 async function vonAlphaVantage(env, symbol) {
   const key = (env.ALPHAVANTAGE_KEY || '').trim();
   if (!key) throw new Error('ALPHAVANTAGE_KEY ist nicht gesetzt');
@@ -200,17 +266,33 @@ export async function boerseHistorie(env, db, body, json, err) {
   const liste = body?.symbole?.length ? body.symbole.slice(0, 10) : await symbole(db);
   if (!liste.length) return json({ success: true, hinweis: 'Keine Werte hinterlegt.' });
 
-  // Reihenfolge nach Verfügbarkeit: liegt ein Alpha-Vantage-Schlüssel vor,
-  // wird der zuerst gefragt. Finnhub-Kerzen gehören nicht zu jeder Stufe –
-  // sie zuerst zu versuchen hieße, jedes Mal einen Abruf zu verschenken.
+  // Reihenfolge nach Ergiebigkeit: Twelve Data hat das großzügigste
+  // Tageskontingent und die beste Abdeckung außerhalb der USA.
   const quellen = [];
-  if ((env.ALPHAVANTAGE_KEY || '').trim()) {
-    quellen.push(['alphavantage', s => vonAlphaVantage(env, s)]);
-  }
+  if ((env.TWELVEDATA_KEY || '').trim()) quellen.push(['twelvedata', s => vonTwelveData(env, s, tage)]);
+  if ((env.ALPHAVANTAGE_KEY || '').trim()) quellen.push(['alphavantage', s => vonAlphaVantage(env, s)]);
   quellen.push(['finnhub', s => vonFinnhubKerzen(env, s, tage)]);
 
-  const ergebnis = [], hinweise = [];
+  // Was schon vollständig dasteht, wird nicht erneut geholt. Jeder
+  // unnötige Abruf frisst ein knappes Tageskontingent – genau daran ist
+  // es zuvor gescheitert.
+  const erzwingen = body?.erzwingen === true;
+  const vorhanden = new Map();
+  if (!erzwingen) {
+    const r = await db.prepare(
+      `SELECT symbol, COUNT(*) n, MAX(datum) neuestes FROM ag_kurse GROUP BY symbol`
+    ).all().catch(() => ({ results: [] }));
+    for (const x of (r.results || [])) vorhanden.set(x.symbol, x);
+  }
+  const frischGenug = tagVor(5);
+
+  const ergebnis = [], hinweise = [], uebersprungen = [];
   for (const s of liste) {
+    const v = vorhanden.get(s);
+    if (v && v.n >= 60 && v.neuestes >= frischGenug) {
+      uebersprungen.push(`${s}: ${v.n} Tage bis ${v.neuestes} liegen vor`);
+      continue;
+    }
     let punkte = null, quelle = null;
     const versuche = [];
     for (const [name, fn] of quellen) {
@@ -228,10 +310,12 @@ export async function boerseHistorie(env, db, body, json, err) {
   }
 
   return json({
-    success: ergebnis.length > 0,
+    success: ergebnis.length > 0 || uebersprungen.length > 0,
     geladen: ergebnis,
+    uebersprungen: uebersprungen.length ? uebersprungen : null,
     hinweise: hinweise.length ? hinweise : null,
-    erklaerung: ergebnis.length ? null
+    quellen_versucht: quellen.map(([n]) => n),
+    erklaerung: (ergebnis.length || uebersprungen.length) ? null
       : 'Keine Quelle für Historie verfügbar. Der Verlauf wächst dann aus den täglichen Kursabrufen – ab dem zweiten Tag entsteht eine Linie.',
   });
 }
@@ -374,7 +458,12 @@ export async function boerseTerminal(env, db, url, json, err) {
 
   // Live-Angaben. Fällt eine aus, fehlt sie – der Rest steht trotzdem.
   const { ergebnis, fehlt } = await nebeneinander([
-    ['quote', () => holen(env, '/quote', { symbol })],
+    ['quote', async () => {
+      let q = null;
+      try { q = await holen(env, '/quote', { symbol }); } catch (e) { q = null; }
+      if (q && zahl(q.c)) return q;
+      return kursVonTwelveData(env, symbol);   // Zweitquelle für nicht abgedeckte Börsen
+    }],
     ['kennzahlen', () => holen(env, '/stock/metric', { symbol, metric: 'all' })],
     ['nachrichten', () => holen(env, '/company-news', { symbol, from: tagVor(14), to: heute() })],
     ['konsens', () => holen(env, '/stock/recommendation', { symbol })],
