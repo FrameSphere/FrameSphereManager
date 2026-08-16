@@ -1048,6 +1048,9 @@ function zeichneBoerse() {
         </div>
         ${s.ergebnis_prozent !== null && s.ergebnis_prozent !== undefined
           ? `<div style="font-size:10.5px;color:${farbeVon(s.ergebnis_prozent)};font-family:'Space Mono',monospace;margin-top:4px">${vz(s.ergebnis_prozent)}${s.ergebnis_prozent} %</div>` : ''}
+        ${s.bewertet < s.von ? `<div style="font-size:10px;color:var(--text3);line-height:1.4;margin-top:5px">
+          bezieht sich nur auf die ${s.bewertet} bewerteten Positionen — die ${s.von - s.bewertet} ohne Kurs
+          sind weder im Wert noch im Einsatz enthalten</div>` : ''}
       </div>
     </div>`;
 

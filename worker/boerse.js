@@ -800,7 +800,10 @@ export async function boerseUebersicht(env, db, url, json, err) {
       : anders ? umrechnen(wertRoh, kursWaehrung, p.waehrung, fx)
       : wertRoh;
     const umgerechnet = anders && wert !== null;
-    const gesperrt = waehrungUnklar || (anders && wert === null);
+    // Ein Währungskonflikt setzt einen Kurs voraus. Ohne Kurs ist die
+    // Position schlicht unbewertet – das ist etwas anderes und stand vorher
+    // irreführend als "nicht vergleichbar" da.
+    const gesperrt = wertRoh !== null && (waehrungUnklar || (anders && wert === null));
 
     const vergleichbar = wert !== null && einsatz !== null;
 
