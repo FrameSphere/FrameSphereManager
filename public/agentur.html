@@ -1231,6 +1231,7 @@ async function ladeHistorie() {
       s2.style.color = '#4ade80';
       s2.innerHTML = [
         d.geladen?.length ? esc(d.geladen.map(g => `${g.symbol}: ${g.punkte} Tage (${g.quelle})`).join(' · ')) : null,
+        d.weiter_klicken ? `<span style="color:#60a5fa">${esc(d.weiter_klicken)}</span>` : null,
         d.uebersprungen?.length ? `<span style="opacity:.65">Nicht erneut geholt — ${esc(d.uebersprungen.join(' · '))}</span>` : null,
         d.hinweise?.length ? `<span style="color:#fbbf24">${esc(d.hinweise.join(' | '))}</span>` : null,
       ].filter(Boolean).join('<br>');

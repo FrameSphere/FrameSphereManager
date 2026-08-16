@@ -196,21 +196,36 @@ async function wertHolen(env, db, symbol) {
 //   1. Finnhub-Kerzen        (falls die Stufe sie hergibt)
 //   2. Alpha Vantage         (ein Abruf liefert die volle Tageshistorie)
 //   3. gar nichts            → der Verlauf wächst weiter aus Tagesabrufen
+// In Blöcken schreiben, nicht Zeile für Zeile. Einzelanweisungen laufen
+// nach rund tausend Stück ins Limit einer Worker-Ausführung – bei 250 Tagen
+// je Wert ist das nach vier Werten erreicht. Fehler werden gemeldet statt
+// verschluckt: vorher meldete die Oberfläche Erfolg für Daten, die nie
+// ankamen.
 async function historieSchreiben(db, symbol, punkte, quelle) {
-  let n = 0;
-  for (const p of punkte) {
-    if (!p.datum || !Number.isFinite(p.kurs)) continue;
-    await db.prepare(
-      `INSERT INTO ag_kurse (symbol, datum, kurs, eroeffnung, hoch, tief, quelle)
-       VALUES (?,?,?,?,?,?,?)
-       ON CONFLICT(symbol, datum) DO UPDATE SET
-         kurs=excluded.kurs, eroeffnung=COALESCE(excluded.eroeffnung, ag_kurse.eroeffnung),
-         hoch=COALESCE(excluded.hoch, ag_kurse.hoch), tief=COALESCE(excluded.tief, ag_kurse.tief)`
-    ).bind(symbol, p.datum, p.kurs, p.eroeffnung ?? null, p.hoch ?? null, p.tief ?? null, quelle)
-      .run().catch(() => {});
-    n++;
+  const gueltig = punkte.filter(p => p.datum && Number.isFinite(p.kurs));
+  if (!gueltig.length) return { geschrieben: 0, fehler: null };
+
+  const anweisung = p => db.prepare(
+    `INSERT INTO ag_kurse (symbol, datum, kurs, eroeffnung, hoch, tief, quelle)
+     VALUES (?,?,?,?,?,?,?)
+     ON CONFLICT(symbol, datum) DO UPDATE SET
+       kurs=excluded.kurs, eroeffnung=COALESCE(excluded.eroeffnung, ag_kurse.eroeffnung),
+       hoch=COALESCE(excluded.hoch, ag_kurse.hoch), tief=COALESCE(excluded.tief, ag_kurse.tief)`
+  ).bind(symbol, p.datum, p.kurs, p.eroeffnung ?? null, p.hoch ?? null, p.tief ?? null, quelle);
+
+  let geschrieben = 0, fehler = null;
+  const blockGroesse = 50;
+  for (let i = 0; i < gueltig.length; i += blockGroesse) {
+    const block = gueltig.slice(i, i + blockGroesse);
+    try {
+      await db.batch(block.map(anweisung));
+      geschrieben += block.length;
+    } catch (e) {
+      fehler = String(e.message || e).slice(0, 160);
+      break;   // weitere Blöcke scheitern genauso
+    }
   }
-  return n;
+  return { geschrieben, fehler };
 }
 
 async function vonFinnhubKerzen(env, symbol, tage) {
@@ -344,6 +359,9 @@ export async function boerseHistorie(env, db, body, json, err) {
     /credit|rate limit|quota|429|403|access|zugriff verweigert/i.test(m)
     && !/this symbol is available/i.test(m);
 
+  const SCHREIB_BUDGET = 800;      // Zeilen je Lauf, mit Sicherheitsabstand
+  let geschriebenGesamt = 0, offen = [];
+
   const ergebnis = [], hinweise = [], uebersprungen = [];
   for (const s of liste) {
     const v = vorhanden.get(s);
@@ -370,9 +388,26 @@ export async function boerseHistorie(env, db, body, json, err) {
       // Alpha Vantage einen je Sekunde. Ohne Pause sperrt man sich selbst aus.
       await new Promise(r => setTimeout(r, name === 'twelvedata' ? 8000 : 1300));
     }
-    if (!punkte) { hinweise.push(`${s} — ${versuche.join(' · ')}`); continue; }
-    const n = await historieSchreiben(db, s, punkte, quelle);
-    ergebnis.push({ symbol: s, punkte: n, quelle });
+    if (!punkte) {
+      hinweise.push(`${s} — ${versuche.length ? versuche.join(' · ') : 'alle Quellen für diesen Lauf ausgesetzt'}`);
+      continue;
+    }
+    const { geschrieben, fehler } = await historieSchreiben(db, s, punkte, quelle);
+    geschriebenGesamt += geschrieben;
+    if (fehler) {
+      hinweise.push(`${s}: ${geschrieben} von ${punkte.length} Tagen gespeichert, dann abgebrochen — ${fehler}`);
+      break;   // Schreibgrenze erreicht, weitere Werte bringen nichts
+    }
+    ergebnis.push({ symbol: s, punkte: geschrieben, quelle });
+
+    // Eine Worker-Ausführung darf nur begrenzt viele Schreibvorgänge
+    // absetzen. Statt am Limit abzubrechen und Halbfertiges zu hinterlassen,
+    // wird hier planmäßig Schluss gemacht – der nächste Klick macht weiter,
+    // denn fertige Werte werden ohnehin übersprungen.
+    if (geschriebenGesamt >= SCHREIB_BUDGET) {
+      offen = liste.slice(liste.indexOf(s) + 1);
+      break;
+    }
 
     if (erschoepft.size >= quellen.length) {
       hinweise.push('Alle Quellen für diesen Lauf erschöpft – Rest später erneut versuchen.');
@@ -386,6 +421,11 @@ export async function boerseHistorie(env, db, body, json, err) {
   return json({
     success: ergebnis.length > 0 || uebersprungen.length > 0,
     geladen: ergebnis,
+    zeilen_geschrieben: geschriebenGesamt,
+    offen: offen.length ? offen : null,
+    weiter_klicken: offen.length
+      ? `${offen.length} Werte stehen noch aus — noch einmal „Historie laden“ drücken. Fertige werden übersprungen.`
+      : null,
     uebersprungen: uebersprungen.length ? uebersprungen : null,
     hinweise: hinweise.length ? hinweise : null,
     quellen_versucht: quellen.map(([n]) => n),
@@ -749,11 +789,18 @@ export async function boerseUebersicht(env, db, url, json, err) {
     const faktor = Number.isFinite(Number(p.kurs_faktor)) && Number(p.kurs_faktor) > 0
       ? Number(p.kurs_faktor) : 1;
 
-    const anders = !!(kursWaehrung && p.waehrung && kursWaehrung !== p.waehrung);
     const wertRoh = kurs !== null ? kurs * p.stueck * faktor : null;
-    const wert = anders ? umrechnen(wertRoh, kursWaehrung, p.waehrung, fx) : wertRoh;
+
+    // Ist die Währung des Kurses unbekannt, wird NICHT verglichen. Vorher
+    // galt sie stillschweigend als dieselbe – so wurden Dollar gegen Euro
+    // gerechnet und ein Verlust ausgewiesen, den es nicht gibt.
+    const waehrungUnklar = !!(wertRoh !== null && !kursWaehrung);
+    const anders = !!(kursWaehrung && p.waehrung && kursWaehrung !== p.waehrung);
+    const wert = waehrungUnklar ? null
+      : anders ? umrechnen(wertRoh, kursWaehrung, p.waehrung, fx)
+      : wertRoh;
     const umgerechnet = anders && wert !== null;
-    const gesperrt = anders && wert === null;   // Umrechnung nicht möglich
+    const gesperrt = waehrungUnklar || (anders && wert === null);
 
     const vergleichbar = wert !== null && einsatz !== null;
 
