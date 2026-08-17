@@ -59,7 +59,20 @@
     .tm-schirm span { opacity:.55; margin-right:4px; }
     .tm-schirm.an span { opacity:.7; }
 
-    .tm-status { margin-left:auto; display:flex; align-items:center; gap:14px; font-size:10px; color:var(--t-text3); }
+    .tm-status { margin-left:auto; display:flex; align-items:center; gap:14px; font-size:10px;
+                 color:var(--t-text3); white-space:nowrap; flex:0 0 auto; }
+    /* Die Börsenuhr darf schrumpfen, bevor Kurszeit und Wechselkursstand
+       weichen – auf schmalen Fenstern fällt sie als Erstes weg. */
+    /* Die Börsenuhr in der Kopfzeile gibt bei Enge stufenweise nach: erst die
+       Restzeit, dann der Name, zuletzt sie selbst. Die Restzeit steht immer
+       im Titel, also auch dann noch beim Überfahren ablesbar. Vollständig
+       samt Zeiten steht sie im Kalender-Schirm. */
+    .uhr { margin-right:8px; }
+    .uhr-punkt { display:inline-block; width:5px; height:5px; border-radius:50%;
+                 vertical-align:middle; margin-right:4px; }
+    @media (max-width:1660px) { .uhr-rest  { display:none } }
+    @media (max-width:1380px) { .uhr-name  { display:none } .uhr { margin-right:6px } }
+    @media (max-width:1150px) { #st-boersen { display:none } }
     .tm-led { width:6px; height:6px; border-radius:50%; background:var(--t-auf); display:inline-block; margin-right:5px; }
 
     /* ── Fläche ─────────────────────────────────────────────── */
@@ -137,12 +150,13 @@
       <div class="tm-kopf">
         <span class="tm-logo">TERMINAL</span>
         <div class="tm-cmd">
-          <input id="cmd" placeholder="Symbol oder Kürzel — DEP, MON, VGL, RIS, KAL, NEW, KI"
+          <input id="cmd" placeholder="Symbol oder Kürzel — DEP, MON, VGL, RIS, JRN, KAL, NEW, KI"
                  autocomplete="off" onkeydown="cmdTaste(event)" oninput="cmdTippen()">
           <div class="tm-vor" id="cmd-vor"></div>
         </div>
         <div class="tm-schirme" id="schirme"></div>
         <div class="tm-status">
+          <span id="st-boersen"></span>
           <span id="st-fx"></span>
           <span><span class="tm-led" id="st-led"></span><span id="st-zeit">–</span></span>
         </div>
@@ -178,6 +192,7 @@ const SCHIRME = [
   ['WRT', 'Einzelwert', 'schirmWert'],
   ['VGL', 'Vergleich',  'schirmVergleich'],
   ['RIS', 'Risiko',     'schirmRisiko'],
+  ['JRN', 'Journal',    'schirmJournal'],
   ['KAL', 'Kalender',   'schirmKalender'],
   ['NEW', 'Meldungen',  'schirmMeldungen'],
   ['KI',  'Agentur',    'schirmAgentur'],
@@ -200,6 +215,12 @@ let VGL_WAHL = [];
 let ZEITRAUM = 0;
 let LINIEN   = { sma20: true, sma50: true, sma200: false, bollinger: false };
 let PANEL    = 'nachrichten';
+let KENN     = null;   // Depot-Kennzahlen
+let VERGLEICH = null;  // Kennzahlen-Tabelle mehrerer Werte
+let JOURNAL  = null;   // Handelsbuch samt Auswertung
+let THESEN   = null;
+let JRN_TAB  = 'trades';
+let RECHNER  = { kapital: null, risiko: 1, einstieg: null, stopp: null };
 
 // ── Formatierung ────────────────────────────────────────────────
 const z2 = (n, s = 2) => n === null || n === undefined || !Number.isFinite(Number(n))
@@ -1061,7 +1082,10 @@ async function schirmVergleich() {
     ${chart}${legende}
     <div class="tm-hint">Normierung bedeutet: jede Reihe startet bei 100. Der Abstand zeigt die
       <b>relative</b> Entwicklung im gewählten Zeitraum, nicht den Kurs. Verglichen wird nur über Tage,
-      an denen alle gewählten Werte einen Kurs haben.</div>`;
+      an denen alle gewählten Werte einen Kurs haben.</div>
+    <div id="vgl-kennzahlen"></div>`;
+
+  vglKennzahlen();
 
   seite.innerHTML = `
     <div class="tm-titel">Werte wählen <span class="zahl">${VGL_WAHL.length}</span></div>
@@ -1073,7 +1097,59 @@ async function schirmVergleich() {
 
 function vglUmschalten(s) {
   VGL_WAHL = VGL_WAHL.includes(s) ? VGL_WAHL.filter(x => x !== s) : [...VGL_WAHL, s];
+  VERGLEICH = null;
   schirmVergleich();
+}
+
+// Kennzahlen der gewählten Werte nebeneinander. Wird nachgeladen, weil dafür
+// unter Umständen Stammdaten fehlen und extern geholt werden müssen – das
+// darf den Chart oben nicht aufhalten.
+async function vglKennzahlen() {
+  const ziel = document.getElementById('vgl-kennzahlen');
+  if (!ziel || !VGL_WAHL.length) return;
+  const schluessel = VGL_WAHL.join(',');
+  if (!VERGLEICH || VERGLEICH._schluessel !== schluessel) {
+    ziel.innerHTML = '<div class="tm-leer">Kennzahlen…</div>';
+    VERGLEICH = await api(`/api/agentur/boerse/vergleich?symbole=${encodeURIComponent(schluessel)}`);
+    if (VERGLEICH) VERGLEICH._schluessel = schluessel;
+  }
+  const zeilen = VERGLEICH?.zeilen || [];
+  if (!zeilen.length) { ziel.innerHTML = ''; return; }
+
+  // Je Kennzahl markieren, wo der beste Wert steht. „Beste“ heißt hier nur
+  // größer oder kleiner – ob das für den Wert gut ist, hängt vom Geschäft ab.
+  const felder = [
+    ['kgv', 'KGV', 2, 'klein'], ['kurs_buchwert', 'Kurs/Buchwert', 2, 'klein'],
+    ['kurs_umsatz', 'Kurs/Umsatz', 2, 'klein'], ['eigenkapitalrendite', 'Eigenkapitalrendite %', 1, 'gross'],
+    ['marge', 'Nettomarge %', 1, 'gross'], ['verschuldung', 'Schulden/Eigenkapital', 1, 'klein'],
+    ['dividendenrendite', 'Dividendenrendite %', 2, 'gross'], ['beta', 'Beta', 2, null],
+    ['volatilitaet', 'Schwankung p. a. %', 1, 'klein'], ['rsi', 'RSI 14', 0, null],
+  ];
+
+  ziel.innerHTML = `<div class="tm-block">
+    <div class="tm-titel">Kennzahlen nebeneinander <span class="zahl">${zeilen.length} Werte</span></div>
+    <div style="overflow-x:auto"><table class="tm-t">
+      <tr><th style="text-align:left">Kennzahl</th>
+        ${zeilen.map(z => `<th>${esc(z.symbol)}</th>`).join('')}</tr>
+      <tr><td style="text-align:left" class="dim">Branche</td>
+        ${zeilen.map(z => `<td class="dim" style="font-size:9.5px">${esc(z.branche || '–')}</td>`).join('')}</tr>
+      <tr><td style="text-align:left" class="dim">Marktwert Mio.</td>
+        ${zeilen.map(z => `<td>${z.marktwert === null ? '–' : z2(z.marktwert, 0)}</td>`).join('')}</tr>
+      ${felder.map(([f, name, nk, richtung]) => {
+        const werte = zeilen.map(z => z[f]).filter(v => v !== null && v !== undefined);
+        const best = !richtung || !werte.length ? null
+          : richtung === 'klein' ? Math.min(...werte.filter(v => v > 0)) : Math.max(...werte);
+        return `<tr><td style="text-align:left">${esc(name)}</td>
+          ${zeilen.map(z => `<td class="${z[f] !== null && z[f] === best ? 'auf' : ''}">
+            ${z[f] === null || z[f] === undefined ? '–' : z2(z[f], nk)}</td>`).join('')}</tr>`;
+      }).join('')}
+    </table></div>
+    ${VERGLEICH.fehler ? `<div class="tm-hint tm-warn">Nicht abrufbar: ${esc(VERGLEICH.fehler.join(', '))}</div>` : ''}
+    <div class="tm-hint">Grün markiert ist nur der jeweils niedrigste bzw. höchste Wert der Zeile —
+      das ist eine Feststellung, keine Bewertung. Ein niedriges KGV kann günstig heißen oder
+      ein schrumpfendes Geschäft, und Kennzahlen sind zwischen Branchen ohnehin kaum vergleichbar.
+      ${esc(VERGLEICH.hinweis || '')}</div>
+  </div>`;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1083,6 +1159,8 @@ async function schirmRisiko() {
   const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
   haupt.innerHTML = '<div class="tm-leer">Rechne…</div>';
   if (!KORR) KORR = await api('/api/agentur/boerse/korrelation?tage=250');
+  if (!KENN) KENN = await api('/api/agentur/boerse/kennzahlen?tage=250');
+  const k = KENN || {};
 
   const pos = (UEBER?.positionen || []).filter(p => p.wert !== null);
   const gesamt = pos.reduce((a, p) => a + p.wert, 0) || 1;
@@ -1098,7 +1176,79 @@ async function schirmRisiko() {
 
   const m = KORR?.matrix || [], sy = KORR?.symbole || [];
 
+  // Risikomaße des Gesamtdepots. Alles aus den eigenen Tagesrenditen –
+  // gewichtet mit dem heutigen Positionswert, also so, wie das Depot
+  // heute steht, nicht wie es historisch stand.
+  const kennBlock = k.handelstage ? `
+    <div class="tm-kacheln tm-block">
+      <div class="tm-kachel"><div class="tm-k-name">Rendite p. a.</div>
+        <div class="tm-k-wert ${kl(k.rendite_jahr)}">${pz(k.rendite_jahr)} %</div>
+        <div class="tm-k-neben">${k.handelstage} Handelstage</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Schwankung p. a.</div>
+        <div class="tm-k-wert">${z2(k.volatilitaet_jahr, 1)} %</div>
+        <div class="tm-k-neben">annualisiert</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Sharpe</div>
+        <div class="tm-k-wert ${k.sharpe > 1 ? 'auf' : k.sharpe < 0 ? 'ab' : ''}">${z2(k.sharpe)}</div>
+        <div class="tm-k-neben">je Einheit Schwankung</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Sortino</div>
+        <div class="tm-k-wert ${k.sortino > 1 ? 'auf' : k.sortino < 0 ? 'ab' : ''}">${z2(k.sortino)}</div>
+        <div class="tm-k-neben">nur Abwärtsschwankung</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Wertrisiko 95 % / Tag</div>
+        <div class="tm-k-wert ab">${z2(k.var95_tag, 2)} %</div>
+        <div class="tm-k-neben">${gr(k.var95_euro, '€')}</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Wertrisiko 99 % / Tag</div>
+        <div class="tm-k-wert ab">${z2(k.var99_tag, 2)} %</div>
+        <div class="tm-k-neben">Erwartung im Schnitt ${z2(k.cvar95_tag, 2)} %</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Größter Rückgang</div>
+        <div class="tm-k-wert ab">${z2(k.max_rueckgang, 1)} %</div>
+        <div class="tm-k-neben">im Zeitraum</div></div>
+      <div class="tm-kachel"><div class="tm-k-name">Gewinntage</div>
+        <div class="tm-k-wert">${z2(k.gewinntage_prozent, 1)} %</div>
+        <div class="tm-k-neben">Depotwert ${gr(k.depotwert, '€')}</div></div>
+    </div>
+
+    <div class="tm-block"><div class="tm-titel">Wertentwicklung des Depots
+      <span class="zahl">${esc(String(k.zeitraum?.[0] || ''))} – ${esc(String(k.zeitraum?.[1] || ''))}</span></div></div>
+    ${chartBauen({ id: 'kurve', hoehe: 240, yLabel: 'Indexiert, Start = 100',
+      reihen: [{ name: 'Depot', farbe: '#f0b429',
+        punkte: (k.verlauf || []).map(p => ({ datum: p.datum, kurs: p.wert })) }] })}
+
+    <div class="tm-block">
+      <div class="tm-titel">Verteilung</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border-top:1px solid var(--t-linie)">
+        <div style="border-right:1px solid var(--t-linie)">
+          <div style="padding:6px 12px;font-size:9.5px;letter-spacing:.12em;color:var(--t-text3);
+                      text-transform:uppercase">nach Branche</div>
+          ${Object.entries(k.nach_branche || {}).sort((a, b) => b[1] - a[1]).map(([n, v]) => `
+            <div style="padding:5px 12px">
+              <div style="display:flex;justify-content:space-between;font-size:10.5px">
+                <span>${esc(n)}</span><span class="${v > 35 ? 'ab' : ''}">${z2(v, 1)} %</span></div>
+              <div class="balken" style="margin-top:3px"><div style="width:${Math.min(100, v)}%;
+                background:${v > 35 ? 'var(--t-ab)' : 'var(--t-akzent)'}"></div></div>
+            </div>`).join('') || '<div class="tm-leer">Keine Branchendaten.</div>'}
+        </div>
+        <div>
+          <div style="padding:6px 12px;font-size:9.5px;letter-spacing:.12em;color:var(--t-text3);
+                      text-transform:uppercase">nach Währung</div>
+          ${Object.entries(k.nach_waehrung || {}).sort((a, b) => b[1] - a[1]).map(([n, v]) => `
+            <div style="padding:5px 12px">
+              <div style="display:flex;justify-content:space-between;font-size:10.5px">
+                <span>${esc(n)}</span><span>${z2(v, 1)} %</span></div>
+              <div class="balken" style="margin-top:3px"><div style="width:${Math.min(100, v)}%;
+                background:var(--t-info)"></div></div>
+            </div>`).join('') || '<div class="tm-leer">Keine Währungsdaten.</div>'}
+        </div>
+      </div>
+    </div>
+
+    <div class="tm-hint">${esc(k.hinweis_var || '')} Sharpe und Sortino messen Ertrag je Einheit
+      Schwankung; Sortino zählt dabei nur Verlusttage, weil Ausschläge nach oben kein Risiko sind.
+      Als risikofreier Zins sind ${z2(k.risikofrei_prozent, 1)} % unterstellt. Sämtliche Werte
+      beziehen sich auf die heutige Gewichtung — nicht auf das, was du historisch gehalten hast.</div>`
+    : `<div class="tm-hint tm-warn">${esc(k.hinweis || 'Kennzahlen noch nicht berechenbar.')}</div>`;
+
   haupt.innerHTML = `
+    ${kennBlock}
     <div class="tm-kacheln tm-block">
       <div class="tm-kachel"><div class="tm-k-name">Klumpen Top 3</div>
         <div class="tm-k-wert ${top3 > 60 ? 'ab' : top3 > 40 ? '' : 'auf'}">${top3.toFixed(0)} %</div>
@@ -1137,7 +1287,19 @@ async function schirmRisiko() {
       Branchen stehen. Nahe 0 heißt unabhängig, negativ heißt gegenläufig. Grundlage sind
       ${KORR?.gemeinsame_tage ?? 0} Tage, an denen alle Werte einen Kurs hatten.</div>`;
 
+  if (RECHNER.kapital === null && k.depotwert) RECHNER.kapital = k.depotwert;
+
   seite.innerHTML = `
+    <div class="tm-titel">Positionsgröße</div>
+    ${rechnerFeld('Kapital', 'kapital', '€')}
+    ${rechnerFeld('Risiko je Position', 'risiko', '%')}
+    ${rechnerFeld('Einstieg', 'einstieg', '')}
+    ${rechnerFeld('Stopp', 'stopp', '')}
+    <div id="rechner-ergebnis" style="padding:2px 12px 10px"></div>
+    <div class="tm-hint">Rechnet nur um: aus dem Betrag, den du höchstens verlieren willst, und dem
+      Abstand zum Stopp folgt die Stückzahl. Ob der Stopp sinnvoll liegt und ob die Position
+      überhaupt passt, entscheidest du.</div>
+
     <div class="tm-titel">Volatilität</div>
     ${[...(MONITOR?.zeilen || [])].filter(z => z.vola !== null).sort((a, b) => b.vola - a.vola)
       .map(z => `<div class="tm-zeile" style="cursor:pointer" onclick="geheZu('WRT','${esc(z.symbol)}')">
@@ -1146,6 +1308,311 @@ async function schirmRisiko() {
     ${[...(MONITOR?.zeilen || [])].filter(z => z.unter_hoch !== null).sort((a, b) => a.unter_hoch - b.unter_hoch)
       .map(z => `<div class="tm-zeile" style="cursor:pointer" onclick="geheZu('WRT','${esc(z.symbol)}')">
         <span class="sym">${esc(z.symbol)}</span><span class="${kl(z.unter_hoch)}">${pz(z.unter_hoch)} %</span></div>`).join('')}`;
+}
+
+// Positionsgrößen-Rechner. Bewusst nur Arithmetik: Risikobetrag geteilt
+// durch Stoppabstand. Keine Empfehlung, welcher Stopp richtig ist – das
+// ist eine Entscheidung, keine Rechnung.
+function rechnerFeld(name, feld, einheit) {
+  return `<div style="padding:5px 12px;display:flex;align-items:center;gap:8px">
+    <span style="flex:1;font-size:10.5px;color:var(--t-text2)">${esc(name)}</span>
+    <input id="re-${feld}" type="number" step="any" value="${RECHNER[feld] ?? ''}"
+      oninput="rechnerRechnen('${feld}',this.value)"
+      style="width:88px;background:#050709;border:1px solid var(--t-linie2);color:var(--t-text);
+             border-radius:3px;padding:3px 6px;font-family:inherit;font-size:10.5px;text-align:right">
+    <span style="width:12px;font-size:10px;color:var(--t-text3)">${esc(einheit)}</span></div>`;
+}
+
+function rechnerRechnen(feld, wert) {
+  if (feld) RECHNER[feld] = wert === '' ? null : Number(wert);
+  const ziel = document.getElementById('rechner-ergebnis');
+  if (!ziel) return;
+  const { kapital, risiko, einstieg, stopp } = RECHNER;
+  const vollstaendig = [kapital, risiko, einstieg, stopp].every(v => Number.isFinite(v));
+  if (!vollstaendig) {
+    ziel.innerHTML = '<div class="dim" style="font-size:10px">Alle vier Felder ausfüllen.</div>';
+    return;
+  }
+  const abstand = Math.abs(einstieg - stopp);
+  if (!abstand) {
+    ziel.innerHTML = '<div style="font-size:10px;color:var(--t-ab)">Stopp gleich Einstieg — '
+      + 'dann gibt es keinen Abstand, durch den sich teilen ließe.</div>';
+    return;
+  }
+  const risikoBetrag = kapital * (risiko / 100);
+  const stueck = Math.floor(risikoBetrag / abstand);
+  const einsatz = stueck * einstieg;
+  const anteil = einsatz / kapital * 100;
+
+  ziel.innerHTML = `
+    <div style="border:1px solid var(--t-linie2);border-radius:3px;padding:8px 10px;background:#050709">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px">
+        <span style="font-size:10px;color:var(--t-text3)">Stückzahl</span>
+        <span style="font-size:19px;color:var(--t-akzent2);font-weight:700">${z2(stueck, 0)}</span></div>
+      <div class="tm-zeile" style="padding:2px 0;border:none"><span>Einsatz</span><span>${gr(einsatz, '€')}</span></div>
+      <div class="tm-zeile" style="padding:2px 0;border:none"><span>Anteil am Kapital</span>
+        <span class="${anteil > 25 ? 'ab' : ''}">${z2(anteil, 1)} %</span></div>
+      <div class="tm-zeile" style="padding:2px 0;border:none"><span>Verlust bei Stopp</span>
+        <span class="ab">${gr(stueck * abstand, '€')}</span></div>
+      <div class="tm-zeile" style="padding:2px 0;border:none"><span>Stoppabstand</span>
+        <span>${z2(abstand / einstieg * 100, 2)} %</span></div>
+    </div>
+    ${anteil > 100 ? '<div style="font-size:10px;color:var(--t-ab);margin-top:5px">Der Einsatz '
+      + 'übersteigt das angegebene Kapital — bei diesem engen Stopp wäre der Hebel größer als eins.</div>' : ''}`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// JRN — Handelsbuch und Thesen
+// ════════════════════════════════════════════════════════════════
+// Der einzige Schirm, der von Karol selbst gefüllt wird. Ohne notierte
+// Absicht ist im Nachhinein nicht zu unterscheiden, was Können war und
+// was Glück – die Auswertung unten lebt genau davon.
+async function schirmJournal() {
+  const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
+  haupt.innerHTML = '<div class="tm-leer">Lade…</div>';
+  if (!JOURNAL) JOURNAL = await api('/api/agentur/boerse/trades');
+  if (!THESEN)  THESEN  = await api('/api/agentur/boerse/thesen');
+  const a = JOURNAL?.auswertung || {};
+
+  const reiter = `<div style="display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid var(--t-linie)">
+    ${[['trades', 'Handelsbuch'], ['auswertung', 'Auswertung'], ['thesen', 'Thesen']].map(([k2, n]) =>
+      `<button class="knopf ${JRN_TAB === k2 ? 'an' : ''}" onclick="JRN_TAB='${k2}';schirmJournal()">${n}</button>`).join('')}
+    <span style="margin-left:auto;font-size:9.5px;color:var(--t-text3)">
+      ${(JOURNAL?.trades || []).length} Einträge · ${a.anzahl || 0} abgeschlossen</span></div>`;
+
+  let inhalt = '';
+
+  if (JRN_TAB === 'trades') {
+    inhalt = `<div class="tm-block">
+      <div class="tm-titel">Alle Buchungen</div>
+      ${(JOURNAL?.trades || []).length ? `<table class="tm-t">
+        <tr><th>Datum</th><th>Symbol</th><th>Art</th><th>Stück</th><th>Kurs</th>
+            <th>Stopp</th><th>Ziel</th><th>Gefühl</th><th></th></tr>
+        ${JOURNAL.trades.map(t => `<tr>
+          <td style="text-align:left" class="dim">${esc(t.datum)}</td>
+          <td><span class="sym" style="cursor:pointer" onclick="geheZu('WRT','${esc(t.symbol)}')">${esc(t.symbol)}</span></td>
+          <td><span class="marke2 ${t.richtung === 'kauf' ? 'm-auf' : 'm-ab'}">${esc(t.richtung)}</span></td>
+          <td>${z2(t.stueck, 0)}</td><td>${z2(t.kurs)}</td>
+          <td class="dim">${t.stopp === null ? '–' : z2(t.stopp)}</td>
+          <td class="dim">${t.ziel === null ? '–' : z2(t.ziel)}</td>
+          <td class="dim">${esc(t.gefuehl || '–')}</td>
+          <td style="cursor:pointer;color:var(--t-text3)" onclick="tradeLoeschen(${t.id})" title="Löschen">✕</td>
+        </tr>${t.these ? `<tr><td></td><td colspan="8" style="text-align:left;padding-bottom:8px">
+          <span class="dim" style="font-size:10px;font-family:'Syne',sans-serif">${esc(t.these)}</span></td></tr>` : ''}`).join('')}
+      </table>` : '<div class="tm-leer">Noch nichts gebucht — rechts anlegen.</div>'}
+    </div>
+    <div class="tm-hint">Was hier steht, wertet die Spalte „Auswertung“ aus und die Analysten können es
+      lesen. Der interessanteste Eintrag ist nicht der Kurs, sondern die These und die Gefühlslage —
+      erst damit lässt sich hinterher erkennen, welche Art von Entscheidung bei dir funktioniert.</div>`;
+  }
+
+  if (JRN_TAB === 'auswertung') {
+    inhalt = a.anzahl ? `
+      <div class="tm-kacheln tm-block">
+        <div class="tm-kachel"><div class="tm-k-name">Erwartungswert je Trade</div>
+          <div class="tm-k-wert ${kl(a.erwartungswert)}">${gr(a.erwartungswert, '€')}</div>
+          <div class="tm-k-neben">über ${a.anzahl} abgeschlossene</div></div>
+        <div class="tm-kachel"><div class="tm-k-name">Trefferquote</div>
+          <div class="tm-k-wert">${z2(a.trefferquote, 1)} %</div>
+          <div class="tm-k-neben">für sich genommen ohne Aussage</div></div>
+        <div class="tm-kachel"><div class="tm-k-name">Gewinn zu Verlust</div>
+          <div class="tm-k-wert ${a.gewinn_verlust_verhaeltnis > 1 ? 'auf' : 'ab'}">${z2(a.gewinn_verlust_verhaeltnis)}</div>
+          <div class="tm-k-neben">${gr(a.schnitt_gewinn, '€')} zu ${gr(a.schnitt_verlust, '€')}</div></div>
+        <div class="tm-kachel"><div class="tm-k-name">Summe</div>
+          <div class="tm-k-wert ${kl(a.summe)}">${gr(a.summe, '€')}</div>
+          <div class="tm-k-neben">ohne Steuern</div></div>
+        <div class="tm-kachel"><div class="tm-k-name">Ø R-Vielfaches</div>
+          <div class="tm-k-wert ${kl(a.r_schnitt)}">${z2(a.r_schnitt)}</div>
+          <div class="tm-k-neben">${a.r_erfasst} mit Stopp erfasst</div></div>
+        <div class="tm-kachel"><div class="tm-k-name">Ø Haltedauer</div>
+          <div class="tm-k-wert">${a.haltedauer_schnitt}</div>
+          <div class="tm-k-neben">Tage</div></div>
+      </div>
+
+      <div class="tm-block">
+        <div class="tm-titel">Nach Gefühlslage beim Kauf</div>
+        <table class="tm-t">
+          <tr><th style="text-align:left">Notiert als</th><th>Anzahl</th><th>Trefferquote</th><th>Summe</th></tr>
+          ${Object.entries(a.nach_gefuehl || {}).sort((x, y) => y[1].summe - x[1].summe).map(([n, v]) => `
+            <tr><td style="text-align:left">${esc(n)}</td><td>${v.anzahl}</td>
+              <td>${z2(v.trefferquote, 1)} %</td><td class="${kl(v.summe)}">${gr(v.summe, '€')}</td></tr>`).join('')}
+        </table>
+      </div>
+
+      <div class="tm-block">
+        <div class="tm-titel">Abgeschlossene Positionen <span class="zahl">${a.anzahl}</span></div>
+        <table class="tm-t">
+          <tr><th>Symbol</th><th>Stück</th><th>Kauf</th><th>Verkauf</th><th>Ergebnis</th>
+              <th>%</th><th>R</th><th>Tage</th><th style="text-align:left">Ausstieg</th></tr>
+          ${a.geschlossen.map(g => `<tr>
+            <td><span class="sym">${esc(g.symbol)}</span></td><td>${z2(g.menge, 0)}</td>
+            <td class="dim">${z2(g.kauf)}</td><td class="dim">${z2(g.verkauf)}</td>
+            <td class="${kl(g.ergebnis)}">${gr(g.ergebnis, '€')}</td>
+            <td class="${kl(g.ergebnis_prozent)}">${pz(g.ergebnis_prozent)}</td>
+            <td class="${kl(g.r_vielfaches)}">${g.r_vielfaches === null ? '–' : z2(g.r_vielfaches)}</td>
+            <td class="dim">${g.haltedauer}</td>
+            <td style="text-align:left" class="dim">${esc(g.ausstieg_grund || '–')}</td></tr>`).join('')}
+        </table>
+      </div>
+
+      <div class="tm-hint">${esc(a.hinweis_trefferquote || '')} Das R-Vielfache setzt das Ergebnis ins
+        Verhältnis zum Risiko, das du beim Kauf bewusst eingegangen bist — es ist die einzige Zahl hier,
+        die verschiedene Positionsgrößen vergleichbar macht. Käufe und Verkäufe werden nach dem
+        Erstverbrauchsprinzip gepaart: der älteste Kauf wird zuerst verrechnet.</div>`
+      : `<div class="tm-hint">${esc(a.hinweis || 'Noch keine Auswertung möglich.')}</div>`;
+  }
+
+  if (JRN_TAB === 'thesen') {
+    const th = THESEN?.thesen || [];
+    inhalt = `<div class="tm-block">
+      <div class="tm-titel">Thesen <span class="zahl">${th.length}</span></div>
+      ${th.length ? th.map(t => `
+        <div style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.035)">
+          <div style="display:flex;gap:8px;align-items:baseline">
+            <span class="sym" style="cursor:pointer" onclick="geheZu('WRT','${esc(t.symbol)}')">${esc(t.symbol)}</span>
+            <span class="marke2 ${t.status === 'gebrochen' ? 'm-ab' : t.status === 'bestaetigt' ? 'm-auf' : 'm-neu'}">${esc(t.status)}</span>
+            <span style="flex:1;font-family:'Syne',sans-serif;font-size:12.5px">${esc(t.kern)}</span>
+            <span style="cursor:pointer;color:var(--t-text3)" onclick="theseLoeschen(${t.id})" title="Löschen">✕</span>
+          </div>
+          ${t.annahmen?.length ? `<div class="dim" style="font-size:10px;margin-top:4px">
+            Annahmen: ${t.annahmen.map(x => esc(String(x))).join(' · ')}</div>` : ''}
+          ${t.bricht_wenn ? `<div style="font-size:10px;margin-top:4px;color:var(--t-akzent2)">
+            Bricht, wenn: ${esc(t.bricht_wenn)}</div>` : ''}
+          <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+            <span class="marke2 m-auf">${t.stuetzt} stützt</span>
+            <span class="marke2 m-ab">${t.widerspricht} widerspricht</span>
+            ${t.zeithorizont ? `<span class="dim" style="font-size:9.5px">${esc(t.zeithorizont)}</span>` : ''}
+            <span style="margin-left:auto;display:flex;gap:4px">
+              ${['offen', 'bestaetigt', 'gebrochen', 'verworfen'].filter(s => s !== t.status).map(s =>
+                `<button class="knopf" style="font-size:8.5px;padding:2px 6px"
+                  onclick="theseStatus(${t.id},'${s}')">${s}</button>`).join('')}
+            </span>
+          </div>
+          ${(t.pruefungen || []).length ? `<div style="margin-top:7px;border-left:2px solid var(--t-linie2);padding-left:9px">
+            ${t.pruefungen.map(p => `<div style="margin-bottom:5px">
+              <span class="marke2 ${p.richtung === 'stuetzt' ? 'm-auf' : p.richtung === 'widerspricht' ? 'm-ab' : 'm-neu'}">${esc(p.richtung)}</span>
+              <span style="font-size:10.5px;font-family:'Syne',sans-serif">${esc(p.fakt)}</span>
+              <div class="dim" style="font-size:9.5px">${esc(p.autor || p.mitarbeiter_id || 'unbekannt')}${p.datum ? ' · ' + esc(p.datum) : ''}${p.quelle ? ' · ' + esc(p.quelle) : ''}</div>
+            </div>`).join('')}</div>` : ''}
+        </div>`).join('') : '<div class="tm-leer">Noch keine Thesen.</div>'}
+    </div>
+    <div class="tm-hint">Eine These gehört mit dem Satz aufgeschrieben, der sie widerlegen würde —
+      sonst lässt sie sich nie prüfen, sondern nur nachträglich zurechtbiegen. Die Analysten tragen
+      Fakten dazu ein, die stützen oder widersprechen; den Status setzt nur du.</div>`;
+  }
+
+  haupt.innerHTML = reiter + inhalt;
+  seite.innerHTML = JRN_TAB === 'thesen' ? theseFormular() : tradeFormular();
+}
+
+const feldStil = `background:#050709;border:1px solid var(--t-linie2);color:var(--t-text);
+  border-radius:3px;padding:4px 6px;font-family:inherit;font-size:10.5px;width:100%`;
+
+function tradeFormular() {
+  return `<div class="tm-titel">Buchung anlegen</div>
+    <div style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;gap:5px">
+        <input id="tr-symbol" placeholder="Symbol" style="${feldStil}" value="${esc(AKTIV || '')}">
+        <select id="tr-richtung" style="${feldStil};width:88px">
+          <option value="kauf">Kauf</option><option value="verkauf">Verkauf</option></select>
+      </div>
+      <div style="display:flex;gap:5px">
+        <input id="tr-stueck" type="number" step="any" placeholder="Stück" style="${feldStil}">
+        <input id="tr-kurs" type="number" step="any" placeholder="Kurs" style="${feldStil}">
+      </div>
+      <div style="display:flex;gap:5px">
+        <input id="tr-datum" type="date" value="${new Date().toISOString().slice(0, 10)}" style="${feldStil}">
+        <input id="tr-gebuehren" type="number" step="any" placeholder="Gebühren" style="${feldStil}">
+      </div>
+      <div style="display:flex;gap:5px">
+        <input id="tr-stopp" type="number" step="any" placeholder="Stopp" style="${feldStil}">
+        <input id="tr-ziel" type="number" step="any" placeholder="Ziel" style="${feldStil}">
+      </div>
+      <select id="tr-gefuehl" style="${feldStil}">
+        <option value="">Gefühlslage — nicht notiert</option>
+        <option value="überzeugt">überzeugt</option>
+        <option value="unsicher">unsicher</option>
+        <option value="ungeduldig">ungeduldig</option>
+        <option value="Angst etwas zu verpassen">Angst etwas zu verpassen</option>
+        <option value="nach Plan">nach Plan</option>
+      </select>
+      <textarea id="tr-these" placeholder="Warum? (These in einem Satz)" rows="3" style="${feldStil};resize:vertical"></textarea>
+      <input id="tr-ausstieg" placeholder="Ausstiegsgrund (bei Verkauf)" style="${feldStil}">
+      <button class="knopf" onclick="tradeAnlegen()">Buchen</button>
+      <div id="tr-status" style="font-size:9.5px;color:var(--t-text3);line-height:1.5"></div>
+    </div>
+    <div class="tm-hint">Stopp und Ziel sind freiwillig, ohne sie fehlt aber das R-Vielfache in der
+      Auswertung — dann bleibt nur der Eurobetrag, und der sagt über verschieden große Positionen
+      hinweg wenig.</div>`;
+}
+
+function theseFormular() {
+  return `<div class="tm-titel">These anlegen</div>
+    <div style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+      <input id="th-symbol" placeholder="Symbol" style="${feldStil}" value="${esc(AKTIV || '')}">
+      <textarea id="th-kern" placeholder="Kern der These in einem Satz" rows="3" style="${feldStil};resize:vertical"></textarea>
+      <textarea id="th-annahmen" placeholder="Annahmen, eine je Zeile" rows="3" style="${feldStil};resize:vertical"></textarea>
+      <textarea id="th-bricht" placeholder="Woran würde sie scheitern?" rows="2" style="${feldStil};resize:vertical"></textarea>
+      <input id="th-horizont" placeholder="Zeithorizont, z. B. 12 Monate" style="${feldStil}">
+      <button class="knopf" onclick="theseAnlegen()">Anlegen</button>
+      <div id="th-status" style="font-size:9.5px;color:var(--t-text3);line-height:1.5"></div>
+    </div>
+    <div class="tm-hint">Das Feld „Woran würde sie scheitern“ ist das wichtigste. Eine These ohne
+      Abbruchbedingung lässt sich immer weiter halten.</div>`;
+}
+
+const nz = id => { const v = document.getElementById(id)?.value; return v === '' || v === undefined ? null : Number(v); };
+const ns = id => (document.getElementById(id)?.value || '').trim() || null;
+
+async function tradeAnlegen() {
+  const st = document.getElementById('tr-status');
+  const daten = {
+    symbol: ns('tr-symbol'), richtung: document.getElementById('tr-richtung').value,
+    stueck: nz('tr-stueck'), kurs: nz('tr-kurs'), datum: ns('tr-datum'),
+    gebuehren: nz('tr-gebuehren'), stopp: nz('tr-stopp'), ziel: nz('tr-ziel'),
+    gefuehl: ns('tr-gefuehl'), these: ns('tr-these'), ausstieg_grund: ns('tr-ausstieg'),
+  };
+  if (!daten.symbol || !daten.datum || daten.stueck === null || daten.kurs === null) {
+    st.textContent = 'Symbol, Datum, Stück und Kurs werden gebraucht.'; return;
+  }
+  // Risikobetrag mitschreiben, solange Einstieg und Stopp noch bekannt sind –
+  // später lässt er sich nicht mehr rekonstruieren.
+  if (daten.stopp !== null) daten.risiko_euro = Math.abs(daten.kurs - daten.stopp) * daten.stueck;
+  st.textContent = 'Speichere…';
+  const r = await api('/api/agentur/boerse/trades', { method: 'POST', body: daten });
+  if (!r?.success) { st.textContent = r?.error || 'Fehlgeschlagen.'; return; }
+  JOURNAL = null; await schirmJournal();
+}
+
+async function tradeLoeschen(id) {
+  if (!confirm('Buchung löschen?')) return;
+  await api(`/api/agentur/boerse/trades/${id}`, { method: 'DELETE' });
+  JOURNAL = null; await schirmJournal();
+}
+
+async function theseAnlegen() {
+  const st = document.getElementById('th-status');
+  const kern = ns('th-kern'), symbol = ns('th-symbol');
+  if (!symbol || !kern) { st.textContent = 'Symbol und Kern werden gebraucht.'; return; }
+  st.textContent = 'Speichere…';
+  const r = await api('/api/agentur/boerse/thesen', { method: 'POST', body: {
+    symbol, kern,
+    annahmen: (ns('th-annahmen') || '').split('\n').map(s => s.trim()).filter(Boolean),
+    bricht_wenn: ns('th-bricht'), zeithorizont: ns('th-horizont'),
+  } });
+  if (!r?.success) { st.textContent = r?.error || 'Fehlgeschlagen.'; return; }
+  THESEN = null; await schirmJournal();
+}
+
+async function theseStatus(id, status) {
+  await api(`/api/agentur/boerse/thesen/${id}`, { method: 'PATCH', body: { status } });
+  THESEN = null; await schirmJournal();
+}
+
+async function theseLoeschen(id) {
+  if (!confirm('These samt Prüfungen löschen?')) return;
+  await api(`/api/agentur/boerse/thesen/${id}`, { method: 'DELETE' });
+  THESEN = null; await schirmJournal();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1173,6 +1640,23 @@ async function schirmKalender() {
 
   const naechste = t.filter(x => x.in_tagen <= 30);
   seite.innerHTML = `
+    <div class="tm-titel">Handelszeiten</div>
+    ${BOERSEN.map(([name, zone, auf, zu]) => {
+      const { minuten, tag } = ortsMinuten(zone);
+      const werktag = !['Sa', 'So'].includes(tag);
+      const offen = werktag && minuten >= auf && minuten < zu;
+      const hm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+      const bis = offen ? zu - minuten : werktag && minuten < auf ? auf - minuten : null;
+      return `<div class="tm-zeile" style="align-items:center">
+        <span><span class="uhr-punkt" style="background:${offen ? 'var(--t-auf)' : 'var(--t-linie2)'}"></span>
+          <span class="${offen ? '' : 'dim'}">${esc(name)}</span>
+          <span class="dim" style="font-size:9.5px"> ${hm(auf)}–${hm(zu)} Ortszeit</span></span>
+        <span class="${offen ? 'auf' : 'dim'}">${offen ? 'offen' : bis === null ? 'zu' : 'in ' + Math.floor(bis / 60) + ':' + String(bis % 60).padStart(2, '0')}</span>
+      </div>`;
+    }).join('')}
+    <div class="tm-hint">Reguläre Kernzeiten, Sommerzeit wird mitgerechnet. Feiertage sind nicht
+      hinterlegt — an denen zeigt die Anzeige fälschlich „offen“.</div>
+
     <div class="tm-titel">Nächste 30 Tage <span class="zahl">${naechste.length}</span></div>
     ${naechste.length ? naechste.map(x => `<div class="tm-zeile" style="cursor:pointer" onclick="geheZu('WRT','${esc(x.symbol)}')">
       <span class="sym">${esc(x.symbol)}</span><span class="${x.in_tagen <= 7 ? 'ab' : ''}">in ${x.in_tagen} T</span></div>`).join('')
@@ -1391,9 +1875,48 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ════════════════════════════════════════════════════════════════
+// Handelszeiten
+// ════════════════════════════════════════════════════════════════
+// Reguläre Kernzeiten, in Ortszeit der jeweiligen Börse gerechnet und
+// über Intl umgerechnet, damit Sommerzeit von selbst stimmt. Feiertage
+// sind nicht hinterlegt — an denen zeigt die Uhr fälschlich „offen“.
+const BOERSEN = [
+  ['XETRA', 'Europe/Berlin',   9 * 60,        17 * 60 + 30],
+  ['LSE',   'Europe/London',   8 * 60,        16 * 60 + 30],
+  ['NYSE',  'America/New_York', 9 * 60 + 30,  16 * 60],
+];
+
+function ortsMinuten(zone) {
+  const t = new Intl.DateTimeFormat('de-DE', {
+    timeZone: zone, hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false,
+  }).formatToParts(new Date());
+  const hol = a => t.find(p => p.type === a)?.value || '';
+  return { minuten: Number(hol('hour')) * 60 + Number(hol('minute')), tag: hol('weekday').slice(0, 2) };
+}
+
+function boersenUhr() {
+  const ziel = document.getElementById('st-boersen');
+  if (!ziel) return;
+  ziel.innerHTML = BOERSEN.map(([name, zone, auf, zu]) => {
+    const { minuten, tag } = ortsMinuten(zone);
+    const werktag = !['Sa', 'So'].includes(tag);
+    const offen = werktag && minuten >= auf && minuten < zu;
+    const bis = offen ? zu - minuten : werktag && minuten < auf ? auf - minuten : null;
+    const rest = bis === null ? '' : `${Math.floor(bis / 60)}:${String(bis % 60).padStart(2, '0')}`;
+    const was = offen ? 'noch offen für' : bis !== null ? 'öffnet in' : 'heute geschlossen';
+    return `<span class="uhr" title="${esc(name)} — ${esc(was)}${rest ? ' ' + esc(rest) + ' h' : ''}"
+      style="color:${offen ? 'var(--t-auf)' : 'var(--t-text3)'}"
+      ><span class="uhr-punkt" style="background:${offen ? 'var(--t-auf)' : 'var(--t-linie2)'}"
+      ></span><span class="uhr-name">${esc(name)}</span>${rest ? `<span class="uhr-rest"> ${esc(rest)}</span>` : ''}</span>`;
+  }).join('');
+}
+
 // ── Start ───────────────────────────────────────────────────────
 async function boot() {
   initLayout(null);
+  boersenUhr();
+  setInterval(boersenUhr, 30000);
   await ladeGrunddaten();
   await zeichne();
   setInterval(async () => {

@@ -518,3 +518,59 @@ CREATE INDEX IF NOT EXISTS ix_ag_schwellen ON ag_schwellen(aktiv, symbol);
 -- angefragt_von*, kurs_faktor) legt der Worker beim Start selbst an.
 -- Als ALTER TABLE hier würden sie den zweiten Lauf dieser Datei abbrechen,
 -- weil SQLite kein IF NOT EXISTS für Spalten kennt.
+
+-- =============================================
+-- HANDELSBUCH UND THESEN
+-- =============================================
+-- Das Journal ist die Voraussetzung für alles, was die Analysten über
+-- Karols eigene Entscheidungen sagen können. Ohne festgehaltene Absicht
+-- lässt sich hinterher nicht unterscheiden, was Können war und was Glück.
+CREATE TABLE IF NOT EXISTS ag_trades (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol        TEXT NOT NULL,
+  richtung      TEXT NOT NULL DEFAULT 'kauf',   -- kauf | verkauf
+  stueck        REAL NOT NULL,
+  kurs          REAL NOT NULL,
+  waehrung      TEXT DEFAULT 'EUR',
+  datum         TEXT NOT NULL,
+  gebuehren     REAL DEFAULT 0,
+  these         TEXT,                   -- warum, in eigenen Worten
+  stopp         REAL,                   -- geplanter Ausstieg bei Fehlschlag
+  ziel          REAL,
+  risiko_euro   REAL,                   -- was bewusst eingesetzt wurde
+  gefuehl       TEXT,                   -- ruhig | unsicher | gierig | Angst | ...
+  ausstieg_grund TEXT,                  -- nur bei Verkäufen
+  notiz         TEXT,
+  erstellt_am   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_ag_trades ON ag_trades(symbol, datum);
+
+-- Thesen: warum ein Wert gehalten wird, in prüfbare Annahmen zerlegt.
+-- Die Analysten vergleichen neue Fakten dagegen – sie bewerten nicht,
+-- sie melden Widerspruch.
+CREATE TABLE IF NOT EXISTS ag_thesen (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol        TEXT NOT NULL,
+  kern          TEXT NOT NULL,          -- die These in einem Satz
+  annahmen      TEXT,                   -- JSON-Array prüfbarer Annahmen
+  bricht_wenn   TEXT,                   -- woran Karol sie für widerlegt hält
+  zeithorizont  TEXT,
+  status        TEXT DEFAULT 'offen',   -- offen | bestaetigt | gebrochen | verworfen
+  erstellt_am   DATETIME DEFAULT CURRENT_TIMESTAMP,
+  aktualisiert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_ag_thesen ON ag_thesen(symbol, status);
+
+-- Prüfungen einer These gegen neue Fakten. Eine Zeile je Befund.
+CREATE TABLE IF NOT EXISTS ag_thesen_pruefung (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  these_id      INTEGER NOT NULL,
+  richtung      TEXT NOT NULL,          -- stuetzt | widerspricht | offen
+  fakt          TEXT NOT NULL,
+  quelle        TEXT,
+  datum         TEXT,
+  mitarbeiter_id TEXT,
+  lauf_id       INTEGER,
+  erstellt_am   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_ag_thesen_pruef ON ag_thesen_pruefung(these_id, id);

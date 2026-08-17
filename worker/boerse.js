@@ -1016,6 +1016,416 @@ export async function boerseLage(env, db, url, json, err) {
   });
 }
 
+// ── GET /api/agentur/boerse/kennzahlen ───────────────────────────
+// Risiko- und Güte-Maße des Depots, gewichtet nach tatsächlichem Wert.
+// Alles aus gespeicherten Tagesrenditen – kein Abruf. Wo die Reihe zu kurz
+// ist, bleibt der Wert leer statt hochgerechnet zu werden.
+export async function boerseKennzahlen(env, db, url, json, err) {
+  const tage = Math.min(parseInt(url.searchParams.get('tage'), 10) || 250, 500);
+  const risikofrei = Number(url.searchParams.get('risikofrei') ?? 2) / 100;   // p.a.
+
+  const [depot, werte, kurse] = await Promise.all([
+    db.prepare('SELECT * FROM ag_depot WHERE aktiv=1').all().catch(() => ({ results: [] })),
+    db.prepare('SELECT * FROM ag_werte').all().catch(() => ({ results: [] })),
+    db.prepare('SELECT symbol, datum, kurs FROM ag_kurse WHERE datum >= ? ORDER BY symbol, datum')
+      .bind(tagVor(tage)).all().catch(() => ({ results: [] })),
+  ]);
+
+  const wertNach = new Map((werte.results || []).map(w => [w.symbol, w]));
+  const nach = new Map();
+  for (const k of (kurse.results || [])) {
+    if (!nach.has(k.symbol)) nach.set(k.symbol, new Map());
+    nach.get(k.symbol).set(k.datum, k.kurs);
+  }
+
+  let fx = null;
+  try { fx = await wechselkurse('EUR'); } catch (e) { fx = null; }
+
+  // Gewichte aus dem aktuellen Wert je Position
+  const positionen = [];
+  for (const p of (depot.results || [])) {
+    const st = wertNach.get(p.symbol);
+    const reihe = nach.get(p.symbol);
+    if (!reihe || !st?.waehrung) continue;
+    const letzt = [...reihe.entries()].sort((a, b) => a[0].localeCompare(b[0])).pop();
+    if (!letzt) continue;
+    const faktor = Number(p.kurs_faktor) > 0 ? Number(p.kurs_faktor) : 1;
+    const roh = letzt[1] * p.stueck * faktor;
+    const wert = st.waehrung === (p.waehrung || 'EUR') ? roh : umrechnen(roh, st.waehrung, p.waehrung || 'EUR', fx);
+    if (wert === null) continue;
+    positionen.push({ symbol: p.symbol, wert, branche: st.branche || null, waehrung: st.waehrung });
+  }
+  const gesamt = positionen.reduce((s, p) => s + p.wert, 0);
+  if (!gesamt || positionen.length === 0) {
+    return json({ hinweis: 'Keine bewertbaren Positionen — ohne Kurse und Währung lässt sich nichts rechnen.' });
+  }
+
+  // Gemeinsame Handelstage aller gewichteten Positionen
+  const symbole = positionen.map(p => p.symbol);
+  const gemeinsam = [...nach.get(symbole[0]).keys()]
+    .filter(d => symbole.every(s => nach.get(s).has(d))).sort();
+  if (gemeinsam.length < 30) {
+    return json({
+      gewichte: positionen.map(p => ({ symbol: p.symbol, anteil: Math.round(p.wert / gesamt * 1000) / 10 })),
+      gemeinsame_tage: gemeinsam.length,
+      hinweis: 'Weniger als 30 gemeinsame Handelstage — Kennzahlen darauf wären nicht belastbar.',
+    });
+  }
+
+  // Depotrendite je Tag: gewichtete Summe der Einzelrenditen
+  const depotRenditen = [];
+  for (let i = 1; i < gemeinsam.length; i++) {
+    let r = 0;
+    for (const p of positionen) {
+      const v = nach.get(p.symbol).get(gemeinsam[i - 1]);
+      const n = nach.get(p.symbol).get(gemeinsam[i]);
+      if (v) r += (p.wert / gesamt) * ((n - v) / v);
+    }
+    depotRenditen.push(r);
+  }
+
+  const n = depotRenditen.length;
+  const mittel = depotRenditen.reduce((s, x) => s + x, 0) / n;
+  const varianz = depotRenditen.reduce((s, x) => s + (x - mittel) ** 2, 0) / n;
+  const abw = Math.sqrt(varianz);
+  const abwAbwaerts = Math.sqrt(
+    depotRenditen.filter(x => x < 0).reduce((s, x) => s + x * x, 0) / n) || null;
+
+  const jahr = 252;
+  const renditeJahr = mittel * jahr;
+  const volaJahr = abw * Math.sqrt(jahr);
+  const sharpe = volaJahr ? (renditeJahr - risikofrei) / volaJahr : null;
+  const sortino = abwAbwaerts ? (renditeJahr - risikofrei) / (abwAbwaerts * Math.sqrt(jahr)) : null;
+
+  // Wertrisiko: historisches Quantil der Tagesrenditen, kein Normalverteilungs-
+  // Modell – die Annahme wäre bei Kursreihen schlicht falsch.
+  const sortiert = [...depotRenditen].sort((a, b) => a - b);
+  const quantil = q => sortiert[Math.max(0, Math.min(sortiert.length - 1, Math.floor(q * sortiert.length)))];
+  const var95 = quantil(0.05), var99 = quantil(0.01);
+  const unterhalb = sortiert.filter(x => x <= var95);
+  const cvar95 = unterhalb.length ? unterhalb.reduce((s, x) => s + x, 0) / unterhalb.length : null;
+
+  // Wertverlauf und größter Rückgang des Depots
+  let stand = 100, hoch = 100, maxRueck = 0;
+  const verlauf = [{ datum: gemeinsam[0], wert: 100 }];
+  depotRenditen.forEach((r, i) => {
+    stand *= 1 + r;
+    if (stand > hoch) hoch = stand;
+    maxRueck = Math.max(maxRueck, (hoch - stand) / hoch);
+    verlauf.push({ datum: gemeinsam[i + 1], wert: Math.round(stand * 100) / 100 });
+  });
+
+  const gewinnTage = depotRenditen.filter(x => x > 0).length;
+
+  const nachBranche = {}, nachWaehrung = {};
+  for (const p of positionen) {
+    nachBranche[p.branche || 'ohne Angabe'] = (nachBranche[p.branche || 'ohne Angabe'] || 0) + p.wert / gesamt * 100;
+    nachWaehrung[p.waehrung] = (nachWaehrung[p.waehrung] || 0) + p.wert / gesamt * 100;
+  }
+  const runde = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, Math.round(v * 10) / 10]));
+
+  return json({
+    zeitraum: [gemeinsam[0], gemeinsam[gemeinsam.length - 1]],
+    handelstage: n,
+    risikofrei_prozent: risikofrei * 100,
+    rendite_jahr: Math.round(renditeJahr * 1000) / 10,
+    volatilitaet_jahr: Math.round(volaJahr * 1000) / 10,
+    sharpe: sharpe === null ? null : Math.round(sharpe * 100) / 100,
+    sortino: sortino === null ? null : Math.round(sortino * 100) / 100,
+    var95_tag: Math.round(var95 * 10000) / 100,
+    var99_tag: Math.round(var99 * 10000) / 100,
+    cvar95_tag: cvar95 === null ? null : Math.round(cvar95 * 10000) / 100,
+    var95_euro: Math.round(var95 * gesamt * 100) / 100,
+    max_rueckgang: Math.round(maxRueck * 1000) / 10,
+    gewinntage_prozent: Math.round((gewinnTage / n) * 1000) / 10,
+    depotwert: Math.round(gesamt * 100) / 100,
+    gewichte: positionen.map(p => ({ symbol: p.symbol, anteil: Math.round(p.wert / gesamt * 1000) / 10, wert: Math.round(p.wert * 100) / 100 }))
+      .sort((a, b) => b.anteil - a.anteil),
+    nach_branche: runde(nachBranche),
+    nach_waehrung: runde(nachWaehrung),
+    verlauf,
+    hinweis_var: 'Wertrisiko als historisches Quantil der Tagesrenditen, nicht als Normalverteilung — '
+      + 'Kursreihen sind nicht normalverteilt, und die Annahme würde das Risiko systematisch unterschätzen.',
+  });
+}
+
+// ── GET /api/agentur/boerse/vergleich?symbole=A,B,C ──────────────
+// Dieselben Kennzahlen nebeneinander. Stammdaten kommen aus dem Speicher,
+// fehlende werden einzeln nachgeholt – mit Deckel, damit das Kontingent
+// nicht draufgeht.
+export async function boerseWertvergleich(env, db, url, json, err) {
+  const roh = (url.searchParams.get('symbole') || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  if (!roh.length) return err('symbole fehlen');
+  const liste = roh.slice(0, 8);
+
+  const [werte, kurse] = await Promise.all([
+    db.prepare('SELECT * FROM ag_werte').all().catch(() => ({ results: [] })),
+    db.prepare('SELECT symbol, datum, kurs FROM ag_kurse WHERE datum >= ? ORDER BY symbol, datum')
+      .bind(tagVor(400)).all().catch(() => ({ results: [] })),
+  ]);
+  const wertNach = new Map((werte.results || []).map(w => [w.symbol, w]));
+  const reihen = new Map();
+  for (const k of (kurse.results || [])) {
+    if (!reihen.has(k.symbol)) reihen.set(k.symbol, []);
+    reihen.get(k.symbol).push({ datum: k.datum, kurs: k.kurs });
+  }
+
+  const fehlend = liste.filter(s => !wertNach.has(s));
+  const nachgeholt = [], fehler = [];
+  for (const s of fehlend.slice(0, 5)) {
+    try {
+      const m = await holen(env, '/stock/metric', { symbol: symbolTeilen(s).sym, metric: 'all' });
+      const p = await holen(env, '/stock/profile2', { symbol: symbolTeilen(s).sym }).catch(() => ({}));
+      const mm = m?.metric || {};
+      wertNach.set(s, {
+        symbol: s, name: p?.name || null, branche: p?.finnhubIndustry || null,
+        waehrung: p?.currency || null, marktwert: zahl(p?.marketCapitalization),
+        kgv: zahl(mm.peBasicExclExtraTTM ?? mm.peTTM),
+        hoch_52w: zahl(mm['52WeekHigh']), tief_52w: zahl(mm['52WeekLow']),
+        _live: mm,
+      });
+      nachgeholt.push(s);
+    } catch (e) {
+      fehler.push(`${s}: ${ohneSchluessel(String(e.message), env)}`);
+      if (/credit|rate limit|quota|429|403/i.test(String(e.message))) break;
+    }
+  }
+
+  const zeilen = liste.map(s => {
+    const st = wertNach.get(s) || {};
+    const m = st._live || {};
+    const a = analytik(reihen.get(s) || []);
+    return {
+      symbol: s, name: st.name || null, branche: st.branche || null, waehrung: st.waehrung || null,
+      marktwert: st.marktwert ?? null,
+      kgv: st.kgv ?? null,
+      kurs_buchwert: zahl(m.pbQuarterly ?? m.pbAnnual),
+      kurs_umsatz: zahl(m.psTTM),
+      eigenkapitalrendite: zahl(m.roeTTM),
+      marge: zahl(m.netProfitMarginTTM),
+      verschuldung: zahl(m.totalDebtToEquityQuarterly),
+      dividendenrendite: zahl(m.dividendYieldIndicatedAnnual),
+      beta: zahl(m.beta),
+      hoch_52w: st.hoch_52w ?? null, tief_52w: st.tief_52w ?? null,
+      ertrag_1j: a.ertrag?.j1 ?? null, ertrag_3m: a.ertrag?.m3 ?? null,
+      volatilitaet: a.volatilitaet_jahr ?? null, rsi: a.rsi ?? null,
+      punkte: a.punkte ?? 0,
+    };
+  });
+
+  return json({
+    symbole: liste, zeilen, nachgeholt: nachgeholt.length ? nachgeholt : null,
+    fehler: fehler.length ? fehler : null,
+    hinweis: 'Kennzahlen ohne gespeicherte Stammdaten werden einmalig nachgeholt, höchstens fünf je Aufruf.',
+  });
+}
+
+// ── Handelsbuch ──────────────────────────────────────────────────
+// Was festgehalten wird, lässt sich später auswerten. Ohne notierte
+// Absicht ist hinterher nicht unterscheidbar, was Können war und was Glück.
+export async function tradesLesen(env, db, url, json, err) {
+  const symbol = url.searchParams.get('symbol');
+  const r = symbol
+    ? await db.prepare('SELECT * FROM ag_trades WHERE symbol=? ORDER BY datum DESC, id DESC').bind(symbol.toUpperCase()).all().catch(() => ({ results: [] }))
+    : await db.prepare('SELECT * FROM ag_trades ORDER BY datum DESC, id DESC LIMIT 300').all().catch(() => ({ results: [] }));
+  return json({ trades: r.results || [], auswertung: tradesAuswerten(r.results || []) });
+}
+
+// Auswertung des eigenen Handelns. Reine Statistik über das Journal –
+// keine Prognose, keine Bewertung der Werte selbst.
+function tradesAuswerten(trades) {
+  // Käufe und Verkäufe je Wert paaren, ältester Kauf zuerst.
+  const nach = {};
+  for (const t of [...trades].sort((a, b) => String(a.datum).localeCompare(String(b.datum)) || a.id - b.id)) {
+    (nach[t.symbol] ||= []).push(t);
+  }
+  const geschlossen = [];
+  for (const [sym, liste] of Object.entries(nach)) {
+    const offen = [];
+    for (const t of liste) {
+      if (t.richtung === 'kauf') { offen.push({ ...t, rest: t.stueck }); continue; }
+      let zuVerkaufen = t.stueck;
+      while (zuVerkaufen > 0 && offen.length) {
+        const k = offen[0];
+        const menge = Math.min(k.rest, zuVerkaufen);
+        const ein = k.kurs * menge, aus = t.kurs * menge;
+        const gebuehr = ((k.gebuehren || 0) * (menge / k.stueck)) + ((t.gebuehren || 0) * (menge / t.stueck));
+        const ergebnis = aus - ein - gebuehr;
+        // R-Vielfaches: Ergebnis gemessen am bewusst eingegangenen Risiko.
+        // Bei Teilverkäufen zählt nur der anteilige Risikobetrag – sonst
+        // fiele das R-Vielfache allein deshalb kleiner aus, weil weniger
+        // Stücke verkauft wurden.
+        const risiko = k.risiko_euro ? k.risiko_euro * (menge / k.stueck)
+          : (k.stopp ? Math.abs(k.kurs - k.stopp) * menge : null);
+        geschlossen.push({
+          symbol: sym, menge, kauf: k.kurs, verkauf: t.kurs,
+          von: k.datum, bis: t.datum,
+          haltedauer: Math.max(0, Math.round((Date.parse(t.datum) - Date.parse(k.datum)) / 86400000)),
+          ergebnis: Math.round(ergebnis * 100) / 100,
+          ergebnis_prozent: ein ? Math.round((ergebnis / ein) * 10000) / 100 : null,
+          r_vielfaches: risiko ? Math.round((ergebnis / risiko) * 100) / 100 : null,
+          these: k.these || null, gefuehl: k.gefuehl || null, ausstieg_grund: t.ausstieg_grund || null,
+        });
+        k.rest -= menge; zuVerkaufen -= menge;
+        if (k.rest <= 0) offen.shift();
+      }
+    }
+  }
+
+  if (!geschlossen.length) {
+    return { geschlossen: [], anzahl: 0,
+      hinweis: 'Noch keine abgeschlossenen Positionen — Auswertung braucht mindestens einen Verkauf.' };
+  }
+
+  const gewinner = geschlossen.filter(g => g.ergebnis > 0);
+  const verlierer = geschlossen.filter(g => g.ergebnis <= 0);
+  const summe = a => a.reduce((s, g) => s + g.ergebnis, 0);
+  const mittel = a => a.length ? summe(a) / a.length : null;
+  const mitR = geschlossen.filter(g => g.r_vielfaches !== null);
+
+  // Nach Gefühlslage aufschlüsseln – die interessanteste Frage überhaupt.
+  const nachGefuehl = {};
+  for (const g of geschlossen) {
+    const k = g.gefuehl || 'nicht notiert';
+    (nachGefuehl[k] ||= { anzahl: 0, summe: 0, gewinner: 0 });
+    nachGefuehl[k].anzahl++; nachGefuehl[k].summe += g.ergebnis;
+    if (g.ergebnis > 0) nachGefuehl[k].gewinner++;
+  }
+  for (const k of Object.keys(nachGefuehl)) {
+    const x = nachGefuehl[k];
+    x.summe = Math.round(x.summe * 100) / 100;
+    x.trefferquote = Math.round((x.gewinner / x.anzahl) * 1000) / 10;
+  }
+
+  return {
+    geschlossen: geschlossen.sort((a, b) => String(b.bis).localeCompare(String(a.bis))),
+    anzahl: geschlossen.length,
+    trefferquote: Math.round((gewinner.length / geschlossen.length) * 1000) / 10,
+    summe: Math.round(summe(geschlossen) * 100) / 100,
+    schnitt_gewinn: mittel(gewinner) === null ? null : Math.round(mittel(gewinner) * 100) / 100,
+    schnitt_verlust: mittel(verlierer) === null ? null : Math.round(mittel(verlierer) * 100) / 100,
+    // Erwartungswert je Trade – die Zahl, die zählt, nicht die Trefferquote.
+    erwartungswert: Math.round((summe(geschlossen) / geschlossen.length) * 100) / 100,
+    gewinn_verlust_verhaeltnis: (mittel(verlierer) && mittel(gewinner))
+      ? Math.round(Math.abs(mittel(gewinner) / mittel(verlierer)) * 100) / 100 : null,
+    r_schnitt: mitR.length ? Math.round((mitR.reduce((s, g) => s + g.r_vielfaches, 0) / mitR.length) * 100) / 100 : null,
+    r_erfasst: mitR.length,
+    haltedauer_schnitt: Math.round(geschlossen.reduce((s, g) => s + g.haltedauer, 0) / geschlossen.length),
+    nach_gefuehl: nachGefuehl,
+    hinweis_trefferquote: 'Eine hohe Trefferquote sagt für sich nichts — entscheidend ist der '
+      + 'Erwartungswert je Trade und das Verhältnis von durchschnittlichem Gewinn zu Verlust.',
+  };
+}
+
+export async function tradesSchreiben(env, db, body, method, id, json, err) {
+  if (method === 'POST') {
+    if (!body.symbol || !body.datum) return err('symbol und datum sind Pflicht');
+    if (!Number.isFinite(Number(body.stueck)) || !Number.isFinite(Number(body.kurs)))
+      return err('stueck und kurs müssen Zahlen sein');
+    const res = await db.prepare(
+      `INSERT INTO ag_trades (symbol, richtung, stueck, kurs, waehrung, datum, gebuehren,
+                              these, stopp, ziel, risiko_euro, gefuehl, ausstieg_grund, notiz)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      String(body.symbol).toUpperCase().slice(0, 24),
+      body.richtung === 'verkauf' ? 'verkauf' : 'kauf',
+      Number(body.stueck), Number(body.kurs),
+      (body.waehrung || 'EUR').slice(0, 8), String(body.datum).slice(0, 10),
+      zahl(body.gebuehren) ?? 0,
+      body.these ? String(body.these).slice(0, 2000) : null,
+      zahl(body.stopp), zahl(body.ziel), zahl(body.risiko_euro),
+      body.gefuehl ? String(body.gefuehl).slice(0, 40) : null,
+      body.ausstieg_grund ? String(body.ausstieg_grund).slice(0, 500) : null,
+      body.notiz ? String(body.notiz).slice(0, 2000) : null,
+    ).run();
+    return json({ success: true, id: res.meta?.last_row_id });
+  }
+  if (method === 'DELETE' && id) {
+    await db.prepare('DELETE FROM ag_trades WHERE id=?').bind(Number(id)).run();
+    return json({ success: true });
+  }
+  return err('Nicht unterstützt', 405);
+}
+
+// ── Thesen ───────────────────────────────────────────────────────
+export async function thesenLesen(env, db, url, json, err) {
+  const symbol = url.searchParams.get('symbol');
+  const t = symbol
+    ? await db.prepare('SELECT * FROM ag_thesen WHERE symbol=? ORDER BY id DESC').bind(symbol.toUpperCase()).all().catch(() => ({ results: [] }))
+    : await db.prepare('SELECT * FROM ag_thesen ORDER BY status, id DESC').all().catch(() => ({ results: [] }));
+  const ids = (t.results || []).map(x => x.id);
+  let pruefungen = { results: [] };
+  if (ids.length) {
+    pruefungen = await db.prepare(
+      `SELECT p.*, m.name AS autor FROM ag_thesen_pruefung p
+         LEFT JOIN ag_mitarbeiter m ON m.id = p.mitarbeiter_id
+        WHERE p.these_id IN (${ids.map(() => '?').join(',')}) ORDER BY p.id DESC`
+    ).bind(...ids).all().catch(() => ({ results: [] }));
+  }
+  const nach = {};
+  for (const p of (pruefungen.results || [])) (nach[p.these_id] ||= []).push(p);
+
+  return json({
+    thesen: (t.results || []).map(x => {
+      let annahmen = [];
+      try { annahmen = JSON.parse(x.annahmen || '[]'); } catch (e) { annahmen = []; }
+      const pr = nach[x.id] || [];
+      return {
+        ...x, annahmen, pruefungen: pr,
+        stuetzt: pr.filter(p => p.richtung === 'stuetzt').length,
+        widerspricht: pr.filter(p => p.richtung === 'widerspricht').length,
+      };
+    }),
+  });
+}
+
+export async function thesenSchreiben(env, db, body, method, id, teil, json, err, rolle) {
+  if (method === 'POST' && !id) {
+    if (!body.symbol || !body.kern) return err('symbol und kern sind Pflicht');
+    const res = await db.prepare(
+      'INSERT INTO ag_thesen (symbol, kern, annahmen, bricht_wenn, zeithorizont) VALUES (?,?,?,?,?)'
+    ).bind(
+      String(body.symbol).toUpperCase().slice(0, 24), String(body.kern).slice(0, 1000),
+      Array.isArray(body.annahmen) ? JSON.stringify(body.annahmen).slice(0, 4000) : null,
+      body.bricht_wenn ? String(body.bricht_wenn).slice(0, 1000) : null,
+      body.zeithorizont ? String(body.zeithorizont).slice(0, 60) : null,
+    ).run();
+    return json({ success: true, id: res.meta?.last_row_id });
+  }
+  // Prüfung anhängen – das machen die Analysten
+  if (method === 'POST' && id && teil === 'pruefung') {
+    if (!body.fakt || !['stuetzt', 'widerspricht', 'offen'].includes(body.richtung))
+      return err('fakt und richtung (stuetzt|widerspricht|offen) sind Pflicht');
+    const res = await db.prepare(
+      `INSERT INTO ag_thesen_pruefung (these_id, richtung, fakt, quelle, datum, mitarbeiter_id, lauf_id)
+       VALUES (?,?,?,?,?,?,?)`
+    ).bind(
+      Number(id), body.richtung, String(body.fakt).slice(0, 2000),
+      body.quelle ? String(body.quelle).slice(0, 500) : null,
+      body.datum ? String(body.datum).slice(0, 10) : null,
+      body.mitarbeiter_id ? String(body.mitarbeiter_id).slice(0, 40) : null,
+      Number.isFinite(Number(body.lauf_id)) ? Number(body.lauf_id) : null,
+    ).run();
+    return json({ success: true, id: res.meta?.last_row_id });
+  }
+  if (method === 'PATCH' && id) {
+    const erlaubt = ['offen', 'bestaetigt', 'gebrochen', 'verworfen'];
+    if (!erlaubt.includes(body.status)) return err('Unbekannter Status');
+    // Eine These für gebrochen zu erklären ist eine Entscheidung, keine
+    // Feststellung – die trifft der Mensch.
+    if (rolle !== 'dashboard') return err('Den Status einer These setzt nur der Mensch', 403);
+    await db.prepare('UPDATE ag_thesen SET status=?, aktualisiert_am=? WHERE id=?')
+      .bind(body.status, new Date().toISOString(), Number(id)).run();
+    return json({ success: true });
+  }
+  if (method === 'DELETE' && id) {
+    await db.prepare('DELETE FROM ag_thesen_pruefung WHERE these_id=?').bind(Number(id)).run().catch(() => {});
+    await db.prepare('DELETE FROM ag_thesen WHERE id=?').bind(Number(id)).run();
+    return json({ success: true });
+  }
+  return err('Nicht unterstützt', 405);
+}
+
 // ── GET /api/agentur/boerse/korrelation ──────────────────────────
 // Wie stark laufen die Werte im Gleichschritt? Aus den Tagesrenditen des
 // eigenen Speichers. Zeigt Klumpen, die in der Aufteilung nach Branche

@@ -18,6 +18,8 @@ import {
   boerseHistorie, boerseSuche, boerseTerminal, boersePortfolio,
   boerseMonitor, boerseKorrelation, boerseKalender, boerseNachrichtenstrom,
   boerseLage, schwellenLesen, schwellenSchreiben, schwellenPruefen,
+  boerseKennzahlen, boerseWertvergleich,
+  tradesLesen, tradesSchreiben, thesenLesen, thesenSchreiben,
   depotSchreiben, watchlistSchreiben,
 } from './boerse.js';
 
@@ -1357,6 +1359,12 @@ export async function handleAgentur(request, env, helpers) {
     if (method === 'GET'  && id3 === 'kalender')     return boerseKalender(env, db, url, json, err);
     if (method === 'GET'  && id3 === 'nachrichtenstrom') return boerseNachrichtenstrom(env, db, url, json, err);
     if (method === 'GET'  && id3 === 'lage')         return boerseLage(env, db, url, json, err);
+    if (method === 'GET'  && id3 === 'kennzahlen')   return boerseKennzahlen(env, db, url, json, err);
+    if (method === 'GET'  && id3 === 'vergleich')    return boerseWertvergleich(env, db, url, json, err);
+    if (id3 === 'trades' && method === 'GET')        return tradesLesen(env, db, url, json, err);
+    if (id3 === 'trades')                            return tradesSchreiben(env, db, body, method, teil4, json, err);
+    if (id3 === 'thesen' && method === 'GET')        return thesenLesen(env, db, url, json, err);
+    if (id3 === 'thesen')                            return thesenSchreiben(env, db, body, method, teil4, seg[5], json, err, rolle);
     if (id3 === 'schwellen' && teil4 === 'pruefen' && method === 'GET')
                                                      return schwellenPruefen(env, db, url, json, err);
     if (id3 === 'schwellen' && method === 'GET')     return schwellenLesen(env, db, url, json, err);
