@@ -50,7 +50,13 @@
     .tm-vor-z b { font-size:11.5px; color:var(--t-akzent2); }
     .tm-vor-z i { display:block; font-style:normal; font-size:10px; color:var(--t-text2); }
 
-    .tm-schirme { display:flex; gap:1px; margin-left:4px; }
+    /* Die Schirmleiste ist das einzige Element der Kopfzeile, das nachgeben
+       kann: min-width:0 hebt die Mindestbreite auf, die ein Flex-Kind sonst
+       aus seinem Inhalt bezieht, und bei Enge wird sie waagerecht scrollbar.
+       Ohne das läuft die ganze Kopfzeile über, statt sich anzupassen. */
+    .tm-schirme { display:flex; gap:1px; margin-left:4px; min-width:0;
+                  overflow-x:auto; scrollbar-width:none; }
+    .tm-schirme::-webkit-scrollbar { display:none; }
     .tm-schirm { padding:5px 10px; font-size:10px; font-family:inherit; letter-spacing:.1em;
                  background:none; border:1px solid transparent; border-radius:3px; color:var(--t-text3);
                  cursor:pointer; white-space:nowrap; }
@@ -58,9 +64,14 @@
     .tm-schirm.an { color:#0a0d12; background:var(--t-akzent); font-weight:700; }
     .tm-schirm span { opacity:.55; margin-right:4px; }
     .tm-schirm.an span { opacity:.7; }
+    /* Zwölf Schirme passen nicht überall nebeneinander. Der Klartextname
+       weicht zuerst — angesprungen werden sie ohnehin über das Kürzel,
+       und der volle Name steht dann noch im Titel. */
+    .tm-schirm b { font-weight:inherit; }
+    @media (max-width:1300px) { .tm-schirm b { display:none } .tm-schirm span { margin-right:0 } }
 
-    .tm-status { margin-left:auto; display:flex; align-items:center; gap:14px; font-size:10px;
-                 color:var(--t-text3); white-space:nowrap; flex:0 0 auto; }
+    .tm-status { margin-left:auto; padding-left:12px; display:flex; align-items:center; gap:14px;
+                 font-size:10px; color:var(--t-text3); white-space:nowrap; flex:0 0 auto; }
     /* Die Börsenuhr darf schrumpfen, bevor Kurszeit und Wechselkursstand
        weichen – auf schmalen Fenstern fällt sie als Erstes weg. */
     /* Die Börsenuhr in der Kopfzeile gibt bei Enge stufenweise nach: erst die
@@ -70,9 +81,13 @@
     .uhr { margin-right:8px; }
     .uhr-punkt { display:inline-block; width:5px; height:5px; border-radius:50%;
                  vertical-align:middle; margin-right:4px; }
-    @media (max-width:1660px) { .uhr-rest  { display:none } }
-    @media (max-width:1380px) { .uhr-name  { display:none } .uhr { margin-right:6px } }
-    @media (max-width:1150px) { #st-boersen { display:none } }
+    /* In der Kopfzeile steht die Uhr als reine Ampel: ein Punkt je Börse.
+       Name und Restzeit stehen im Titel und ausgeschrieben im Kalender —
+       zwölf Schirme und eine ausführliche Uhr passen nicht nebeneinander,
+       und die Beschriftung der Schirme ist das Nützlichere von beidem. */
+    .uhr-name, .uhr-rest { display:none }
+    @media (min-width:1800px) { .uhr-name { display:inline } }
+    @media (max-width:1000px) { #st-boersen { display:none } }
     .tm-led { width:6px; height:6px; border-radius:50%; background:var(--t-auf); display:inline-block; margin-right:5px; }
 
     /* ── Fläche ─────────────────────────────────────────────── */
@@ -150,7 +165,7 @@
       <div class="tm-kopf">
         <span class="tm-logo">TERMINAL</span>
         <div class="tm-cmd">
-          <input id="cmd" placeholder="Symbol oder Kürzel — DEP, MON, VGL, RIS, JRN, KAL, NEW, KI"
+          <input id="cmd" placeholder="Symbol oder Kürzel — DEP, MON, VGL, RIS, MKT, DCF, JRN, KAL, NEW"
                  autocomplete="off" onkeydown="cmdTaste(event)" oninput="cmdTippen()">
           <div class="tm-vor" id="cmd-vor"></div>
         </div>
@@ -192,6 +207,8 @@ const SCHIRME = [
   ['WRT', 'Einzelwert', 'schirmWert'],
   ['VGL', 'Vergleich',  'schirmVergleich'],
   ['RIS', 'Risiko',     'schirmRisiko'],
+  ['MKT', 'Marktumfeld','schirmMarkt'],
+  ['DCF', 'Bewertung',  'schirmBewertung'],
   ['JRN', 'Journal',    'schirmJournal'],
   ['KAL', 'Kalender',   'schirmKalender'],
   ['NEW', 'Meldungen',  'schirmMeldungen'],
@@ -221,6 +238,9 @@ let JOURNAL  = null;   // Handelsbuch samt Auswertung
 let THESEN   = null;
 let JRN_TAB  = 'trades';
 let RECHNER  = { kapital: null, risiko: 1, einstieg: null, stopp: null };
+let MARKT    = null;   // Indizes, Devisen, Zinsen
+let MKT_TAGE = 90;
+let BEWERTUNG = null;  // Ertragswertverfahren je Wert
 
 // ── Formatierung ────────────────────────────────────────────────
 const z2 = (n, s = 2) => n === null || n === undefined || !Number.isFinite(Number(n))
@@ -241,7 +261,11 @@ const gr = (n, w) => n === null || n === undefined ? '–'
 // sind deshalb HTML, exakt über der Fläche positioniert.
 const CHARTS = {};   // id -> { tage, reihen, mass }
 
-function chartBauen({ id, reihen, hoehe = 320, yLabel = '', normiert = false, flaechen = true }) {
+function chartBauen({ id, reihen, hoehe = 320, yLabel = '', normiert = false, flaechen = true,
+                      // Zinsreihen ändern sich in Prozentpunkten, nicht prozentual: von 4,57
+                      // auf 4,55 sind zwei Hundertstel Punkte, nicht 0,4 Prozent. Für solche
+                      // Reihen wird in der Ablesung die Differenz gezeigt statt des Verhältnisses.
+                      punkte_statt_prozent = false }) {
   const gueltig = reihen.filter(r => r.punkte && r.punkte.length > 1);
   if (!gueltig.length) {
     return `<div class="tm-leer" style="border:1px dashed var(--t-linie2);border-radius:3px;margin:12px">
@@ -336,7 +360,8 @@ function chartBauen({ id, reihen, hoehe = 320, yLabel = '', normiert = false, fl
       ${esc(tage[k])}</div>`;
   }).join('');
 
-  CHARTS[id] = { tage, serien: serien.map(s => ({ name: s.name, farbe: s.farbe, werte: s.werte, zahlen: s.zahlen })), normiert };
+  CHARTS[id] = { tage, serien: serien.map(s => ({ name: s.name, farbe: s.farbe, werte: s.werte, zahlen: s.zahlen })),
+                 normiert, punkte_statt_prozent };
 
   return `
     <div class="tm-block" style="padding:10px 12px 4px">
@@ -401,11 +426,14 @@ function chartFahren(ev, id) {
           const p = s.werte[i], v = s.zahlen[i];
           if (!Number.isFinite(v)) return '';   // Reihe beginnt später
           const basis = s.zahlen.find(Number.isFinite);
-          const seitStart = basis ? ((v - basis) / basis) * 100 : 0;
+          const seitStart = c.punkte_statt_prozent
+            ? (basis === undefined ? 0 : v - basis)
+            : (basis ? ((v - basis) / basis) * 100 : 0);
+          const einheit = c.punkte_statt_prozent ? ' Pp' : ' %';
           return `<div><span style="display:inline-block;width:8px;height:2px;background:${s.farbe};
             vertical-align:middle;margin-right:5px"></span>${esc(s.name || '')}
             <b style="color:var(--t-text)">${c.normiert ? v.toFixed(1) : z2(v)}</b>
-            <span class="${kl(seitStart)}">${pz(seitStart)} %</span>
+            <span class="${kl(seitStart)}">${pz(seitStart)}${einheit}</span>
             ${(!c.normiert && p?.hoch) ? `<span class="dim"> H ${z2(p.hoch)} T ${z2(p.tief)}</span>` : ''}</div>`;
         }).join('');
     tip.style.display = 'block';
@@ -437,7 +465,11 @@ async function ladeGrunddaten() {
 
 async function zeichne() {
   document.getElementById('schirme').innerHTML = SCHIRME.map(([k, n]) =>
-    `<button class="tm-schirm ${SCHIRM === k ? 'an' : ''}" onclick="geheZu('${k}')"><span>${k}</span>${n}</button>`).join('');
+    `<button class="tm-schirm ${SCHIRM === k ? 'an' : ''}" title="${esc(n)}"
+       onclick="geheZu('${k}')"><span>${k}</span><b>${esc(n)}</b></button>`).join('');
+  // Ist die Leiste zu schmal für alle Schirme, wird der gewählte hereingeholt —
+  // sonst führe man einen Schirm, den man nicht sieht.
+  document.querySelector('.tm-schirm.an')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   const fn = SCHIRME.find(s => s[0] === SCHIRM)?.[2];
   if (fn && window[fn]) await window[fn]();
   refreshIcons();
@@ -1359,6 +1391,263 @@ function rechnerRechnen(feld, wert) {
     </div>
     ${anteil > 100 ? '<div style="font-size:10px;color:var(--t-ab);margin-top:5px">Der Einsatz '
       + 'übersteigt das angegebene Kapital — bei diesem engen Stopp wäre der Hebel größer als eins.</div>' : ''}`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// MKT — Marktumfeld
+// ════════════════════════════════════════════════════════════════
+// Der Hintergrund, vor dem ein Einzelwert gelesen wird. Vier Prozent
+// Minus bei ruhigem Markt sind eine andere Beobachtung als vier Prozent
+// Minus, während alles fällt.
+async function schirmMarkt() {
+  const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
+  if (!MARKT) { haupt.innerHTML = '<div class="tm-leer">Lade…</div>';
+    MARKT = await api(`/api/agentur/boerse/markt?tage=${MKT_TAGE}`); }
+  const g = MARKT?.gruppen || {}, ra = MARKT?.renditeabstand || {};
+
+  if (MARKT?.leer) {
+    haupt.innerHTML = `<div class="tm-hint tm-warn">${esc(MARKT.hinweis || '')}</div>`;
+    seite.innerHTML = marktSeite();
+    return;
+  }
+
+  // Eine Gruppe als Tabelle. Zinsen bewegen sich in Prozentpunkten,
+  // Kurse in Prozent — das darf nicht in dieselbe Spalte.
+  const gruppe = (titel, zeilen, erklaerung) => !zeilen?.length ? '' : `
+    <div class="tm-block">
+      <div class="tm-titel">${esc(titel)} <span class="zahl">${zeilen.length}</span></div>
+      <table class="tm-t">
+        <tr><th style="text-align:left">Reihe</th><th>Stand</th><th>Vortag</th>
+            <th>über ${MKT_TAGE} Tage</th><th>Datum</th><th style="text-align:left">Quelle</th></tr>
+        ${zeilen.map(z => `<tr onclick="marktZeigen('${esc(z.schluessel)}')" style="cursor:pointer">
+          <td style="text-align:left">${esc(z.name)}</td>
+          <td style="font-weight:700">${z2(z.wert, z.art === 'zins' ? 3 : z.wert < 10 ? 4 : 2)}${z.art === 'zins' ? ' %' : ''}</td>
+          <td class="${kl(z.veraenderung)}">${z.veraenderung === null ? '–' : pz(z.veraenderung) + (z.art === 'zins' ? ' Pp' : ' %')}</td>
+          <td class="${kl(z.seit_beginn)}">${z.seit_beginn === null ? '–' : pz(z.seit_beginn) + (z.art === 'zins' ? ' Pp' : ' %')}</td>
+          <td class="dim">${esc(z.stand || '–')}</td>
+          <td style="text-align:left" class="dim" style="font-size:9.5px">${esc(z.quelle || '')}</td>
+        </tr>`).join('')}
+      </table>
+      ${erklaerung ? `<div class="tm-hint">${erklaerung}</div>` : ''}
+    </div>`;
+
+  const abstandKachel = (name, wert) => `
+    <div class="tm-kachel"><div class="tm-k-name">${esc(name)}</div>
+      <div class="tm-k-wert ${wert === null ? '' : wert < 0 ? 'ab' : ''}">${wert === null ? '–' : pz(wert)}</div>
+      <div class="tm-k-neben">Prozentpunkte, 10 J minus 2 J</div></div>`;
+
+  haupt.innerHTML = `
+    <div style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--t-linie)">
+      <span style="font-size:9.5px;letter-spacing:.14em;color:var(--t-text3);text-transform:uppercase">Zeitraum</span>
+      ${[30, 90, 180, 365].map(t => `<button class="knopf ${MKT_TAGE === t ? 'an' : ''}"
+        onclick="MKT_TAGE=${t};MARKT=null;schirmMarkt()">${t} T</button>`).join('')}
+    </div>
+
+    <div class="tm-kacheln tm-block">
+      ${abstandKachel('Renditeabstand Euroraum', ra.euroraum ?? null)}
+      ${abstandKachel('Renditeabstand USA', ra.usa ?? null)}
+    </div>
+    <div class="tm-hint">${esc(ra.hinweis || '')}</div>
+
+    ${gruppe('Zinsen', g.zins, 'Renditen und Leitzins kommen unmittelbar von der EZB und vom '
+      + 'US-Finanzministerium — ohne Schlüssel und ohne Abruflimit, deshalb immer aktuell. '
+      + 'Zinsveränderungen stehen in <b>Prozentpunkten</b>: von 2 auf 3 Prozent ist ein Punkt, '
+      + 'nicht fünfzig Prozent.')}
+    ${gruppe('Devisen', g.devisen, 'EZB-Referenzkurse, je Einheit Euro. Steigt EUR/USD, wird der Euro '
+      + 'teurer — deine Positionen in Dollar sind dann in Euro gerechnet weniger wert, ohne dass '
+      + 'sich am Kurs der Aktie etwas geändert hätte.')}
+    ${gruppe('Indizes', g.index, 'Bei den kostenlosen Anbietern sind Indizes gesperrt. Hier stehen '
+      + 'deshalb <b>indexnahe Fonds als Stellvertreter</b>. Ihr Kurs folgt dem Index, ist aber nicht '
+      + 'derselbe — Gebühren, Währung und Handelszeiten weichen ab.')}
+
+    <div id="markt-chart"></div>`;
+
+  seite.innerHTML = marktSeite();
+}
+
+function marktSeite() {
+  const alle = Object.values(MARKT?.gruppen || {}).flat();
+  return `
+    <div class="tm-titel">Auffrischen</div>
+    <div style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+      <button class="knopf" onclick="marktAuffrischen(false)">Zinsen und Devisen</button>
+      <button class="knopf" onclick="marktAuffrischen(true)">Alles, auch Indizes</button>
+      <div id="mkt-status" style="font-size:9.5px;color:var(--t-text3);line-height:1.5"></div>
+    </div>
+    <div class="tm-hint">Zinsen und Devisen kosten nichts und dürfen jederzeit geholt werden.
+      Die Index-Stellvertreter gehen über den Kursanbieter und verbrauchen Abrufguthaben —
+      deshalb der getrennte Knopf.</div>
+    ${alle.length ? `<div class="tm-titel">Verlauf ansehen</div>
+      ${alle.filter(z => z.punkte > 2).map(z => `<div class="tm-zeile" style="cursor:pointer"
+        onclick="marktZeigen('${esc(z.schluessel)}')">
+        <span>${esc(z.name)}</span><span class="dim">${z.punkte} T</span></div>`).join('')}` : ''}`;
+}
+
+function marktZeigen(schluessel) {
+  const z = Object.values(MARKT?.gruppen || {}).flat().find(x => x.schluessel === schluessel);
+  const ziel = document.getElementById('markt-chart');
+  if (!z || !ziel) return;
+  if (!z.verlauf || z.verlauf.length < 2) {
+    ziel.innerHTML = `<div class="tm-hint tm-warn">Für ${esc(z.name)} sind erst ${z.punkte} Beobachtungen
+      gespeichert — zu wenig für eine Linie.</div>`;
+    return;
+  }
+  ziel.innerHTML = `<div class="tm-titel">${esc(z.name)}
+      <span class="zahl">${esc(z.quelle || '')}</span></div>`
+    + chartBauen({ id: 'mkt', reihen: [{ name: z.name, farbe: '#58a6ff', punkte: z.verlauf }],
+        hoehe: 260, punkte_statt_prozent: z.art === 'zins',
+        yLabel: z.art === 'zins' ? 'Rendite in Prozent — Veränderung in Prozentpunkten' : 'Kurs' });
+  ziel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function marktAuffrischen(mitIndizes) {
+  const st = document.getElementById('mkt-status');
+  if (st) st.textContent = mitIndizes ? 'Hole Zinsen, Devisen und Stellvertreter…' : 'Hole Zinsen und Devisen…';
+  const r = await api('/api/agentur/boerse/markt/auffrischen', {
+    method: 'POST', body: { indizes: !!mitIndizes } });
+  if (!r) { if (st) st.textContent = 'Fehlgeschlagen.'; return; }
+  if (st) st.innerHTML = `${(r.geschrieben || []).length} Reihen geschrieben.`
+    + (r.fehler ? `<br><span style="color:var(--t-ab)">${esc(r.fehler.join(' · '))}</span>` : '');
+  MARKT = null;
+  await schirmMarkt();
+}
+
+// ════════════════════════════════════════════════════════════════
+// DCF — Ertragswertverfahren
+// ════════════════════════════════════════════════════════════════
+// Fast der ganze Wert steckt im Fortführungswert, und der hängt an zwei
+// frei gewählten Zahlen. Deshalb steht hier nie eine Zahl allein, sondern
+// immer die Matrix daneben.
+async function schirmBewertung() {
+  const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
+  if (!BEWERTUNG) { haupt.innerHTML = '<div class="tm-leer">Lade…</div>';
+    BEWERTUNG = await api('/api/agentur/boerse/bewertung'); }
+  const liste = BEWERTUNG?.bewertungen || [];
+
+  haupt.innerHTML = liste.length ? liste.map(b => {
+    const e = b.ergebnis || {};
+    if (e.fehler) return `<div class="tm-block"><div class="tm-titel">${esc(b.symbol)}</div>
+      <div class="tm-hint tm-warn">${esc(e.fehler)}</div></div>`;
+    const m = b.matrix || {};
+    // Farbe der Matrix relativ zum aktuellen Kurs: über dem Kurs grün,
+    // darunter rot. Das ist eine Ablesehilfe, keine Aussage darüber, wer
+    // recht hat — der Kurs oder die Annahme.
+    const farbe = v => {
+      if (v === null || !b.kurs) return 'transparent';
+      const d = (v - b.kurs) / b.kurs;
+      return d > 0.25 ? 'rgba(63,214,140,.30)' : d > 0 ? 'rgba(63,214,140,.13)'
+           : d > -0.25 ? 'rgba(255,107,107,.13)' : 'rgba(255,107,107,.30)';
+    };
+    return `<div class="tm-block">
+      <div class="tm-titel">${esc(b.symbol)} — Ertragswertverfahren
+        <span class="zahl">${esc(fmtDate(b.erstellt_am))} · ${esc(b.urheber || '')}</span>
+        <span style="float:right;cursor:pointer;color:var(--t-text3)"
+              onclick="bewertungLoeschen(${b.id})" title="Löschen">✕</span></div>
+
+      <div class="tm-kacheln">
+        <div class="tm-kachel"><div class="tm-k-name">Errechnet je Anteil</div>
+          <div class="tm-k-wert" style="color:var(--t-akzent2)">${z2(e.je_anteil)}</div>
+          <div class="tm-k-neben">${esc(b.waehrung || '')}</div></div>
+        <div class="tm-kachel"><div class="tm-k-name">Kurs</div>
+          <div class="tm-k-wert">${z2(b.kurs)}</div>
+          <div class="tm-k-neben">Stand ${esc(b.kurs_stand || '–')}</div></div>
+        <div class="tm-kachel"><div class="tm-k-name">Abstand</div>
+          <div class="tm-k-wert ${kl(b.abstand_prozent)}">${b.abstand_prozent === null ? '–' : pz(b.abstand_prozent) + ' %'}</div>
+          <div class="tm-k-neben">errechnet gegen Kurs</div></div>
+        <div class="tm-kachel"><div class="tm-k-name">davon Fortführungswert</div>
+          <div class="tm-k-wert ${e.anteil_fortfuehrung > 75 ? 'ab' : ''}">${z2(e.anteil_fortfuehrung, 1)} %</div>
+          <div class="tm-k-neben">des Unternehmenswerts</div></div>
+      </div>
+
+      <div style="padding:6px 12px;font-size:10px;color:var(--t-text2);line-height:1.7">
+        Annahmen: Basis-Cashflow ${z2(b.basis_cashflow, 0)} ${esc(b.waehrung || '')} ·
+        Wachstum ${z2(b.wachstum, 1)} % über ${b.jahre} Jahre ·
+        danach ewig ${z2(b.ewiges_wachstum, 2)} % · Kapitalkosten ${z2(b.kapitalkosten, 2)} % ·
+        Nettoschulden ${z2(b.nettoschulden, 0)} · ${z2(b.anteile, 0)} Anteile
+        ${b.notiz ? `<br><span class="dim">${esc(b.notiz)}</span>` : ''}
+      </div>
+
+      <div class="tm-titel">Empfindlichkeit — Wert je Anteil</div>
+      <div style="padding:10px 12px;overflow-x:auto">
+        <table class="tm-t" style="font-size:10.5px">
+          <tr><th style="text-align:left">Kapitalkosten \\ ewiges Wachstum</th>
+            ${(m.ewiges_wachstum || []).map(x => `<th>${z2(x, 2)} %</th>`).join('')}</tr>
+          ${(m.zeilen || []).map(z => `<tr>
+            <td style="text-align:left" class="${z.kapitalkosten === b.kapitalkosten ? 'sym' : 'dim'}">${z2(z.kapitalkosten, 2)} %</td>
+            ${z.werte.map((v, i) => `<td style="background:${farbe(v)};
+              ${z.kapitalkosten === b.kapitalkosten && m.ewiges_wachstum[i] === b.ewiges_wachstum
+                ? 'outline:1px solid var(--t-akzent);font-weight:700' : ''}">
+              ${v === null ? '–' : z2(v)}</td>`).join('')}</tr>`).join('')}
+        </table>
+      </div>
+      <div class="tm-hint">Die Spanne dieser Matrix reicht von ${z2(m.spanne?.[0])} bis
+        ${z2(m.spanne?.[1])} ${esc(b.waehrung || '')} — und zwar bei Verschiebungen der Annahmen,
+        die alle für sich vertretbar wären. Genau das ist die Aussage: nicht die eingerahmte Zahl,
+        sondern wie weit sie wandert. Grün heißt über dem Kurs, rot darunter.
+        ${e.anteil_fortfuehrung > 75 ? '<br><b>Über drei Viertel des Werts stecken im '
+          + 'Fortführungswert</b> — die Rechnung hängt damit fast vollständig an dem, was nach '
+          + 'dem letzten Detailjahr angenommen wird.' : ''}</div>
+    </div>`;
+  }).join('') + `<div class="tm-hint">${esc(BEWERTUNG?.hinweis || '')}</div>`
+   : `<div class="tm-leer">Noch keine Bewertung hinterlegt — rechts anlegen.</div>
+      <div class="tm-hint">Ein Ertragswertverfahren ist keine Messung, sondern eine Meinung in
+      Zahlenform. Die Annahmen kommen deshalb von dir; die Analysten setzen sie nicht für dich.</div>`;
+
+  seite.innerHTML = bewertungFormular();
+}
+
+function bewertungFormular() {
+  const f = (id, name, wert, schritt) => `
+    <div style="padding:4px 12px;display:flex;align-items:center;gap:8px">
+      <span style="flex:1;font-size:10px;color:var(--t-text2)">${esc(name)}</span>
+      <input id="bw-${id}" type="number" step="${schritt}" value="${wert}"
+        style="width:96px;background:#050709;border:1px solid var(--t-linie2);color:var(--t-text);
+               border-radius:3px;padding:3px 6px;font-family:inherit;font-size:10.5px;text-align:right"></div>`;
+  return `<div class="tm-titel">Bewertung anlegen</div>
+    <div style="padding:8px 12px 0"><input id="bw-symbol" placeholder="Symbol" value="${esc(AKTIV || '')}"
+      style="${feldStil}"></div>
+    ${f('basis_cashflow', 'Freier Cashflow, Basisjahr', '', 'any')}
+    ${f('wachstum', 'Wachstum % p. a.', '8', '0.1')}
+    ${f('jahre', 'Detailphase, Jahre', '5', '1')}
+    ${f('ewiges_wachstum', 'Ewiges Wachstum %', '2.5', '0.05')}
+    ${f('kapitalkosten', 'Kapitalkosten %', '9', '0.1')}
+    ${f('nettoschulden', 'Nettoschulden', '0', 'any')}
+    ${f('anteile', 'Anzahl Anteile', '', 'any')}
+    <div style="padding:6px 12px;display:flex;flex-direction:column;gap:6px">
+      <input id="bw-waehrung" placeholder="Währung" value="USD" style="${feldStil}">
+      <input id="bw-notiz" placeholder="Woher die Annahmen stammen" style="${feldStil}">
+      <button class="knopf" onclick="bewertungAnlegen()">Rechnen und ablegen</button>
+      <div id="bw-status" style="font-size:9.5px;color:var(--t-text3);line-height:1.5"></div>
+    </div>
+    <div class="tm-hint">Cashflow, Nettoschulden und Anteile in derselben Einheit angeben —
+      etwa alle in Millionen. Die Rechnung prüft das nicht; sie kann es auch nicht wissen.
+      Kapitalkosten müssen über dem ewigen Wachstum liegen, sonst gibt es kein endliches Ergebnis.</div>`;
+}
+
+async function bewertungAnlegen() {
+  const st = document.getElementById('bw-status');
+  const daten = {
+    symbol: ns('bw-symbol'), basis_cashflow: nz('bw-basis_cashflow'), wachstum: nz('bw-wachstum'),
+    jahre: nz('bw-jahre'), ewiges_wachstum: nz('bw-ewiges_wachstum'),
+    kapitalkosten: nz('bw-kapitalkosten'), nettoschulden: nz('bw-nettoschulden'),
+    anteile: nz('bw-anteile'), waehrung: ns('bw-waehrung'), notiz: ns('bw-notiz'),
+  };
+  if (!daten.symbol || daten.basis_cashflow === null || daten.anteile === null) {
+    st.textContent = 'Symbol, Basis-Cashflow und Anzahl der Anteile werden gebraucht.'; return;
+  }
+  if (!(daten.kapitalkosten > daten.ewiges_wachstum)) {
+    st.textContent = 'Kapitalkosten müssen über dem ewigen Wachstum liegen.'; return;
+  }
+  st.textContent = 'Rechne…';
+  const r = await api('/api/agentur/boerse/bewertung', { method: 'POST', body: daten });
+  if (!r?.success) { st.textContent = 'Fehlgeschlagen — Eingaben prüfen.'; return; }
+  BEWERTUNG = null; await schirmBewertung();
+}
+
+async function bewertungLoeschen(id) {
+  if (!confirm('Bewertung löschen?')) return;
+  await api(`/api/agentur/boerse/bewertung/${id}`, { method: 'DELETE' });
+  BEWERTUNG = null; await schirmBewertung();
 }
 
 // ════════════════════════════════════════════════════════════════

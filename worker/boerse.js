@@ -1871,3 +1871,376 @@ export async function watchlistSchreiben(env, db, body, method, id, json, err) {
   }
   return err('Nicht unterstützt', 405);
 }
+
+// ════════════════════════════════════════════════════════════════
+// Marktumfeld: Indizes, Devisen, Zinsen
+// ════════════════════════════════════════════════════════════════
+// Der Hintergrund, vor dem ein Einzelwert gelesen wird. Fällt ein Wert
+// um vier Prozent, während der ganze Markt um vier fällt, ist das eine
+// andere Beobachtung als derselbe Rückgang bei ruhigem Markt.
+//
+// Indizes selbst sind bei den kostenlosen Anbietern gesperrt. Deshalb
+// stehen hier indexnahe Fonds als Stellvertreter — das steht auch so in
+// der Anzeige, weil ein Fonds nicht dasselbe ist wie sein Index.
+const MARKT_INDIZES = [
+  ['spx',   'S&P 500',       'SPY', 1],
+  ['ndx',   'Nasdaq 100',    'QQQ', 2],
+  ['eur_akt', 'Europa Aktien', 'VGK', 3],
+  ['de_akt',  'Deutschland Aktien', 'EWG', 4],
+  ['gold',  'Gold',          'GLD', 5],
+];
+
+const MARKT_DEVISEN = [
+  ['eur_usd', 'EUR / USD', 'USD', 10],
+  ['eur_chf', 'EUR / CHF', 'CHF', 11],
+  ['eur_gbp', 'EUR / GBP', 'GBP', 12],
+  ['eur_jpy', 'EUR / JPY', 'JPY', 13],
+];
+
+// Zinsen kommen direkt von den Notenbanken: die EZB über ihr Datenportal,
+// die US-Renditen vom Finanzministerium. Beide ohne Schlüssel und ohne
+// Abruflimit — anders als die Kursanbieter.
+const MARKT_EZB = [
+  ['ezb_leitzins', 'EZB Einlagesatz', 'FM/D.U2.EUR.4F.KR.DFR.LEV', 20],
+  ['de_2j',  'Euroraum 2 Jahre (AAA)',  'YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y', 21],
+  ['de_10j', 'Euroraum 10 Jahre (AAA)', 'YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y', 22],
+];
+
+async function vonEzb(reihe, anzahl = 30) {
+  const r = await fetch(
+    `https://data-api.ecb.europa.eu/service/data/${reihe}?lastNObservations=${anzahl}&format=csvdata`,
+    { headers: { Accept: 'text/csv' } });
+  if (!r.ok) throw new Error(`EZB-Datenportal antwortete mit ${r.status}`);
+  const text = await r.text();
+  const zeilen = text.trim().split('\n');
+  if (zeilen.length < 2) throw new Error('EZB-Datenportal lieferte keine Beobachtungen');
+  // Spaltennamen statt fester Positionen – die Reihenfolge ist je Reihe anders.
+  const kopf = zeilen[0].split(',');
+  const iZeit = kopf.indexOf('TIME_PERIOD'), iWert = kopf.indexOf('OBS_VALUE');
+  if (iZeit < 0 || iWert < 0) throw new Error('EZB-Datenportal: unerwarteter Aufbau');
+  const punkte = [];
+  for (const z of zeilen.slice(1)) {
+    const t = z.split(',');
+    const datum = t[iZeit], wert = zahl(t[iWert]);
+    // Die EZB liefert zehn Nachkommastellen. Bei einer Rendite in Prozent
+    // sind drei mehr als genug; der Rest täuscht Genauigkeit vor.
+    if (datum && wert !== null) punkte.push({ datum, wert: Math.round(wert * 1000) / 1000 });
+  }
+  return punkte.sort((a, b) => a.datum.localeCompare(b.datum));
+}
+
+async function vonTreasury(jahr) {
+  const r = await fetch('https://home.treasury.gov/resource-center/data-chart-center/interest-rates/'
+    + `daily-treasury-rates.csv/${jahr}/all?type=daily_treasury_yield_curve`
+    + `&field_tdr_date_value=${jahr}&page&_format=csv`, { headers: { Accept: 'text/csv' } });
+  if (!r.ok) throw new Error(`US-Finanzministerium antwortete mit ${r.status}`);
+  const zeilen = (await r.text()).trim().split('\n');
+  if (zeilen.length < 2) throw new Error('US-Finanzministerium lieferte keine Zeilen');
+  // Anführungszeichen in den Spaltennamen ("10 Yr") wegräumen.
+  const kopf = zeilen[0].split(',').map(s => s.replace(/^"|"$/g, '').trim());
+  const spalte = name => kopf.indexOf(name);
+  const gesucht = { us_2j: spalte('2 Yr'), us_10j: spalte('10 Yr'), us_30j: spalte('30 Yr') };
+  const reihen = { us_2j: [], us_10j: [], us_30j: [] };
+  for (const z of zeilen.slice(1)) {
+    const t = z.split(',');
+    // Das Datum steht als MM/TT/JJJJ da und wird auf ISO gedreht.
+    const m = (t[0] || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) continue;
+    const datum = `${m[3]}-${m[1]}-${m[2]}`;
+    for (const [k, i] of Object.entries(gesucht)) {
+      if (i < 0) continue;
+      const wert = zahl(t[i]);
+      if (wert !== null) reihen[k].push({ datum, wert });
+    }
+  }
+  for (const k of Object.keys(reihen)) reihen[k].sort((a, b) => a.datum.localeCompare(b.datum));
+  return reihen;
+}
+
+async function marktSchreiben(db, schluessel, art, name, einheit, punkte, quelle, sortierung) {
+  if (!punkte.length) return 0;
+  const letzte = punkte[punkte.length - 1];
+  const vorletzte = punkte.length > 1 ? punkte[punkte.length - 2] : null;
+  await db.prepare(
+    `INSERT INTO ag_markt (schluessel, art, name, einheit, wert, vortag, stand, quelle, sortierung, aktualisiert_am)
+     VALUES (?,?,?,?,?,?,?,?,?,?)
+     ON CONFLICT(schluessel) DO UPDATE SET
+       wert=excluded.wert, vortag=excluded.vortag, stand=excluded.stand,
+       quelle=excluded.quelle, name=excluded.name, einheit=excluded.einheit,
+       aktualisiert_am=excluded.aktualisiert_am`
+  ).bind(schluessel, art, name, einheit, letzte.wert, vorletzte?.wert ?? null,
+         letzte.datum, quelle, sortierung, new Date().toISOString()).run();
+
+  // Verlauf in Blöcken, damit ein einzelner Fehler nicht alles mitreißt.
+  for (let i = 0; i < punkte.length; i += 50) {
+    await db.batch(punkte.slice(i, i + 50).map(p => db.prepare(
+      'INSERT INTO ag_markt_verlauf (schluessel, datum, wert) VALUES (?,?,?) '
+      + 'ON CONFLICT(schluessel, datum) DO UPDATE SET wert=excluded.wert'
+    ).bind(schluessel, p.datum, p.wert)));
+  }
+  return punkte.length;
+}
+
+export async function marktAuffrischen(env, db, body, json, err) {
+  const geschrieben = [], fehler = [];
+
+  // 1. Zinsen — kostenlos und ohne Limit, deshalb zuerst und immer.
+  for (const [k, name, reihe, sort] of MARKT_EZB) {
+    try {
+      const p = await vonEzb(reihe, 60);
+      await marktSchreiben(db, k, 'zins', name, '%', p, 'EZB-Datenportal', sort);
+      geschrieben.push(k);
+    } catch (e) { fehler.push(`${k}: ${ohneSchluessel(e.message, env)}`); }
+  }
+  try {
+    const jahr = new Date().getUTCFullYear();
+    const reihen = await vonTreasury(jahr);
+    const namen = { us_2j: 'USA 2 Jahre', us_10j: 'USA 10 Jahre', us_30j: 'USA 30 Jahre' };
+    const sorts = { us_2j: 23, us_10j: 24, us_30j: 25 };
+    for (const [k, p] of Object.entries(reihen)) {
+      if (!p.length) continue;
+      await marktSchreiben(db, k, 'zins', namen[k], '%', p.slice(-60), 'US-Finanzministerium', sorts[k]);
+      geschrieben.push(k);
+    }
+  } catch (e) { fehler.push(`us-zinsen: ${ohneSchluessel(e.message, env)}`); }
+
+  // 2. Devisen — EZB-Referenzkurse, ebenfalls ohne Limit.
+  try {
+    const r = await fetch('https://api.frankfurter.dev/v1/' + tagVor(45) + '..?base=EUR&symbols='
+      + MARKT_DEVISEN.map(d => d[2]).join(','));
+    if (!r.ok) throw new Error(`Referenzkurse nicht erreichbar (${r.status})`);
+    const d = await r.json();
+    for (const [k, name, waehrung, sort] of MARKT_DEVISEN) {
+      const p = Object.entries(d.rates || {})
+        .map(([datum, s]) => ({ datum, wert: zahl(s[waehrung]) }))
+        .filter(x => x.wert !== null).sort((a, b) => a.datum.localeCompare(b.datum));
+      if (!p.length) continue;
+      await marktSchreiben(db, k, 'devisen', name, 'Kurs', p, 'EZB-Referenzkurse', sort);
+      geschrieben.push(k);
+    }
+  } catch (e) { fehler.push(`devisen: ${ohneSchluessel(e.message, env)}`); }
+
+  // 3. Indizes — kosten Abrufguthaben beim Kursanbieter, deshalb zuletzt
+  //    und nur auf ausdrückliche Anforderung.
+  if (body?.indizes !== false) {
+    for (const [k, name, stellvertreter, sort] of MARKT_INDIZES) {
+      try {
+        const satz = await kursHolen(env, db, stellvertreter);
+        if (!satz) { fehler.push(`${k}: kein Kurs für ${stellvertreter}`); continue; }
+        const punkte = [{ datum: satz.datum, wert: satz.kurs }];
+        if (satz.vortag) punkte.unshift({ datum: tagVor(1), wert: satz.vortag });
+        await marktSchreiben(db, k, 'index', `${name} (${stellvertreter})`, 'Kurs',
+          punkte, `Stellvertreter ${stellvertreter}`, sort);
+        geschrieben.push(k);
+      } catch (e) { fehler.push(`${k}: ${ohneSchluessel(e.message, env)}`); }
+    }
+  }
+
+  return json({
+    geschrieben, fehler: fehler.length ? fehler : null,
+    hinweis: 'Zinsen und Devisen kommen ohne Abruflimit von EZB und US-Finanzministerium. '
+      + 'Indizes sind bei den kostenlosen Kursanbietern gesperrt; an ihrer Stelle stehen '
+      + 'indexnahe Fonds, deren Kurs vom Index abweichen kann.',
+  });
+}
+
+export async function boerseMarkt(env, db, url, json, err) {
+  const tage = Math.min(400, Math.max(5, Number(url.searchParams.get('tage')) || 90));
+  const ab = tagVor(tage);
+
+  const [stand, verlauf] = await Promise.all([
+    db.prepare('SELECT * FROM ag_markt ORDER BY sortierung, schluessel').all().catch(() => ({ results: [] })),
+    db.prepare('SELECT schluessel, datum, wert FROM ag_markt_verlauf WHERE datum >= ? ORDER BY datum')
+      .bind(ab).all().catch(() => ({ results: [] })),
+  ]);
+
+  const reihen = {};
+  for (const r of (verlauf.results || [])) (reihen[r.schluessel] ||= []).push({ datum: r.datum, kurs: r.wert });
+
+  const zeilen = (stand.results || []).map(m => {
+    const p = reihen[m.schluessel] || [];
+    const erster = p[0]?.kurs ?? null;
+    // Zinsen werden in Prozentpunkten verglichen, nicht prozentual: von
+    // 2 auf 3 Prozent ist eine Veränderung um einen Punkt, nicht um 50 %.
+    const zins = m.art === 'zins';
+    return {
+      ...m,
+      veraenderung: m.vortag && m.wert !== null
+        ? (zins ? Math.round((m.wert - m.vortag) * 1000) / 1000
+                : Math.round(((m.wert - m.vortag) / m.vortag) * 10000) / 100)
+        : null,
+      veraenderung_einheit: zins ? 'Punkte' : '%',
+      seit_beginn: erster !== null && m.wert !== null
+        ? (zins ? Math.round((m.wert - erster) * 1000) / 1000
+                : Math.round(((m.wert - erster) / erster) * 10000) / 100)
+        : null,
+      punkte: p.length,
+      verlauf: p,
+    };
+  });
+
+  // Der Renditeabstand zwischen zwei und zehn Jahren ist die eine Zahl,
+  // die hier wirklich etwas verdichtet – deshalb ausgerechnet statt
+  // dem Leser überlassen.
+  const holeWert = k => zeilen.find(z => z.schluessel === k)?.wert ?? null;
+  const abstand = (kurz, lang) => {
+    const a = holeWert(kurz), b = holeWert(lang);
+    return a === null || b === null ? null : Math.round((b - a) * 1000) / 1000;
+  };
+
+  return json({
+    zeitraum_tage: tage,
+    gruppen: {
+      index:   zeilen.filter(z => z.art === 'index'),
+      devisen: zeilen.filter(z => z.art === 'devisen'),
+      zins:    zeilen.filter(z => z.art === 'zins'),
+    },
+    renditeabstand: {
+      euroraum: abstand('de_2j', 'de_10j'),
+      usa: abstand('us_2j', 'us_10j'),
+      hinweis: 'Abstand zwischen zwei- und zehnjähriger Rendite in Prozentpunkten. '
+        + 'Ein negativer Wert bedeutet, dass kurze Laufzeiten höher verzinst werden als lange.',
+    },
+    leer: !zeilen.length,
+    hinweis: zeilen.length ? null : 'Noch nichts geholt — einmal auffrischen.',
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+// Ertragswertverfahren (DCF)
+// ════════════════════════════════════════════════════════════════
+// Ein DCF ist kein Messgerät, sondern eine Meinung in Zahlenform: fast
+// der ganze Wert steckt im Fortführungswert, und der hängt an zwei frei
+// gewählten Größen. Deshalb wird hier nie eine einzelne Zahl geliefert,
+// sondern immer die Matrix daneben — sie zeigt, wie weit das Ergebnis
+// wandert, wenn man die Annahmen leicht verschiebt.
+//
+// Die Annahmen kommen von Karol. Es wäre ein Leichtes, sie zu schätzen;
+// dann wäre das Ergebnis aber eine Bewertung von uns, und die geben wir
+// nicht ab.
+function dcfRechnen(a) {
+  const jahre = Math.min(15, Math.max(1, Math.round(a.jahre || 5)));
+  const w = (a.wachstum ?? 0) / 100;
+  const g = (a.ewiges_wachstum ?? 0) / 100;
+  const r = (a.kapitalkosten ?? 0) / 100;
+
+  // Ohne Abstand zwischen Kapitalkosten und ewigem Wachstum wird der
+  // Fortführungswert unendlich. Das ist keine Bewertung, das ist eine
+  // Division durch beinahe null.
+  if (!(r > g)) return { fehler: 'Kapitalkosten müssen über dem ewigen Wachstum liegen — '
+    + 'sonst wächst der Wert rechnerisch ins Unendliche.' };
+  if (!zahl(a.basis_cashflow) || !zahl(a.anteile) || a.anteile <= 0)
+    return { fehler: 'Basis-Cashflow und Anzahl der Anteile werden gebraucht.' };
+
+  const strom = [];
+  let cf = a.basis_cashflow;
+  let barwerte = 0;
+  for (let j = 1; j <= jahre; j++) {
+    cf = cf * (1 + w);
+    const bw = cf / Math.pow(1 + r, j);
+    barwerte += bw;
+    strom.push({ jahr: j, cashflow: Math.round(cf * 100) / 100, barwert: Math.round(bw * 100) / 100 });
+  }
+  const fortfuehrung = (cf * (1 + g)) / (r - g);
+  const fortfuehrungBarwert = fortfuehrung / Math.pow(1 + r, jahre);
+  const unternehmenswert = barwerte + fortfuehrungBarwert;
+  const eigenkapital = unternehmenswert - (a.nettoschulden || 0);
+
+  return {
+    strom,
+    barwert_detailphase: Math.round(barwerte * 100) / 100,
+    fortfuehrungswert: Math.round(fortfuehrung * 100) / 100,
+    fortfuehrung_barwert: Math.round(fortfuehrungBarwert * 100) / 100,
+    // Der Anteil, der aus dem Fortführungswert kommt. Über 75 % heißt:
+    // die Bewertung steht und fällt mit einer einzigen Annahme.
+    anteil_fortfuehrung: Math.round((fortfuehrungBarwert / unternehmenswert) * 1000) / 10,
+    unternehmenswert: Math.round(unternehmenswert * 100) / 100,
+    eigenkapitalwert: Math.round(eigenkapital * 100) / 100,
+    je_anteil: Math.round((eigenkapital / a.anteile) * 100) / 100,
+  };
+}
+
+// Empfindlichkeit: Kapitalkosten gegen ewiges Wachstum, je vier Schritte
+// um die gewählten Werte herum. Das ist der eigentliche Ertrag der Rechnung.
+function dcfMatrix(a) {
+  const schrittR = 0.5, schrittG = 0.25;
+  const rWerte = [-2, -1, 0, 1, 2].map(i => Math.round(((a.kapitalkosten ?? 0) + i * schrittR) * 100) / 100);
+  const gWerte = [-2, -1, 0, 1, 2].map(i => Math.round(((a.ewiges_wachstum ?? 0) + i * schrittG) * 100) / 100);
+  const zeilen = rWerte.map(r => ({
+    kapitalkosten: r,
+    werte: gWerte.map(g => {
+      const e = dcfRechnen({ ...a, kapitalkosten: r, ewiges_wachstum: g });
+      return e.fehler ? null : e.je_anteil;
+    }),
+  }));
+  const alle = zeilen.flatMap(z => z.werte).filter(v => v !== null);
+  return {
+    kapitalkosten: rWerte, ewiges_wachstum: gWerte, zeilen,
+    spanne: alle.length ? [Math.min(...alle), Math.max(...alle)] : null,
+  };
+}
+
+export async function bewertungLesen(env, db, url, json, err) {
+  const symbol = (url.searchParams.get('symbol') || '').toUpperCase();
+  const r = symbol
+    ? await db.prepare('SELECT * FROM ag_bewertungen WHERE symbol=? ORDER BY id DESC').bind(symbol).all().catch(() => ({ results: [] }))
+    : await db.prepare('SELECT * FROM ag_bewertungen ORDER BY id DESC LIMIT 50').all().catch(() => ({ results: [] }));
+
+  // Kurs dazu, damit der Abstand zum errechneten Wert sichtbar wird —
+  // als Feststellung, nicht als Aussage darüber, welcher der richtige ist.
+  const kurse = {};
+  for (const b of (r.results || [])) {
+    if (kurse[b.symbol] !== undefined) continue;
+    const k = await db.prepare('SELECT kurs, datum FROM ag_kurse WHERE symbol=? ORDER BY datum DESC LIMIT 1')
+      .bind(b.symbol).first().catch(() => null);
+    kurse[b.symbol] = k || null;
+  }
+
+  return json({
+    bewertungen: (r.results || []).map(b => {
+      const e = dcfRechnen(b);
+      const k = kurse[b.symbol];
+      return {
+        ...b, ergebnis: e, matrix: e.fehler ? null : dcfMatrix(b),
+        kurs: k?.kurs ?? null, kurs_stand: k?.datum ?? null,
+        abstand_prozent: (!e.fehler && k?.kurs) ? Math.round(((e.je_anteil - k.kurs) / k.kurs) * 10000) / 100 : null,
+      };
+    }),
+    hinweis: 'Sämtliche Eingangsgrößen sind Annahmen. Der errechnete Wert je Anteil ist eine Folge '
+      + 'dieser Annahmen und keine Aussage über den richtigen Kurs. Wie empfindlich er darauf '
+      + 'reagiert, steht in der Matrix.',
+  });
+}
+
+export async function bewertungSchreiben(env, db, body, method, id, json, err) {
+  if (method === 'POST') {
+    if (!body.symbol) return err('symbol ist Pflicht');
+    const satz = {
+      symbol: String(body.symbol).toUpperCase().slice(0, 24),
+      basis_cashflow: zahl(body.basis_cashflow), wachstum: zahl(body.wachstum),
+      jahre: Math.min(15, Math.max(1, Math.round(Number(body.jahre) || 5))),
+      ewiges_wachstum: zahl(body.ewiges_wachstum), kapitalkosten: zahl(body.kapitalkosten),
+      nettoschulden: zahl(body.nettoschulden) ?? 0, anteile: zahl(body.anteile),
+    };
+    // Erst rechnen, dann speichern — eine Bewertung, die nicht rechenbar
+    // ist, gehört nicht in die Ablage.
+    const probe = dcfRechnen(satz);
+    if (probe.fehler) return err(probe.fehler);
+
+    const res = await db.prepare(
+      `INSERT INTO ag_bewertungen (symbol, verfahren, basis_cashflow, wachstum, jahre,
+         ewiges_wachstum, kapitalkosten, nettoschulden, anteile, waehrung, notiz, urheber)
+       VALUES (?,'dcf',?,?,?,?,?,?,?,?,?,?)`
+    ).bind(satz.symbol, satz.basis_cashflow, satz.wachstum, satz.jahre, satz.ewiges_wachstum,
+           satz.kapitalkosten, satz.nettoschulden, satz.anteile,
+           (body.waehrung || 'USD').slice(0, 8),
+           body.notiz ? String(body.notiz).slice(0, 2000) : null,
+           body.urheber ? String(body.urheber).slice(0, 40) : 'mensch').run();
+    return json({ success: true, id: res.meta?.last_row_id, ergebnis: probe, matrix: dcfMatrix(satz) });
+  }
+  if (method === 'DELETE' && id) {
+    await db.prepare('DELETE FROM ag_bewertungen WHERE id=?').bind(Number(id)).run();
+    return json({ success: true });
+  }
+  return err('Nicht unterstützt', 405);
+}

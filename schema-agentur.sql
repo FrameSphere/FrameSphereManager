@@ -574,3 +574,50 @@ CREATE TABLE IF NOT EXISTS ag_thesen_pruefung (
   erstellt_am   DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS ix_ag_thesen_pruef ON ag_thesen_pruefung(these_id, id);
+
+-- ── Marktumfeld ────────────────────────────────────────────────────
+-- Indizes, Devisen und Zinsen als Hintergrund für die Einzelwerte.
+-- Bewusst eine eigene Tabelle statt Einträge in der Beobachtungsliste:
+-- ein Zinssatz ist kein Wert, den man hält, und würde jede Depot-
+-- Auswertung verfälschen.
+CREATE TABLE IF NOT EXISTS ag_markt (
+  schluessel    TEXT PRIMARY KEY,       -- z. B. eur_usd, de_10j, us_10j, spx
+  art           TEXT NOT NULL,          -- index | devisen | zins
+  name          TEXT NOT NULL,
+  einheit       TEXT,                   -- % | Punkte | Kurs
+  wert          REAL,
+  vortag        REAL,
+  stand         TEXT,                   -- Datum der Beobachtung
+  quelle        TEXT,
+  sortierung    INTEGER DEFAULT 0,
+  aktualisiert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS ag_markt_verlauf (
+  schluessel    TEXT NOT NULL,
+  datum         TEXT NOT NULL,
+  wert          REAL NOT NULL,
+  PRIMARY KEY (schluessel, datum)
+);
+
+-- ── Bewertungsannahmen ─────────────────────────────────────────────
+-- Die Zahlen eines Ertragswertverfahrens sind Annahmen, keine Daten.
+-- Deshalb werden sie hier festgehalten, mit Datum und Urheber, damit
+-- später nachvollziehbar ist, womit gerechnet wurde.
+CREATE TABLE IF NOT EXISTS ag_bewertungen (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol        TEXT NOT NULL,
+  verfahren     TEXT NOT NULL DEFAULT 'dcf',
+  basis_cashflow REAL,                  -- freier Cashflow im Ausgangsjahr
+  wachstum      REAL,                   -- % p. a. in der Detailphase
+  jahre         INTEGER DEFAULT 5,
+  ewiges_wachstum REAL,                 -- % nach der Detailphase
+  kapitalkosten REAL,                   -- % WACC
+  nettoschulden REAL DEFAULT 0,
+  anteile       REAL,                   -- Anzahl Aktien
+  waehrung      TEXT DEFAULT 'USD',
+  notiz         TEXT,
+  urheber       TEXT,
+  erstellt_am   DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_ag_bewertungen ON ag_bewertungen(symbol, id);

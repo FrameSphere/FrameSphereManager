@@ -20,6 +20,7 @@ import {
   boerseLage, schwellenLesen, schwellenSchreiben, schwellenPruefen,
   boerseKennzahlen, boerseWertvergleich,
   tradesLesen, tradesSchreiben, thesenLesen, thesenSchreiben,
+  boerseMarkt, marktAuffrischen, bewertungLesen, bewertungSchreiben,
   depotSchreiben, watchlistSchreiben,
 } from './boerse.js';
 
@@ -158,6 +159,49 @@ async function ensureAgenturTables(db) {
       erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP
     )`),
     db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_schwellen ON ag_schwellen(aktiv, symbol)'),
+  ]);
+  // Handelsbuch, Thesen, Marktumfeld und Bewertungsannahmen. Stehen auch in
+  // schema-agentur.sql; hier noch einmal, damit ein Worker auf einer frisch
+  // angelegten Datenbank läuft, ohne dass vorher jemand das Schema einspielt.
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS ag_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL,
+      richtung TEXT NOT NULL DEFAULT 'kauf', stueck REAL NOT NULL, kurs REAL NOT NULL,
+      waehrung TEXT DEFAULT 'EUR', datum TEXT NOT NULL, gebuehren REAL DEFAULT 0,
+      these TEXT, stopp REAL, ziel REAL, risiko_euro REAL, gefuehl TEXT,
+      ausstieg_grund TEXT, notiz TEXT, erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_trades ON ag_trades(symbol, datum)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ag_thesen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL, kern TEXT NOT NULL,
+      annahmen TEXT, bricht_wenn TEXT, zeithorizont TEXT, status TEXT DEFAULT 'offen',
+      erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP,
+      aktualisiert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_thesen ON ag_thesen(symbol, status)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ag_thesen_pruefung (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, these_id INTEGER NOT NULL,
+      richtung TEXT NOT NULL, fakt TEXT NOT NULL, quelle TEXT, datum TEXT,
+      mitarbeiter_id TEXT, lauf_id INTEGER, erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_thesen_pruef ON ag_thesen_pruefung(these_id, id)'),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ag_markt (
+      schluessel TEXT PRIMARY KEY, art TEXT NOT NULL, name TEXT NOT NULL, einheit TEXT,
+      wert REAL, vortag REAL, stand TEXT, quelle TEXT, sortierung INTEGER DEFAULT 0,
+      aktualisiert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ag_markt_verlauf (
+      schluessel TEXT NOT NULL, datum TEXT NOT NULL, wert REAL NOT NULL,
+      PRIMARY KEY (schluessel, datum)
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS ag_bewertungen (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL,
+      verfahren TEXT NOT NULL DEFAULT 'dcf', basis_cashflow REAL, wachstum REAL,
+      jahre INTEGER DEFAULT 5, ewiges_wachstum REAL, kapitalkosten REAL,
+      nettoschulden REAL DEFAULT 0, anteile REAL, waehrung TEXT DEFAULT 'USD',
+      notiz TEXT, urheber TEXT, erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`),
+    db.prepare('CREATE INDEX IF NOT EXISTS ix_ag_bewertungen ON ag_bewertungen(symbol, id)'),
   ]);
   // Nachträgliche Spalten (schlagen fehl, wenn sie schon da sind – das ist ok)
   // Absender einer Aufgabe: ohne den weiß die Entwicklung nicht, wem sie
@@ -1361,6 +1405,11 @@ export async function handleAgentur(request, env, helpers) {
     if (method === 'GET'  && id3 === 'lage')         return boerseLage(env, db, url, json, err);
     if (method === 'GET'  && id3 === 'kennzahlen')   return boerseKennzahlen(env, db, url, json, err);
     if (method === 'GET'  && id3 === 'vergleich')    return boerseWertvergleich(env, db, url, json, err);
+    if (id3 === 'markt' && teil4 === 'auffrischen' && method === 'POST')
+                                                     return marktAuffrischen(env, db, body, json, err);
+    if (method === 'GET'  && id3 === 'markt')        return boerseMarkt(env, db, url, json, err);
+    if (id3 === 'bewertung' && method === 'GET')     return bewertungLesen(env, db, url, json, err);
+    if (id3 === 'bewertung')                         return bewertungSchreiben(env, db, body, method, teil4, json, err);
     if (id3 === 'trades' && method === 'GET')        return tradesLesen(env, db, url, json, err);
     if (id3 === 'trades')                            return tradesSchreiben(env, db, body, method, teil4, json, err);
     if (id3 === 'thesen' && method === 'GET')        return thesenLesen(env, db, url, json, err);
