@@ -2151,9 +2151,13 @@ document.addEventListener('keydown', e => {
   const imFeld = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
   if ((e.key === '/' || e.key === 'F1') && !imFeld) { e.preventDefault(); document.getElementById('cmd').focus(); return; }
   if (imFeld) return;
-  // Zahlen springen die Schirme an
-  const i = Number(e.key) - 1;
-  if (i >= 0 && i < SCHIRME.length) { geheZu(SCHIRME[i][0]); return; }
+  // Zahlen springen die Schirme an: 1 bis 9, dann die Null für den zehnten.
+  // Mehr als zehn Schirme lassen sich über die Zifferntaste nicht ansprechen —
+  // die letzten gehen über die Kommandozeile, so wie jedes Symbol auch.
+  if (/^[0-9]$/.test(e.key)) {
+    const i = e.key === '0' ? 9 : Number(e.key) - 1;
+    if (i < SCHIRME.length) { geheZu(SCHIRME[i][0]); return; }
+  }
   if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && MONITOR?.zeilen?.length) {
     e.preventDefault();
     const alle = MONITOR.zeilen.map(z => z.symbol);
