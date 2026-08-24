@@ -658,28 +658,6 @@ export async function handleAgentur(request, env, helpers) {
       }
       if (body.aktiv !== undefined) { felder.push('aktiv=?'); werte.push(einsAus(body.aktiv)); }
 
-      // Pause. `pause_bis` ohne Zeitpunkt heißt unbefristet – dann läuft
-      // nichts, bis Karol selbst wieder einschaltet.
-      if (body.pausiert !== undefined) {
-        const an = einsAus(body.pausiert);
-        felder.push('pausiert=?'); werte.push(an);
-        felder.push('pause_seit=?'); werte.push(an ? jetzt() : null);
-        if (an) {
-          let bis = null;
-          if (body.pause_bis) {
-            const d = new Date(body.pause_bis);
-            // Ein Zeitpunkt in der Vergangenheit wäre eine Pause, die schon
-            // vorbei ist – die wird abgelehnt statt stillschweigend ignoriert.
-            if (Number.isNaN(d.getTime())) return err('pause_bis ist kein gültiger Zeitpunkt');
-            if (d.getTime() <= Date.now()) return err('pause_bis liegt in der Vergangenheit');
-            bis = d.toISOString();
-          }
-          felder.push('pause_bis=?'); werte.push(bis);
-        } else {
-          felder.push('pause_bis=?'); werte.push(null);
-        }
-      }
-
       if (!felder.length) return err('Nichts zu ändern');
       werte.push(id3);
       await db.prepare(`UPDATE ag_mitarbeiter SET ${felder.join(', ')} WHERE id=?`).bind(...werte).run();
@@ -1322,6 +1300,29 @@ export async function handleAgentur(request, env, helpers) {
       }
       if (body.zeitzone !== undefined) { felder.push('zeitzone=?'); werte.push(txt(body.zeitzone, 40)); }
       if (body.aktiv !== undefined) { felder.push('aktiv=?'); werte.push(einsAus(body.aktiv)); }
+
+      // Pause. `pause_bis` ohne Zeitpunkt heißt unbefristet – dann läuft
+      // nichts, bis Karol selbst wieder einschaltet.
+      if (body.pausiert !== undefined) {
+        const an = einsAus(body.pausiert);
+        felder.push('pausiert=?'); werte.push(an);
+        felder.push('pause_seit=?'); werte.push(an ? jetzt() : null);
+        if (an) {
+          let bis = null;
+          if (body.pause_bis) {
+            const d = new Date(body.pause_bis);
+            // Ein Zeitpunkt in der Vergangenheit wäre eine Pause, die schon
+            // vorbei ist – die wird abgelehnt statt stillschweigend ignoriert.
+            if (Number.isNaN(d.getTime())) return err('pause_bis ist kein gültiger Zeitpunkt');
+            if (d.getTime() <= Date.now()) return err('pause_bis liegt in der Vergangenheit');
+            bis = d.toISOString();
+          }
+          felder.push('pause_bis=?'); werte.push(bis);
+        } else {
+          felder.push('pause_bis=?'); werte.push(null);
+        }
+      }
+
       if (!felder.length) return err('Nichts zu ändern');
       felder.push('aktualisiert_am=?'); werte.push(jetzt());
       await db.prepare(`UPDATE ag_takt SET ${felder.join(', ')} WHERE id=1`).bind(...werte).run();
