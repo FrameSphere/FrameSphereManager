@@ -1998,14 +1998,15 @@ async function schirmAgentur() {
   const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
   if (!AGENTUR) {
     haupt.innerHTML = '<div class="tm-leer">Lade…</div>';
-    const [ber, bef, auf, laeufe] = await Promise.all([
+    const [ber, bef, auf, laeufe, takt] = await Promise.all([
       api('/api/agentur/berichte?abteilung=boerse&limit=25'),
       api('/api/agentur/befunde?abteilung=boerse&status=offen'),
       api('/api/agentur/aufgaben?abteilung=boerse'),
       api('/api/agentur/laeufe?abteilung=boerse&limit=15'),
+      api('/api/agentur/takt'),
     ]);
     AGENTUR = { berichte: ber?.berichte || [], befunde: bef?.befunde || [],
-                aufgaben: auf?.aufgaben || [], laeufe: laeufe?.laeufe || [] };
+                aufgaben: auf?.aufgaben || [], laeufe: laeufe?.laeufe || [], takt };
   }
   const a = AGENTUR;
 
@@ -2034,8 +2035,37 @@ async function schirmAgentur() {
         sobald ihre Aufgaben fällig werden.</div>`}
     </div>`;
 
+  // Zustand der Agentur ganz oben: wer hier steht und keine Berichte sieht,
+  // soll sofort erkennen, ob nichts los war oder ob abgeschaltet ist.
+  const t = a.takt;
+  const pause = !!t?.pausiert;
+  const schalter = t ? `
+    <div class="tm-titel">Agentur</div>
+    <div style="padding:10px 12px;border-left:2px solid ${pause ? 'var(--t-akzent)' : 'var(--t-auf)'};
+                background:${pause ? 'rgba(240,180,41,.07)' : 'rgba(63,214,140,.05)'}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+        <span style="width:8px;height:8px;border-radius:50%;flex:0 0 auto;
+              background:${pause ? 'var(--t-akzent)' : 'var(--t-auf)'}"></span>
+        <span style="font-size:12px;font-weight:700;color:${pause ? 'var(--t-akzent2)' : 'var(--t-auf)'}">
+          ${pause ? 'Pausiert' : 'Läuft'}</span>
+        <span class="dim" style="font-size:9.5px;margin-left:auto">${esc(taktNeben(t))}</span>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        ${pause ? '<button class="knopf an" onclick="agenturAn()">Einschalten</button>'
+          : `<button class="knopf" onclick="agenturAus(1)">1 Std</button>
+             <button class="knopf" onclick="agenturAus(3)">3 Std</button>
+             <button class="knopf" onclick="agenturAus('morgen')">bis morgen</button>
+             <button class="knopf" onclick="agenturAus(0)">unbefristet</button>`}
+      </div>
+      ${pause ? `<div class="dim" style="font-size:9.5px;margin-top:7px;line-height:1.5">
+        Der Verteiler startet niemanden mehr. Fällige Aufgaben bleiben liegen und kommen dran,
+        sobald du wieder einschaltest.</div>` : ''}
+    </div>
+
+    <div class="tm-titel">Analyse anfordern</div>` : '<div class="tm-titel">Analyse anfordern</div>';
+
   seite.innerHTML = `
-    <div class="tm-titel">Analyse anfordern</div>
+    ${schalter}
     <div style="padding:10px 12px;display:flex;flex-direction:column;gap:6px">
       ${AKTIV ? `<button class="knopf" onclick="analyseAnfordern()">Faktenbericht ${esc(AKTIV)}</button>` : ''}
       <button class="knopf" onclick="auftragAn('malte','Depot durchsehen','Gehaltene Werte gegen die Schwellen prüfen.')">Depot durchsehen (Malte)</button>
@@ -2057,6 +2087,45 @@ async function schirmAgentur() {
     <div class="tm-hint">Die Analysten liefern <b>Fakten</b>: Zahlen mit Stichtag, Meldungen mit Quelle,
       Ereignisse an gehaltenen Werten. Keine Kauf-, Verkaufs- oder Halteempfehlung — das steht so in
       ihren Anweisungen.</div>`;
+}
+
+// Beschriftung neben der Lampe: seit wann, bis wann. Eine Pause ohne
+// sichtbare Frist vergisst man, und dann schweigt die Agentur wochenlang.
+function taktNeben(t) {
+  if (!t.pausiert) {
+    return t.auslastung_prozent >= 100
+      ? 'Anteil ausgeschöpft'
+      : `${t.auslastung_prozent} % im ${t.fenster_stunden}-Std-Fenster`;
+  }
+  const teile = [];
+  if (t.pause_seit) {
+    const min = Math.round((Date.now() - Date.parse(t.pause_seit)) / 60000);
+    teile.push(min < 60 ? `seit ${min} Min` : `seit ${Math.floor(min / 60)} Std`);
+  }
+  teile.push(t.pause_bis
+    ? `bis ${new Date(t.pause_bis).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
+    : 'ohne Frist');
+  return teile.join(' · ');
+}
+
+// stunden = 0 → unbefristet, 'morgen' → morgen 06:00 Ortszeit
+async function agenturAus(stunden) {
+  let bis = null;
+  if (stunden === 'morgen') {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(6, 0, 0, 0);
+    bis = d.toISOString();
+  } else if (Number(stunden) > 0) {
+    bis = new Date(Date.now() + Number(stunden) * 3600000).toISOString();
+  }
+  const t = await api('/api/agentur/takt', { method: 'PATCH', body: { pausiert: true, pause_bis: bis } });
+  if (t && AGENTUR) { AGENTUR.takt = t; await schirmAgentur(); refreshIcons(); }
+}
+
+async function agenturAn() {
+  const t = await api('/api/agentur/takt', { method: 'PATCH', body: { pausiert: false } });
+  if (t && AGENTUR) { AGENTUR.takt = t; await schirmAgentur(); refreshIcons(); }
 }
 
 async function auftragAn(wer, titel, beschreibung) {

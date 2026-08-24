@@ -174,6 +174,38 @@
     }
     .karte-kopf .zahl { margin-left:auto; font-size:11px; font-weight:800; color:var(--text); }
 
+    /* ── Pauseschalter ─────────────────────────────────────────── */
+    /* Der Zustand muss auf einen Blick erkennbar sein, ohne zu lesen:
+       pausiert färbt die ganze Karte, nicht nur den Knopf. */
+    .karte.pausiert { border-color:rgba(251,191,36,.5); background:rgba(251,191,36,.05); }
+    .schalter {
+      display:flex; align-items:center; gap:10px; margin-bottom:12px;
+      padding-bottom:11px; border-bottom:1px solid var(--border);
+    }
+    .schalter-lampe {
+      width:9px; height:9px; border-radius:50%; flex:0 0 auto;
+      background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.16);
+    }
+    .karte.pausiert .schalter-lampe { background:#fbbf24; box-shadow:0 0 0 3px rgba(251,191,36,.18); }
+    .schalter-text { flex:1; min-width:0; }
+    .schalter-zustand { font-size:12.5px; font-weight:700; }
+    .schalter-neben { font-size:10.5px; color:var(--text3); font-family:'Space Mono',monospace; }
+    .schalter-knopf {
+      flex:0 0 auto; padding:6px 13px; border-radius:8px; cursor:pointer;
+      font-family:inherit; font-size:11.5px; font-weight:700;
+      background:var(--bg3); border:1px solid var(--border2); color:var(--text);
+    }
+    .schalter-knopf:hover { border-color:var(--accent); }
+    .karte.pausiert .schalter-knopf { background:#22c55e; border-color:#22c55e; color:#06240f; }
+    .schalter-fristen { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:12px; }
+    .frist {
+      padding:3px 9px; border-radius:20px; cursor:pointer;
+      font-family:'Space Mono',monospace; font-size:10px; letter-spacing:.03em;
+      background:none; border:1px solid var(--border2); color:var(--text3);
+    }
+    .frist:hover { border-color:var(--accent); color:var(--text); }
+    .gedimmt { opacity:.34; pointer-events:none; }
+
     .postfach-item {
       display:flex; gap:9px; align-items:flex-start; padding:9px 0;
       border-top:1px solid var(--border); cursor:pointer;
@@ -670,7 +702,27 @@ function zeichneBuero() {
     ['block_nacht', 'Nacht', '23–06'],
   ];
   const mio = n => (n / 1000000).toFixed(1).replace('.', ',') + ' Mio';
+
+  // Der Schalter steht vor allem anderen in der Karte: solange pausiert ist,
+  // sind Auslastung und Regler darunter ohne Belang.
+  const schalterHtml = t ? `
+    <div class="schalter">
+      <span class="schalter-lampe"></span>
+      <span class="schalter-text">
+        <div class="schalter-zustand">${t.pausiert ? 'Pausiert' : 'Agentur läuft'}</div>
+        <div class="schalter-neben">${esc(pauseNeben(t))}</div>
+      </span>
+      <button class="schalter-knopf" onclick="${t.pausiert ? 'agenturAn()' : 'agenturAus()'}">
+        ${t.pausiert ? 'Einschalten' : 'Pause'}</button>
+    </div>
+    ${t.pausiert ? '' : `<div class="schalter-fristen">
+      ${[['1 Stunde', 1], ['3 Stunden', 3], ['bis morgen früh', null]].map(([l, h]) =>
+        `<button class="frist" onclick="agenturAus(${h === null ? "'morgen'" : h})">${l}</button>`).join('')}
+      <button class="frist" onclick="agenturAus(0)">unbefristet</button>
+    </div>`}` : '';
+
   const taktHtml = t ? `
+    <div class="${t.pausiert ? 'gedimmt' : ''}">
     <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px">
       <span style="font-size:19px;font-weight:800;color:${t.auslastung_prozent >= 100 ? '#f87171' : t.auslastung_prozent >= 70 ? '#fbbf24' : '#4ade80'}">${t.auslastung_prozent} %</span>
       <span style="font-size:11px;color:var(--text2)">${esc(t.block_label)} · ${t.anteil_prozent} % freigegeben</span>
@@ -702,6 +754,7 @@ function zeichneBuero() {
     <div style="font-size:10px;color:var(--text3);line-height:1.5;margin-top:7px">
       Angenommener Gesamtwert deines ${t.fenster_stunden}-Stunden-Fensters. Anthropic gibt dafür keinen
       Tokenwert heraus — <b>deine eigene Arbeit ist hier nicht mitgezählt</b>.
+    </div>
     </div>` : '<div style="font-size:11.5px;color:var(--text3)">Takt nicht geladen.</div>';
 
   // Fragen an dich – der Rückkanal. Was hier liegt, blockiert jemanden.
@@ -735,8 +788,9 @@ function zeichneBuero() {
         <div class="desks">${schreibtische}</div>
       </div>
       <div>
-        <div class="karte">
+        <div class="karte${t && t.pausiert ? ' pausiert' : ''}">
           <div class="karte-kopf">${icon('gauge', 12)} Takt</div>
+          ${schalterHtml}
           ${taktHtml}
         </div>
         <div class="karte"${blockierend ? ' style="border-color:rgba(239,68,68,.45)"' : ''}>
@@ -1253,6 +1307,51 @@ async function ladeHistorie() {
 async function verkauft(id) {
   await api('/api/agentur/boerse/depot/' + id, { method: 'DELETE' });
   ladeBoerse();
+}
+
+// ── Pauseschalter ────────────────────────────────────────────────
+// Pausiert heißt: der Verteiler bekommt niemanden mehr genannt und startet
+// deshalb keinen Lauf. Der stündliche Job läuft weiter an, endet aber nach
+// Sekunden, ohne einen Token zu verbrauchen. Fällige Aufgaben bleiben
+// fällig und kommen dran, sobald wieder eingeschaltet ist.
+
+// Beschriftung neben der Lampe. Sagt nicht nur ob, sondern seit wann und
+// bis wann – eine Pause ohne Frist vergisst man sonst.
+function pauseNeben(t) {
+  if (!t.pausiert) {
+    return t.auslastung_prozent >= 100
+      ? 'Anteil ausgeschöpft — wartet auf das nächste Fenster'
+      : 'Der Verteiler sieht stündlich nach';
+  }
+  const teile = [];
+  if (t.pause_seit) {
+    const min = Math.round((Date.now() - Date.parse(t.pause_seit)) / 60000);
+    teile.push(min < 60 ? `seit ${min} Min` : `seit ${Math.floor(min / 60)} Std`);
+  }
+  teile.push(t.pause_bis
+    ? `bis ${new Date(t.pause_bis).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
+    : 'ohne Frist');
+  return teile.join(' · ');
+}
+
+// stunden = 0 oder undefined → unbefristet, 'morgen' → morgen 06:00 Ortszeit
+async function agenturAus(stunden) {
+  let bis = null;
+  if (stunden === 'morgen') {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(6, 0, 0, 0);
+    bis = d.toISOString();
+  } else if (Number(stunden) > 0) {
+    bis = new Date(Date.now() + Number(stunden) * 3600000).toISOString();
+  }
+  const t = await api('/api/agentur/takt', { method: 'PATCH', body: { pausiert: true, pause_bis: bis } });
+  if (t) { TAKT = t; zeichneBuero(); refreshIcons(); }
+}
+
+async function agenturAn() {
+  const t = await api('/api/agentur/takt', { method: 'PATCH', body: { pausiert: false } });
+  if (t) { TAKT = t; zeichneBuero(); refreshIcons(); }
 }
 
 // ── Takt stellen ─────────────────────────────────────────────────

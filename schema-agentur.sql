@@ -393,7 +393,13 @@ CREATE TABLE IF NOT EXISTS ag_takt (
   block_nacht        INTEGER NOT NULL DEFAULT 90,   -- 23–06 Uhr
   zeitzone           TEXT NOT NULL DEFAULT 'Europe/Berlin',
   fenster_stunden    INTEGER NOT NULL DEFAULT 5,
-  aktiv              INTEGER NOT NULL DEFAULT 1,
+  aktiv              INTEGER NOT NULL DEFAULT 1,   -- Drosselung an/aus, NICHT der Ausschalter
+  -- Pause: der Ausschalter. Getrennt von `aktiv`, weil das zwei Fragen sind –
+  -- „wie stark bremsen wir" und „läuft überhaupt etwas". `pause_bis` leer heißt
+  -- unbefristet; steht ein Zeitpunkt drin, hebt sich die Pause von selbst auf.
+  pausiert           INTEGER NOT NULL DEFAULT 0,
+  pause_bis          TEXT,
+  pause_seit         TEXT,
   aktualisiert_am    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

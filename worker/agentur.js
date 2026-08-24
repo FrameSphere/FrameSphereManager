@@ -211,6 +211,10 @@ async function ensureAgenturTables(db) {
   await db.prepare('ALTER TABLE ag_abteilungen ADD COLUMN gsc_property TEXT').run().catch(() => {});
   await db.prepare('ALTER TABLE ag_laeufe ADD COLUMN kosten_usd REAL').run().catch(() => {});
   await db.prepare('ALTER TABLE ag_aufgaben ADD COLUMN kampagne_id INTEGER').run().catch(() => {});
+  // Pauseschalter. Kommt zu einer Tabelle dazu, die es längst gibt.
+  await db.prepare('ALTER TABLE ag_takt ADD COLUMN pausiert INTEGER NOT NULL DEFAULT 0').run().catch(() => {});
+  await db.prepare('ALTER TABLE ag_takt ADD COLUMN pause_bis TEXT').run().catch(() => {});
+  await db.prepare('ALTER TABLE ag_takt ADD COLUMN pause_seit TEXT').run().catch(() => {});
   tabellenBereit = true;
 }
 
@@ -285,7 +289,16 @@ async function taktLesen(db) {
     aktiv INTEGER NOT NULL DEFAULT 1, aktualisiert_am DATETIME DEFAULT CURRENT_TIMESTAMP
   )`).run().catch(() => {});
   await db.prepare('INSERT OR IGNORE INTO ag_takt (id) VALUES (1)').run().catch(() => {});
-  const t = await db.prepare('SELECT * FROM ag_takt WHERE id=1').first().catch(() => null);
+  let t = await db.prepare('SELECT * FROM ag_takt WHERE id=1').first().catch(() => null);
+
+  // Eine befristete Pause hebt sich selbst auf. Das passiert hier und nicht
+  // erst beim Anzeigen, damit der Zustand in der Datenbank stimmt – sonst
+  // stünde im Büro „läuft", während die Spalte noch auf Pause steht.
+  if (t && t.pausiert && t.pause_bis && t.pause_bis <= jetzt()) {
+    await db.prepare('UPDATE ag_takt SET pausiert=0, pause_bis=NULL, pause_seit=NULL WHERE id=1')
+      .run().catch(() => {});
+    t = { ...t, pausiert: 0, pause_bis: null, pause_seit: null };
+  }
   return t || { ...TAKT_STANDARD, id: 1 };
 }
 
@@ -333,6 +346,12 @@ async function taktLage(db) {
 
   return {
     aktiv: !!t.aktiv,
+    // Pause ist bewusst getrennt von `aktiv` und von `frei`: das eine ist der
+    // Ausschalter, das andere die Drosselung. Wer beides in ein Feld packt,
+    // kann hinterher nicht mehr sagen, warum gerade nichts läuft.
+    pausiert: !!t.pausiert,
+    pause_bis: t.pause_bis || null,
+    pause_seit: t.pause_seit || null,
     stunde, block: block.name, block_label: block.label, anteil_prozent: anteil,
     kontingent_tokens: Number(t.kontingent_tokens) || 0,
     fenster_stunden: Number(t.fenster_stunden) || 5,
@@ -638,6 +657,29 @@ export async function handleAgentur(request, env, helpers) {
         if (body[k] !== undefined) { felder.push(`${k}=?`); werte.push(num(body[k]) ?? 0); }
       }
       if (body.aktiv !== undefined) { felder.push('aktiv=?'); werte.push(einsAus(body.aktiv)); }
+
+      // Pause. `pause_bis` ohne Zeitpunkt heißt unbefristet – dann läuft
+      // nichts, bis Karol selbst wieder einschaltet.
+      if (body.pausiert !== undefined) {
+        const an = einsAus(body.pausiert);
+        felder.push('pausiert=?'); werte.push(an);
+        felder.push('pause_seit=?'); werte.push(an ? jetzt() : null);
+        if (an) {
+          let bis = null;
+          if (body.pause_bis) {
+            const d = new Date(body.pause_bis);
+            // Ein Zeitpunkt in der Vergangenheit wäre eine Pause, die schon
+            // vorbei ist – die wird abgelehnt statt stillschweigend ignoriert.
+            if (Number.isNaN(d.getTime())) return err('pause_bis ist kein gültiger Zeitpunkt');
+            if (d.getTime() <= Date.now()) return err('pause_bis liegt in der Vergangenheit');
+            bis = d.toISOString();
+          }
+          felder.push('pause_bis=?'); werte.push(bis);
+        } else {
+          felder.push('pause_bis=?'); werte.push(null);
+        }
+      }
+
       if (!felder.length) return err('Nichts zu ändern');
       werte.push(id3);
       await db.prepare(`UPDATE ag_mitarbeiter SET ${felder.join(', ')} WHERE id=?`).bind(...werte).run();
@@ -1338,8 +1380,26 @@ export async function handleAgentur(request, env, helpers) {
       proPerson.get(a.zustaendig).aufgaben.push({ id: a.id, titel: a.titel, faellig_am: a.faellig_am });
     }
 
-    // Takt: ist gerade überhaupt etwas frei?
     const lage = await taktLage(db);
+
+    // Pause zuerst, und mit eigenem Grund. Sonst stünde im Protokoll
+    // „Kontingent ausgeschöpft", obwohl schlicht abgeschaltet ist.
+    // Hier endet der Aufruf, bevor irgendjemand gestartet wird – der
+    // Verteiler-Job läuft zwar weiter an, kostet aber keinen Token.
+    if (lage.pausiert) {
+      return json({
+        zeitpunkt: jetzt(), takt: lage, dran: [], pause: true, pausiert: true,
+        pause_bis: lage.pause_bis,
+        grund: lage.pause_bis
+          ? `Agentur pausiert bis ${lage.pause_bis}.`
+          : 'Agentur pausiert. Läuft erst wieder, wenn du sie einschaltest.',
+        // Nichts geht verloren: die fälligen Aufgaben bleiben fällig und
+        // kommen dran, sobald wieder eingeschaltet ist.
+        wartend: [...proPerson.values()].map(p => p.name),
+      });
+    }
+
+    // Takt: ist gerade überhaupt etwas frei?
     if (!lage.frei) {
       return json({
         zeitpunkt: jetzt(), takt: lage, dran: [], pause: true,
