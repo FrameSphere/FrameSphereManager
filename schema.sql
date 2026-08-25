@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS sites (
 -- Seed sites
 INSERT OR IGNORE INTO sites (id, name, url) VALUES
   ('framesphere', 'Frame-Sphere', 'https://frame-sphere.vercel.app'),
-  ('frametrain', 'FrameTrain', 'https://frame-train.vercel.app'),
+  ('frametrain', 'FrameTrain', 'https://frame-train.com'),
   ('wordify', 'Wordify', 'https://wordify.pages.dev'),
   ('flaggues', 'Flaggues', 'https://flaggues.pages.dev'),
   ('spinselector', 'SpinSelector', 'https://spinselector.pages.dev'),

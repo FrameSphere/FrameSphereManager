@@ -134,7 +134,7 @@ Manager/
 | Name | URL | Features |
 |------|-----|----------|
 | Frame-Sphere | frame-sphere.vercel.app | Support, Blog, Daten |
-| FrameTrain | frame-train.vercel.app | Support, Changelog, Daten |
+| FrameTrain | frame-train.com | Support, Changelog, Daten |
 | Wordify | wordify.pages.dev | Wort-Anfragen, Daten |
 | Flaggues | flaggues.pages.dev | Daten |
 | SpinSelector | spinselector.pages.dev | Vorschläge, Daten |

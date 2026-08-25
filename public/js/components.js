@@ -3409,7 +3409,7 @@ window._wdtPatchHandlers = function(siteId) {
 
 // Admin-Token und API-Base: hier eintragen
 const FT_ADMIN_TOKEN = '4ae169a854e60ecf40a40a8f2512df5322ecc5dc3d6b423a3804c566177cd736'; // muss mit LIBRARY_ADMIN_SECRET auf Vercel übereinstimmen
-const FT_API = 'https://frame-train.vercel.app/api/library/admin';
+const FT_API = 'https://frame-train.com/api/library/admin';
 
 async function ftAdmin(path, opts = {}) {
   try {
