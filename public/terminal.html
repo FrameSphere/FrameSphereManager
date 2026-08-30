@@ -1998,15 +1998,16 @@ async function schirmAgentur() {
   const haupt = document.getElementById('haupt'), seite = document.getElementById('seite');
   if (!AGENTUR) {
     haupt.innerHTML = '<div class="tm-leer">Lade…</div>';
-    const [ber, bef, auf, laeufe, takt] = await Promise.all([
+    const [ber, bef, auf, laeufe, takt, pflege] = await Promise.all([
       api('/api/agentur/berichte?abteilung=boerse&limit=25'),
       api('/api/agentur/befunde?abteilung=boerse&status=offen'),
       api('/api/agentur/aufgaben?abteilung=boerse'),
       api('/api/agentur/laeufe?abteilung=boerse&limit=15'),
       api('/api/agentur/takt'),
+      api('/api/agentur/boerse/kurspflege'),
     ]);
     AGENTUR = { berichte: ber?.berichte || [], befunde: bef?.befunde || [],
-                aufgaben: auf?.aufgaben || [], laeufe: laeufe?.laeufe || [], takt };
+                aufgaben: auf?.aufgaben || [], laeufe: laeufe?.laeufe || [], takt, pflege };
   }
   const a = AGENTUR;
 
@@ -2059,8 +2060,11 @@ async function schirmAgentur() {
       </div>
       ${pause ? `<div class="dim" style="font-size:9.5px;margin-top:7px;line-height:1.5">
         Der Verteiler startet niemanden mehr. Fällige Aufgaben bleiben liegen und kommen dran,
-        sobald du wieder einschaltest.</div>` : ''}
+        sobald du wieder einschaltest. <b>Die Kurspflege läuft weiter</b> — sie kostet keine
+        Tokens, und eine Lücke in der Kursreihe verdirbt hinterher jede Kennzahl.</div>` : ''}
     </div>
+
+    ${kurspflegeHtml(a.pflege)}
 
     <div class="tm-titel">Analyse anfordern</div>` : '<div class="tm-titel">Analyse anfordern</div>';
 
@@ -2087,6 +2091,51 @@ async function schirmAgentur() {
     <div class="tm-hint">Die Analysten liefern <b>Fakten</b>: Zahlen mit Stichtag, Meldungen mit Quelle,
       Ereignisse an gehaltenen Werten. Keine Kauf-, Verkaufs- oder Halteempfehlung — das steht so in
       ihren Anweisungen.</div>`;
+}
+
+// Tägliche Kurspflege. Läuft im Cron des Workers ab 22 Uhr UTC, verteilt
+// über die Fünf-Minuten-Takte. Hier steht nur, ob sie durchgekommen ist —
+// wer nichts sieht, soll erkennen können, ob es nichts zu holen gab oder
+// ob etwas klemmt.
+function kurspflegeHtml(p) {
+  if (!p) return '';
+  const fertig = p.werte_gesamt > 0 && p.offen === 0;
+  const farbe = !p.handelstag ? 'var(--t-text3)'
+    : p.mit_fehler.length ? 'var(--t-akzent)'
+    : fertig ? 'var(--t-auf)' : 'var(--t-info)';
+  return `
+    <div class="tm-titel">Kurspflege <span class="zahl">${esc(p.tag)}</span></div>
+    <div style="padding:9px 12px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:8px;height:8px;border-radius:50%;flex:0 0 auto;background:${farbe}"></span>
+        <span style="font-size:11.5px">${p.kurse_geholt} von ${p.werte_gesamt} Werten</span>
+        <span class="dim" style="font-size:9.5px;margin-left:auto">
+          ${!p.handelstag ? 'Wochenende'
+            : p.zuletzt ? new Date(p.zuletzt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+            : 'steht aus'}</span>
+      </div>
+      ${p.werte_gesamt ? `<div class="balken" style="margin-top:6px">
+        <div style="width:${Math.round(p.kurse_geholt / p.werte_gesamt * 100)}%;background:${farbe}"></div>
+      </div>` : ''}
+      ${p.mit_fehler.length ? `<div style="margin-top:7px;font-size:9.5px;line-height:1.6;color:var(--t-akzent2)">
+        ${p.mit_fehler.slice(0, 4).map(f => `${esc(f.symbol)}: ${esc(f.fehler)}`).join('<br>')}
+        ${p.mit_fehler.length > 4 ? `<br><span class="dim">und ${p.mit_fehler.length - 4} weitere</span>` : ''}
+      </div>` : ''}
+      <button class="knopf" style="margin-top:8px" onclick="kurspflegeJetzt()">Jetzt holen</button>
+      <div id="kp-status" class="dim" style="font-size:9.5px;margin-top:5px;line-height:1.5"></div>
+    </div>
+    <div class="tm-hint">${esc(p.hinweis || '')}</div>`;
+}
+
+async function kurspflegeJetzt() {
+  const st = document.getElementById('kp-status');
+  if (st) st.textContent = 'Hole…';
+  const r = await api('/api/agentur/boerse/kurspflege', { method: 'POST', body: { grenze: 4 } });
+  if (!r) { if (st) st.textContent = 'Fehlgeschlagen.'; return; }
+  if (st) st.textContent = r.uebersprungen ? r.uebersprungen
+    : `${r.geholt} geholt${r.offen ? `, ${r.offen} offen` : ''}${r.abgebrochen ? ' — ' + r.abgebrochen : ''}`;
+  AGENTUR = null;
+  await schirmAgentur();
 }
 
 // Beschriftung neben der Lampe: seit wann, bis wann. Eine Pause ohne

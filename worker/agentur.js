@@ -21,6 +21,7 @@ import {
   boerseKennzahlen, boerseWertvergleich,
   tradesLesen, tradesSchreiben, thesenLesen, thesenSchreiben,
   boerseMarkt, marktAuffrischen, bewertungLesen, bewertungSchreiben,
+  kurspflegeLesen, kursePflegen, stammdatenPflegen,
   depotSchreiben, watchlistSchreiben,
 } from './boerse.js';
 
@@ -1469,6 +1470,13 @@ export async function handleAgentur(request, env, helpers) {
     if (id3 === 'markt' && teil4 === 'auffrischen' && method === 'POST')
                                                      return marktAuffrischen(env, db, body, json, err);
     if (method === 'GET'  && id3 === 'markt')        return boerseMarkt(env, db, url, json, err);
+    if (method === 'GET'  && id3 === 'kurspflege')   return kurspflegeLesen(env, db, url, json, err);
+    // Von Hand anstoßen, falls Karol nicht bis zum Abendfenster warten will.
+    if (method === 'POST' && id3 === 'kurspflege') {
+      if (!nurDashboard()) return err('Die Kurspflege stößt nur der Mensch an', 403);
+      const k = await kursePflegen(env, db, { grenze: num(body.grenze) ?? 4 });
+      return json(k);
+    }
     if (id3 === 'bewertung' && method === 'GET')     return bewertungLesen(env, db, url, json, err);
     if (id3 === 'bewertung')                         return bewertungSchreiben(env, db, body, method, teil4, json, err);
     if (id3 === 'trades' && method === 'GET')        return tradesLesen(env, db, url, json, err);

@@ -627,3 +627,19 @@ CREATE TABLE IF NOT EXISTS ag_bewertungen (
   erstellt_am   DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS ix_ag_bewertungen ON ag_bewertungen(symbol, id);
+
+-- ── Tägliche Kurspflege ────────────────────────────────────────────
+-- Eine Zeile je Wert und Handelstag. Dient als Merkzettel: was hier
+-- steht, ist heute erledigt und wird nicht noch einmal geholt. Damit
+-- lässt sich die Arbeit über mehrere Cron-Durchgänge verteilen, statt
+-- alle Werte in einem Schwung zu holen und ins Abruflimit zu laufen.
+CREATE TABLE IF NOT EXISTS ag_kursjob (
+  datum       TEXT NOT NULL,
+  symbol      TEXT NOT NULL,
+  art         TEXT NOT NULL DEFAULT 'kurs',   -- kurs | stammdaten
+  kurs        REAL,
+  fehler      TEXT,
+  stand       TEXT,
+  PRIMARY KEY (datum, symbol, art)
+);
+CREATE INDEX IF NOT EXISTS ix_ag_kursjob ON ag_kursjob(datum, art);

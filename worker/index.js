@@ -3,6 +3,7 @@
 // =============================================
 import { generateSEO } from './seo.js';
 import { handleAgentur } from './agentur.js';
+import { kursePflegen, stammdatenPflegen } from './boerse.js';
 
 // ── Auth ─────────────────────────────────────────────────────────
 const TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24h
@@ -2704,6 +2705,28 @@ export default {
   },
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runScheduledPublish(env));
+
+    // ── Tägliche Kurspflege ──────────────────────────────────────
+    // Läuft im Fenster nach dem US-Handelsschluss (22:00 UTC ist auch in
+    // der Winterzeit sicher danach) und verteilt die Werte über die
+    // Fünf-Minuten-Takte, statt sie in einem Schwung zu holen – der
+    // Kursanbieter erlaubt acht Abrufe je Minute.
+    //
+    // Bewusst unabhängig von der Agentur-Pause: das hier kostet keine
+    // Tokens, und eine Lücke in der eigenen Kursreihe verdirbt hinterher
+    // jede daraus gerechnete Kennzahl.
+    ctx.waitUntil((async () => {
+      try {
+        const stunde = new Date().getUTCHours();
+        if (stunde < 22) return;
+        const k = await kursePflegen(env, env.DB);
+        // Stammdaten nur, wenn die Kurse für heute durch sind – die
+        // sind das Wichtigere und bekommen das Abrufguthaben zuerst.
+        if ((k.offen ?? 0) === 0 && !k.abgebrochen) {
+          await stammdatenPflegen(env, env.DB);
+        }
+      } catch (e) { /* der nächste Durchgang versucht es erneut */ }
+    })());
     // HF Space Keepalive: Läuft bei jedem Cron-Call (alle 5 min).
     // Wir pingen aber nur wenn seit dem letzten Ping mind. 23h vergangen sind.
     ctx.waitUntil((async () => {

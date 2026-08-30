@@ -92,9 +92,14 @@ const zahl = v => (Number.isFinite(Number(v)) ? Number(v) : null);
 // Kurs holen und im eigenen Verlauf ablegen. Der Hauptanbieter deckt nur
 // US-Werte ab und liefert bei allem anderen stillschweigend Nullen – dann
 // wird die zweite Quelle gefragt, statt den Wert kurslos zu lassen.
-async function kursHolen(env, db, symbol) {
+// `diag` ist ein optionales Auffangbecken für den Grund des Scheiterns.
+// Ohne das sieht ein erschöpftes Abrufguthaben genauso aus wie ein Wert
+// ohne Notierung – beides „null" – und der Aufrufer kann nicht entscheiden,
+// ob er aufhören oder weitermachen soll.
+async function kursHolen(env, db, symbol, diag = null) {
   let q = null;
-  try { q = await holen(env, '/quote', { symbol: symbolTeilen(symbol).sym }); } catch (e) { q = null; }
+  try { q = await holen(env, '/quote', { symbol: symbolTeilen(symbol).sym }); }
+  catch (e) { q = null; if (diag) diag.erste = String(e.message || e); }
 
   if (!q || !zahl(q.c)) {
     try {
@@ -112,7 +117,11 @@ async function kursHolen(env, db, symbol) {
              aktualisiert_am=excluded.aktualisiert_am`
         ).bind(symbol, z.name, z.waehrung, z.boerse, new Date().toISOString()).run().catch(() => {});
       }
-    } catch (e) { /* auch die zweite Quelle kann den Wert nicht kennen */ }
+    } catch (e) {
+      // Auch die zweite Quelle kann den Wert nicht kennen – oder das
+      // Guthaben ist alle. Der Unterschied steht in der Meldung.
+      if (diag) diag.fehler = ohneSchluessel(String(e.message || e), env).slice(0, 200);
+    }
   }
   if (!q || !zahl(q.c)) return null;
 
@@ -2243,4 +2252,161 @@ export async function bewertungSchreiben(env, db, body, method, id, json, err) {
     return json({ success: true });
   }
   return err('Nicht unterstützt', 405);
+}
+
+// ════════════════════════════════════════════════════════════════
+// Tägliche Kurspflege
+// ════════════════════════════════════════════════════════════════
+// Kurse holen braucht kein Sprachmodell. Das läuft deshalb im Cron des
+// Workers und nicht als Agenturlauf – ein `claude -p` dafür zu starten
+// würde Karols Fünf-Stunden-Kontingent für reine Datenarbeit verbrauchen.
+//
+// Die Arbeit wird über mehrere Durchgänge verteilt statt in einem Schwung
+// erledigt: der Kursanbieter erlaubt acht Abrufe je Minute, und sechzehn
+// Werte am Stück wären ein selbstverschuldetes 429. Was heute schon geholt
+// wurde, steht in ag_kursjob und wird übersprungen.
+
+const KURSE_PRO_DURCHGANG = 4;      // je Cron-Tick, bei 5-Minuten-Takt
+const STAMM_PRO_DURCHGANG = 2;      // Stammdaten sind seltener nötig
+const STAMM_ALTER_TAGE    = 7;      // Kennzahlen ändern sich quartalsweise
+
+async function kursjobTabelle(db) {
+  await db.prepare(`CREATE TABLE IF NOT EXISTS ag_kursjob (
+    datum TEXT NOT NULL, symbol TEXT NOT NULL, art TEXT NOT NULL DEFAULT 'kurs',
+    kurs REAL, fehler TEXT, stand TEXT,
+    PRIMARY KEY (datum, symbol, art)
+  )`).run().catch(() => {});
+}
+
+// Samstag und Sonntag gibt es keine neuen Schlusskurse. Gerechnet wird in
+// UTC, weil das Fenster ohnehin nach dem US-Handelsschluss liegt und das
+// Datum dort noch der Handelstag ist.
+function istHandelstag(d = new Date()) {
+  const wt = d.getUTCDay();
+  return wt !== 0 && wt !== 6;
+}
+
+export async function kursePflegen(env, db, { grenze = KURSE_PRO_DURCHGANG } = {}) {
+  await kursjobTabelle(db);
+  const tag = heute();
+  if (!istHandelstag()) return { tag, uebersprungen: 'Wochenende', geholt: 0 };
+
+  const alle = await symbole(db);
+  if (!alle.length) return { tag, geholt: 0, hinweis: 'Keine Werte hinterlegt.' };
+
+  const erledigt = await db.prepare(
+    "SELECT symbol FROM ag_kursjob WHERE datum=? AND art='kurs'"
+  ).bind(tag).all().catch(() => ({ results: [] }));
+  const fertig = new Set((erledigt.results || []).map(r => r.symbol));
+
+  const offen = alle.filter(s => !fertig.has(s));
+  if (!offen.length) return { tag, geholt: 0, offen: 0, fertig: alle.length };
+
+  const geholt = [];
+  for (const s of offen.slice(0, grenze)) {
+    let kurs = null, fehler = null;
+    const diag = {};
+    try {
+      const satz = await kursHolen(env, db, s, diag);
+      // Kein Kurs ist nicht zwangsläufig ein Fehler: manche Werte haben
+      // schlicht keine abrufbare Notierung. Der Merkzettel bekommt trotzdem
+      // eine Zeile, sonst versucht es der nächste Durchgang endlos erneut.
+      // Warum es scheiterte, steht in diag – daran hängt unten die Notbremse.
+      kurs = satz?.kurs ?? null;
+      if (kurs === null) fehler = diag.fehler || 'keine Notierung gefunden';
+    } catch (e) {
+      fehler = ohneSchluessel(String(e.message || e), env).slice(0, 200);
+    }
+    await db.prepare(
+      `INSERT INTO ag_kursjob (datum, symbol, art, kurs, fehler, stand)
+       VALUES (?,?,'kurs',?,?,?)
+       ON CONFLICT(datum, symbol, art) DO UPDATE SET
+         kurs=excluded.kurs, fehler=excluded.fehler, stand=excluded.stand`
+    ).bind(tag, s, kurs, fehler, new Date().toISOString()).run().catch(() => {});
+    geholt.push({ symbol: s, kurs, fehler });
+
+    // Ein Fehler, der nach Abruflimit oder Schlüssel riecht, betrifft alle
+    // weiteren Werte gleichermaßen – dann hier abbrechen statt das Guthaben
+    // an sechzehn aussichtslosen Versuchen zu verbrauchen.
+    if (fehler && /credit|rate limit|quota|429|403|api key|apikey/i.test(fehler)) {
+      return { tag, geholt: geholt.length, ergebnis: geholt,
+        abgebrochen: 'Quelle meldet ein Limit – die übrigen Werte kommen im nächsten Durchgang.',
+        offen: offen.length - geholt.length };
+    }
+  }
+
+  return { tag, geholt: geholt.length, ergebnis: geholt,
+    offen: offen.length - geholt.length, fertig: fertig.size + geholt.length, gesamt: alle.length };
+}
+
+// Stammdaten und Kennzahlen: ändern sich quartalsweise, also einmal die
+// Woche je Wert. Läuft im selben Cron mit, aber mit eigener Zählung.
+export async function stammdatenPflegen(env, db, { grenze = STAMM_PRO_DURCHGANG } = {}) {
+  await kursjobTabelle(db);
+  const tag = heute();
+  const alle = await symbole(db);
+  if (!alle.length) return { geholt: 0 };
+
+  const alt = await db.prepare(
+    `SELECT symbol FROM ag_werte
+      WHERE aktualisiert_am IS NULL OR aktualisiert_am < ?`
+  ).bind(tagVor(STAMM_ALTER_TAGE)).all().catch(() => ({ results: [] }));
+  const bekannt = new Set((alt.results || []).map(r => r.symbol));
+
+  // Werte, die noch gar nicht in ag_werte stehen, sind ebenfalls fällig.
+  const vorhanden = await db.prepare('SELECT symbol FROM ag_werte').all().catch(() => ({ results: [] }));
+  const hatEintrag = new Set((vorhanden.results || []).map(r => r.symbol));
+  const faellig = alle.filter(s => bekannt.has(s) || !hatEintrag.has(s));
+
+  const heuteSchon = await db.prepare(
+    "SELECT symbol FROM ag_kursjob WHERE datum=? AND art='stammdaten'"
+  ).bind(tag).all().catch(() => ({ results: [] }));
+  const fertig = new Set((heuteSchon.results || []).map(r => r.symbol));
+
+  const offen = faellig.filter(s => !fertig.has(s));
+  if (!offen.length) return { geholt: 0, offen: 0 };
+
+  const geholt = [];
+  for (const s of offen.slice(0, grenze)) {
+    let fehler = null;
+    try { await wertHolen(env, db, s); }
+    catch (e) { fehler = ohneSchluessel(String(e.message || e), env).slice(0, 200); }
+    await db.prepare(
+      `INSERT INTO ag_kursjob (datum, symbol, art, fehler, stand)
+       VALUES (?,?,'stammdaten',?,?)
+       ON CONFLICT(datum, symbol, art) DO UPDATE SET fehler=excluded.fehler, stand=excluded.stand`
+    ).bind(tag, s, fehler, new Date().toISOString()).run().catch(() => {});
+    geholt.push({ symbol: s, fehler });
+    if (fehler && /credit|rate limit|quota|429|403/i.test(fehler)) break;
+  }
+  return { geholt: geholt.length, ergebnis: geholt, offen: offen.length - geholt.length };
+}
+
+// Was die Pflege heute getan hat – für die Anzeige im Terminal.
+export async function kurspflegeLesen(env, db, url, json, err) {
+  await kursjobTabelle(db);
+  const tag = heute();
+  const [zeilen, alle] = await Promise.all([
+    db.prepare('SELECT * FROM ag_kursjob WHERE datum=? ORDER BY art, symbol').bind(tag)
+      .all().catch(() => ({ results: [] })),
+    symbole(db),
+  ]);
+  const kurse = (zeilen.results || []).filter(z => z.art === 'kurs');
+  const fehler = kurse.filter(z => z.fehler);
+  const letzte = (zeilen.results || []).map(z => z.stand).filter(Boolean).sort().pop() || null;
+
+  return json({
+    tag,
+    handelstag: istHandelstag(),
+    werte_gesamt: alle.length,
+    kurse_geholt: kurse.length,
+    offen: Math.max(0, alle.length - kurse.length),
+    mit_fehler: fehler.map(z => ({ symbol: z.symbol, fehler: z.fehler })),
+    zuletzt: letzte,
+    stammdaten_geholt: (zeilen.results || []).filter(z => z.art === 'stammdaten').length,
+    hinweis: !istHandelstag()
+      ? 'Wochenende – es gibt keine neuen Schlusskurse zu holen.'
+      : 'Die Pflege läuft im Cron des Workers, nicht als Agenturlauf: sie kostet keine Tokens '
+        + 'und läuft deshalb auch, wenn die Agentur pausiert ist.',
+  });
 }
