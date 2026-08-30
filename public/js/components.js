@@ -3613,8 +3613,9 @@ async function ftOpenScript(id) {
       <!-- Action Buttons -->
       <div style="padding:14px 18px;display:flex;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface)">
         <button class="btn btn-sm" onclick="ftRunAiCheck('${script.id}')"
-          style="background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.3);color:#a5b4fc;font-weight:700;display:flex;align-items:center;gap:6px">
-          ${icon('sparkles', 12, 'color:#a5b4fc')} AI Prüfen
+          style="background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.3);color:#a5b4fc;font-weight:700;display:flex;align-items:center;gap:6px"
+          title="Prüft mit Claude und entscheidet automatisch (streng)">
+          ${icon('sparkles', 12, 'color:#a5b4fc')} AI Prüfen + Entscheiden
         </button>
         <button class="btn btn-sm" onclick="ftApprove('${script.id}')"
           style="background:rgba(52,211,153,0.12);border-color:rgba(52,211,153,0.3);color:#34d399;font-weight:700;display:flex;align-items:center;gap:6px"
@@ -3626,11 +3627,6 @@ async function ftOpenScript(id) {
           ${script.rejectedAt ? 'disabled title="Bereits abgelehnt"' : ''}>
           ${icon('x-circle', 12, 'color:#f87171')} Ablehnen
         </button>
-        ${!script.verified && !script.rejectedAt ? `
-        <button class="btn btn-sm btn-ghost" onclick="ftRunAiCheck('${script.id}', true)"
-          style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:11px">
-          ${icon('zap', 12)} Auto-Check + Entscheiden
-        </button>` : ''}
       </div>
     </div>
   `;
@@ -3708,10 +3704,12 @@ function ftRenderAiResult(result, checkedAt) {
   `;
 }
 
-async function ftRunAiCheck(id, autoDecide = false) {
+async function ftRunAiCheck(id) {
   const btn = event?.target?.closest('button');
   if (btn) { btn.disabled = true; btn.innerHTML = icon('loader-2', 12) + ' Prüft…'; }
 
+  // Der Server prüft mit Claude UND wendet die strenge Entscheidung direkt an
+  // (approve / reject / hold) – kein separater Freigabe-Schritt im Client nötig.
   const res = await ftAdmin('/ai-check', { method: 'POST', body: { id } });
 
   if (btn) { btn.disabled = false; btn.innerHTML = icon('sparkles', 12, 'color:#a5b4fc') + ' AI Prüfen'; }
@@ -3721,30 +3719,25 @@ async function ftRunAiCheck(id, autoDecide = false) {
     return;
   }
 
-  // Ergebnis in lokalem State aktualisieren
+  // Ergebnis + serverseitig angewendete Entscheidung in lokalem State spiegeln
   const script = window._ftScripts.find(s => s.id === id);
   if (script) {
     script.aiCheckResult = JSON.stringify(res.result);
     script.aiCheckedAt   = new Date().toISOString();
+    if (res.applied && res.decision === 'approve') {
+      script.verified = true; script.rejectedAt = null; script.rejectedReason = null;
+    } else if (res.applied && res.decision === 'reject') {
+      script.verified = false; script.rejectedAt = new Date().toISOString(); script.rejectedReason = `AI: ${res.reason || res.result.summary}`;
+    }
   }
 
-  // AI-Result im Detail-Panel live aktualisieren
-  const aiDiv = document.getElementById(`ft-ai-result-${id}`);
-  if (aiDiv) aiDiv.innerHTML = ftRenderAiResult(res.result, new Date().toISOString());
-
-  // AI Score in Liste aktualisieren
+  // Detail-Panel + Liste neu rendern (zeigt neuen Status)
+  ftOpenScript(id);
   ftRefreshListItem(id);
   refreshIcons();
 
-  // Auto-Entscheidung
-  if (autoDecide) {
-    if (res.result.verdict === 'approve') {
-      await ftApprove(id);
-    } else if (res.result.verdict === 'reject') {
-      await ftReject(id, `AI: ${res.result.summary}`);
-    } else {
-      alert(`AI empfiehlt Warnung (Score: ${res.result.score}/100). Manuelle Entscheidung nötig.\n\n${res.result.summary}`);
-    }
+  if (res.decision === 'hold') {
+    alert(`Grenzfall (Score ${res.result.score}/100) – bleibt ausstehend, manuelle Entscheidung nötig.\n\n${res.result.summary}`);
   }
 }
 
